@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import { WindowController, type Edge } from "./lib/window";
+import { NoteWindow } from "./lib/noteWindow";
 import { NoteRepository } from "./lib/db";
 import { ProximitySensor } from "./lib/proximity";
 import type { Note } from "./types";
@@ -41,6 +42,10 @@ export default function App() {
   const notesRepoRef = useRef<NoteRepository | null>(null);
   if (!notesRepoRef.current) notesRepoRef.current = new NoteRepository();
   const notesRepo = notesRepoRef.current;
+
+  const noteWinRef = useRef<NoteWindow | null>(null);
+  if (!noteWinRef.current) noteWinRef.current = new NoteWindow();
+  const noteWin = noteWinRef.current;
 
   // ---- 定时器管理 ----
   const clearTimers = () => {
@@ -90,17 +95,21 @@ export default function App() {
     notesRepo.loadAll().then(setNotes).catch(() => {});
 
     // 判断某个屏幕坐标是否落在当前模式的 UI 范围内。
-    const inside = (x: number, y: number): boolean => {
-      const b = windowCtl.boundsForMode(modeRef.current);
+    // expanded（面板）读 NoteWindow 真实矩形；hidden/revealed（球）读 WindowController。
+    const inside = async (x: number, y: number): Promise<boolean> => {
+      const b =
+        modeRef.current === "expanded"
+          ? await noteWin.bounds()
+          : await windowCtl.boundsForMode(modeRef.current);
       return x >= b.left && x <= b.right && y >= b.top && y <= b.bottom;
     };
 
     const sensor = new ProximitySensor();
     sensor
-      .start((x, y) => {
+      .start(async (x, y) => {
         // 拖动时绝不抢窗口，避免与 OS 拖动互相打架。
         if (draggingRef.current) return;
-        const isInside = inside(x, y);
+        const isInside = await inside(x, y);
         if (modeRef.current === "hidden") {
           if (isInside) {
             setMode("revealed");
@@ -128,10 +137,11 @@ export default function App() {
     clearTimers();
     setClosing(false);
     setMode("expanded");
-    windowCtl.expandPanel();
+    // 面板由 NoteWindow 负责窗口形态；球当前的 dockEdge/dockY 决定对齐与弹出方向。
+    noteWin.expand(windowCtl.currentEdge(), windowCtl.getDockY());
     const now = Date.now();
     setActive({ id: 0, title: "", content: "", created_at: now, updated_at: now });
-  }, [windowCtl]);
+  }, [noteWin, windowCtl]);
 
   /** 悬浮球通知 App：拖动状态切换（开始 / 结束）。 */
   const onDraggingChange = useCallback((next: boolean) => {

@@ -3,8 +3,6 @@ import { LogicalPosition, LogicalSize } from "@tauri-apps/api/dpi";
 
 // ---- 尺寸常量（逻辑像素）----
 export const BALL = 56; // 悬浮球直径
-export const PANEL_W = 320; // 面板宽
-export const PANEL_H = 440; // 面板高
 /** 隐藏态时，CSS 把球滑出多少像素，只留一条“缝”露在屏幕内。 */
 export const PEEK = 24;
 
@@ -71,6 +69,11 @@ export class WindowController {
     return this.dockEdge;
   }
 
+  /** 球当前的中心 Y（逻辑像素），面板展开时用来垂直对齐。 */
+  getDockY(): number {
+    return this.dockY;
+  }
+
   /** 隐藏态：停靠、鼠标穿透、并由 CSS 滑出半截。 */
   async dockHidden(): Promise<void> {
     await this.placeBall(this.dockEdge, false);
@@ -131,33 +134,20 @@ export class WindowController {
     return promise;
   }
 
-  /** 展开为笔记面板：紧贴停靠侧向外（左贴则向右、右贴则向左）弹出，垂直中心对齐球。 */
-  async expandPanel(): Promise<void> {
-    await this.win.setIgnoreCursorEvents(false);
-    await this.win.setSize(new LogicalSize(PANEL_W, PANEL_H));
-    const ballPos = this.ballPosFor(this.dockEdge);
-    const ballCy = ballPos.y + BALL / 2; // 球的中心 Y
-    const y = Math.max(8, Math.min(ballCy - PANEL_H / 2, this.screen.h - PANEL_H - 8));
-    // 紧贴边沿：右贴时面板左边界 = 球左边界；左贴时面板右边界 = 球右边界。不再留 8px 间距。
-    const x = this.dockEdge === "right" ? ballPos.x - PANEL_W : ballPos.x + BALL;
-    await this.win.setPosition(new LogicalPosition(Math.round(x), Math.round(y)));
-  }
-
-  /** 返回当前模式下 UI 在屏幕上的实际可见矩形，供 proximity 判定“鼠标是否在内”。 */
-  boundsForMode(mode: "hidden" | "revealed" | "expanded"): Rect {
+  /**
+   * 返回“球”在当前模式下的实际可见矩形，供 proximity 判定鼠标是否在内。
+   * 只处理 hidden / revealed 两种球形态；expanded（笔记面板）由 NoteWindow 负责。
+   */
+  async boundsForMode(mode: "hidden" | "revealed"): Promise<Rect> {
     const top = Math.round(this.dockY - BALL / 2);
-    if (mode === "expanded") {
-      const ballPos = this.ballPosFor(this.dockEdge);
-      const ballCy = ballPos.y + BALL / 2;
-      const y = Math.max(8, Math.min(ballCy - PANEL_H / 2, this.screen.h - PANEL_H - 8));
-      const left = this.dockEdge === "right" ? ballPos.x - PANEL_W : ballPos.x + BALL;
-      return { left, right: left + PANEL_W, top: y, bottom: y + PANEL_H };
-    }
     if (mode === "revealed") {
-      const pos = this.ballPosFor(this.dockEdge);
+      // revealed：窗口已真实停在停靠位，直接读真实位置。
+      const dpr = window.devicePixelRatio || 1;
+      const physPos = await this.win.outerPosition();
+      const pos = physPos.toLogical(dpr);
       return { left: pos.x, right: pos.x + BALL, top: pos.y, bottom: pos.y + BALL };
     }
-    // hidden：仅 CSS 留下的 PEEK 宽“缝”。
+    // hidden：CSS 把球滑出，只露 PEEK 宽的“缝”，碰撞箱只算那条缝。
     return this.dockEdge === "right"
       ? { left: this.screen.w - PEEK, right: this.screen.w, top, bottom: top + BALL }
       : { left: 0, right: PEEK, top, bottom: top + BALL };
