@@ -4,7 +4,7 @@ import { WindowController, type Edge } from "./lib/window";
 import { NoteWindow } from "./lib/noteWindow";
 import { NoteRepository } from "./lib/db";
 import { ProximitySensor } from "./lib/proximity";
-import type { Note } from "./types";
+import type { Note, Todo } from "./types";
 import FloatingBall from "./components/FloatingBall";
 import NotePanel from "./components/NotePanel";
 import "./App.css";
@@ -16,6 +16,14 @@ type Mode = "hidden" | "revealed" | "expanded";
 const HIDE_DELAY = 600;
 /** 收起动画时长（毫秒），动画结束后才真正卸载/隐藏。 */
 const CLOSE_ANIM = 220;
+/** 文本/任务改动后多久落库一次（防抖，毫秒）。 */
+const SAVE_DEBOUNCE = 400;
+
+/** 新建一份空白笔记文档（固定 id = 1，单文档模型）。 */
+function emptyNote(): Note {
+  const now = Date.now();
+  return { id: 1, content: "", todos: [], created_at: now, updated_at: now };
+}
 
 export default function App() {
   // ---- 视图状态 ----
@@ -23,8 +31,7 @@ export default function App() {
   const [closing, setClosing] = useState(false); // 是否正在播放收起动画
   const [edge, setEdge] = useState<Edge>("right"); // 悬浮球当前贴附的边
   const [dragging, setDragging] = useState(false); // 悬浮球是否正在被拖动
-  const [notes, setNotes] = useState<Note[]>([]); // 所有笔记列表
-  const [active, setActive] = useState<Note | null>(null); // 当前正在编辑的笔记
+  const [note, setNote] = useState<Note>(emptyNote()); // 唯一一份笔记文档
 
   // ---- 跨渲染周期保存的可变引用 ----
   const modeRef = useRef<Mode>("hidden"); // 让 proximity 回调能读到最新 mode
@@ -32,6 +39,9 @@ export default function App() {
   const closeTimer = useRef<number | null>(null); // 收起动画的计时器
   const draggingRef = useRef(false); // 与 dragging 同步，供 proximity 读取
   const suppressUntil = useRef(0); // 收起后的冷却时间，期间禁止 proximity 重新弹出
+  const saveTimer = useRef<number | null>(null); // 自动保存的防抖计时器
+  const noteRef = useRef<Note>(note); // 最新文档，供防抖保存读取
+  noteRef.current = note;
 
   modeRef.current = mode;
 
@@ -60,18 +70,22 @@ export default function App() {
     }
   };
 
-  /**
-   * 真正执行“收起”：切回隐藏态并让窗口回到球隐藏态。
-   * 窗口层面的消失动作统一交给 NoteWindow.collapse()（自动消失与手动关闭都经此）。
-   */
+  /** 防抖落库：任何文本/任务改动都会触发，SAVE_DEBOUNCE 内只存一次。 */
+  const scheduleSave = useCallback(() => {
+    if (saveTimer.current) window.clearTimeout(saveTimer.current);
+    saveTimer.current = window.setTimeout(() => {
+      notesRepo.save(noteRef.current).catch((e) => console.error("[save] 失败:", e));
+    }, SAVE_DEBOUNCE);
+  }, [notesRepo]);
+
+  /** 真正执行“收起”：切回隐藏态并让窗口回到球隐藏态。窗口动作统一交给 NoteWindow。 */
   const doClose = useCallback(() => {
     setMode("hidden");
     setClosing(false);
-    setActive(null);
     noteWin.collapse();
   }, [noteWin]);
 
-  /** 开始收起动画——自动隐藏（鼠标离开）和手动关闭（点叉/删除）共用的唯一入口。 */
+  /** 开始收起动画——自动隐藏（鼠标离开）和手动关闭（点叉）共用的唯一入口。 */
   const beginClose = useCallback(() => {
     clearTimers();
     if (modeRef.current === "hidden") return;
@@ -92,13 +106,18 @@ export default function App() {
     });
   }, [windowCtl]);
 
-  // 初始化：贴边隐藏、启动全局鼠标监听、加载笔记。
+  // 初始化：贴边隐藏、启动全局鼠标监听、恢复上次笔记。
   useEffect(() => {
     windowCtl.dockHidden();
     invoke("start_mouse_watch").catch((e) => {
       console.error("[start_mouse_watch] 调用失败:", e);
     });
-    notesRepo.loadAll().then(setNotes).catch(() => {});
+    notesRepo
+      .load()
+      .then((n) => {
+        if (n) setNote(n);
+      })
+      .catch((e) => console.error("[load] 失败:", e));
 
     // 判断某个屏幕坐标是否落在当前模式的 UI 范围内。
     // expanded（面板）读 NoteWindow 真实矩形；hidden/revealed（球）读 WindowController。
@@ -138,7 +157,7 @@ export default function App() {
       sensor.stop();
       clearTimers();
     };
-  }, [windowCtl, notesRepo, beginClose]);
+  }, [windowCtl, notesRepo, beginClose, noteWin]);
 
   /** 打开笔记面板。 */
   const openPanel = useCallback(() => {
@@ -147,8 +166,6 @@ export default function App() {
     setMode("expanded");
     // 面板由 NoteWindow 负责窗口形态；球当前的 dockEdge/dockY 决定对齐与弹出方向。
     noteWin.expand(windowCtl.currentEdge(), windowCtl.getDockY());
-    const now = Date.now();
-    setActive({ id: 0, title: "", content: "", created_at: now, updated_at: now });
   }, [noteWin, windowCtl]);
 
   /** 悬浮球通知 App：拖动状态切换（开始 / 结束）。 */
@@ -157,43 +174,65 @@ export default function App() {
     setDragging(next);
   }, []);
 
-  // ---- 笔记存取 ----
-  const onSave = useCallback(
-    async (note: Note) => {
-      const saved = await notesRepo.save(note);
-      setNotes((prev) => {
-        const idx = prev.findIndex((n) => n.id === saved.id);
-        if (idx >= 0) {
-          const copy = [...prev];
-          copy[idx] = saved;
-          return copy;
-        }
-        return [saved, ...prev];
-      });
-      setActive(saved);
+  // ---- 笔记文档编辑（自动保存）----
+  const onContentChange = useCallback(
+    (content: string) => {
+      setNote((prev) => ({ ...prev, content }));
+      scheduleSave();
     },
-    [notesRepo],
+    [scheduleSave],
   );
 
-  const onDelete = useCallback(
-    async (id: number) => {
-      await notesRepo.delete(id);
-      setNotes((prev) => prev.filter((n) => n.id !== id));
-      beginClose();
+  const onAddTodo = useCallback(
+    (text: string) => {
+      const todo: Todo = { id: crypto.randomUUID(), text, done: false };
+      setNote((prev) => ({ ...prev, todos: [...prev.todos, todo] }));
+      scheduleSave();
     },
-    [notesRepo, beginClose],
+    [scheduleSave],
+  );
+
+  const onToggleTodo = useCallback(
+    (id: string) => {
+      setNote((prev) => ({
+        ...prev,
+        todos: prev.todos.map((t) => (t.id === id ? { ...t, done: !t.done } : t)),
+      }));
+      scheduleSave();
+    },
+    [scheduleSave],
+  );
+
+  const onEditTodo = useCallback(
+    (id: string, text: string) => {
+      setNote((prev) => ({
+        ...prev,
+        todos: prev.todos.map((t) => (t.id === id ? { ...t, text } : t)),
+      }));
+      scheduleSave();
+    },
+    [scheduleSave],
+  );
+
+  const onDeleteTodo = useCallback(
+    (id: string) => {
+      setNote((prev) => ({ ...prev, todos: prev.todos.filter((t) => t.id !== id) }));
+      scheduleSave();
+    },
+    [scheduleSave],
   );
 
   return (
     <div className="app">
       {mode === "expanded" ? (
         <NotePanel
-          note={active}
-          notes={notes}
-          onSave={onSave}
-          onDelete={onDelete}
+          note={note}
+          onContentChange={onContentChange}
+          onAddTodo={onAddTodo}
+          onToggleTodo={onToggleTodo}
+          onEditTodo={onEditTodo}
+          onDeleteTodo={onDeleteTodo}
           onClose={beginClose}
-          onSelect={(n) => setActive(n)}
           closing={closing}
           edge={edge}
         />

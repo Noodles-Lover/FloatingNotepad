@@ -13,16 +13,11 @@ description = "Allow starting the global cursor watcher that drives the floating
 commands.allow = ["start_mouse_watch"]
 
 [[permission]]
-identifier = "allow-load-notes"
-description = "Allow loading all saved notes from the local SQLite database."
-commands.allow = ["load_notes"]
+identifier = "allow-load-note"
+description = "Allow loading the single note document from the local SQLite database."
+commands.allow = ["load_note"]
 
 [[permission]]
 identifier = "allow-save-note"
-description = "Allow saving (insert/update) a note in the local SQLite database."
+description = "Allow saving (insert/update) the note document in the local SQLite database."
 commands.allow = ["save_note"]
-
-[[permission]]
-identifier = "allow-delete-note"
-description = "Allow deleting a note from the local SQLite database."
-commands.allow = ["delete_note"]

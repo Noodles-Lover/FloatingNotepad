@@ -7,8 +7,9 @@ use tauri::Manager;
 #[derive(Clone, serde::Serialize, serde::Deserialize)]
 pub struct Note {
     pub id: i64,
-    pub title: String,
     pub content: String,
+    /// To-do list, serialized as a JSON array (SQLite has no array type).
+    pub todos: String,
     pub created_at: i64,
     pub updated_at: i64,
 }
@@ -38,46 +39,57 @@ impl NoteRepository {
         Connection::open(self.db_path())
     }
 
-    /// Create the notes table if it does not exist yet. Called once at startup.
+    /// Create the notes table if it does not exist yet, and migrate legacy
+    /// schemas (pre-todos) by adding the missing `todos` column. Called once
+    /// at startup.
     pub fn init(&self) -> Result<(), rusqlite::Error> {
         let conn = self.connect()?;
         conn.execute(
             "create table if not exists notes (
-                id integer primary key autoincrement,
-                title text not null default '',
+                id integer primary key,
                 content text not null default '',
+                todos text not null default '[]',
                 created_at integer not null,
                 updated_at integer not null
             )",
             [],
         )?;
+        // 兼容旧版本：若表是早期带 title 列的 schema，补上 todos 列。
+        let has_todos: bool = conn.query_row(
+            "select count(*) from pragma_table_info('notes') where name = 'todos'",
+            [],
+            |r| r.get(0),
+        )?;
+        if !has_todos {
+            conn.execute("alter table notes add column todos text not null default '[]'", [])?;
+        }
         Ok(())
     }
 
-    pub fn load_all(&self) -> Result<Vec<Note>, rusqlite::Error> {
+    /// Load the single note document (id = 1). Returns None if never saved.
+    pub fn load(&self) -> Result<Option<Note>, rusqlite::Error> {
         let conn = self.connect()?;
         let mut stmt = conn.prepare(
-            "select id, title, content, created_at, updated_at \
-             from notes order by updated_at desc",
+            "select id, content, todos, created_at, updated_at \
+             from notes where id = 1",
         )?;
-        let rows = stmt.query_map([], |r| {
+        let mut rows = stmt.query_map([], |r| {
             Ok(Note {
                 id: r.get(0)?,
-                title: r.get(1)?,
-                content: r.get(2)?,
+                content: r.get(1)?,
+                todos: r.get(2)?,
                 created_at: r.get(3)?,
                 updated_at: r.get(4)?,
             })
         })?;
-        let mut out = Vec::new();
-        for row in rows {
-            out.push(row?);
+        match rows.next() {
+            Some(row) => Ok(Some(row?)),
+            None => Ok(None),
         }
-        Ok(out)
     }
 
-    /// Insert when id <= 0, otherwise update. Returns the persisted row
-    /// (with a freshly assigned id on insert).
+    /// Insert or update the single note document. The frontend always passes
+    /// id = 1, so this is an upsert on the primary key.
     pub fn save(&self, mut note: Note) -> Result<Note, rusqlite::Error> {
         let conn = self.connect()?;
         let now = SystemTime::now()
@@ -85,27 +97,19 @@ impl NoteRepository {
             .unwrap()
             .as_millis() as i64;
 
+        conn.execute(
+            "insert into notes (id, content, todos, created_at, updated_at) \
+             values (?, ?, ?, ?, ?) \
+             on conflict(id) do update set \
+               content = excluded.content, \
+               todos = excluded.todos, \
+               updated_at = excluded.updated_at",
+            params![note.id, note.content, note.todos, now, now],
+        )?;
+        note.updated_at = now;
         if note.id <= 0 {
-            conn.execute(
-                "insert into notes (title, content, created_at, updated_at) values (?, ?, ?, ?)",
-                params![note.title, note.content, now, now],
-            )?;
-            note.id = conn.last_insert_rowid();
-            note.created_at = now;
-            note.updated_at = now;
-        } else {
-            conn.execute(
-                "update notes set title = ?, content = ?, updated_at = ? where id = ?",
-                params![note.title, note.content, now, note.id],
-            )?;
-            note.updated_at = now;
+            note.id = 1;
         }
         Ok(note)
-    }
-
-    pub fn delete(&self, id: i64) -> Result<(), rusqlite::Error> {
-        let conn = self.connect()?;
-        conn.execute("delete from notes where id = ?", params![id])?;
-        Ok(())
     }
 }

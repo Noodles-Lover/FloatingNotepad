@@ -3,35 +3,35 @@ import type { Note } from "../types";
 import type { Edge } from "../lib/window";
 
 interface Props {
-  note: Note | null;
-  notes: Note[];
-  onSave: (note: Note) => void;
-  onDelete: (id: number) => void;
+  note: Note;
+  onContentChange: (content: string) => void;
+  onAddTodo: (text: string) => void;
+  onToggleTodo: (id: string) => void;
+  onEditTodo: (id: string, text: string) => void;
+  onDeleteTodo: (id: string) => void;
   onClose: () => void;
-  onSelect: (note: Note) => void;
   closing: boolean;
   edge: Edge; // 当前贴附的边，决定面板动画从哪侧飘出
 }
 
 export default function NotePanel({
   note,
-  notes,
-  onSave,
-  onDelete,
+  onContentChange,
+  onAddTodo,
+  onToggleTodo,
+  onEditTodo,
+  onDeleteTodo,
   onClose,
-  onSelect,
   closing,
   edge,
 }: Props) {
-  const [title, setTitle] = useState(note?.title ?? "");
-  const [content, setContent] = useState(note?.content ?? "");
   const taRef = useRef<HTMLTextAreaElement>(null);
+  // 新增任务的输入框（本地态，回车或点“添加”后清空并上抛）。
+  const [newText, setNewText] = useState("");
 
   useEffect(() => {
-    setTitle(note?.title ?? "");
-    setContent(note?.content ?? "");
     taRef.current?.focus();
-  }, [note?.id]);
+  }, []);
 
   // Esc closes the panel.
   useEffect(() => {
@@ -42,6 +42,13 @@ export default function NotePanel({
     return () => window.removeEventListener("keydown", onKey);
   }, []);
 
+  const commitTodo = () => {
+    const text = newText.trim();
+    if (!text) return;
+    onAddTodo(text);
+    setNewText("");
+  };
+
   return (
     <div className={`panel dock-${edge} ${closing ? "closing" : ""}`}>
       <div className="panel-head">
@@ -50,41 +57,54 @@ export default function NotePanel({
           ×
         </button>
       </div>
-      <input
-        className="title"
-        value={title}
-        placeholder="标题"
-        onChange={(e) => setTitle(e.target.value)}
-      />
+
       <textarea
         ref={taRef}
         className="content"
-        value={content}
+        value={note.content}
         placeholder="写点什么…"
-        onChange={(e) => setContent(e.target.value)}
+        onChange={(e) => onContentChange(e.target.value)}
       />
-      <div className="panel-foot">
-        <button className="del" onClick={() => note && onDelete(note.id)}>
-          删除
-        </button>
-        <button className="save" onClick={() => note && onSave({ ...note, title, content })}>
-          保存
+
+      <div className="todo-head">待办</div>
+      <div className="todo-list">
+        {note.todos.map((t) => (
+          <div className={`todo ${t.done ? "done" : ""}`} key={t.id}>
+            <input
+              type="checkbox"
+              checked={t.done}
+              onChange={() => onToggleTodo(t.id)}
+            />
+            <input
+              className="todo-text"
+              value={t.text}
+              onChange={(e) => onEditTodo(t.id, e.target.value)}
+            />
+            <button
+              className="todo-del"
+              onClick={() => onDeleteTodo(t.id)}
+              title="删除"
+            >
+              ×
+            </button>
+          </div>
+        ))}
+      </div>
+
+      <div className="todo-add">
+        <input
+          className="todo-input"
+          value={newText}
+          placeholder="添加任务…"
+          onChange={(e) => setNewText(e.target.value)}
+          onKeyDown={(e) => {
+            if (e.key === "Enter") commitTodo();
+          }}
+        />
+        <button className="todo-add-btn" onClick={commitTodo}>
+          添加
         </button>
       </div>
-      {notes.length > 0 && (
-        <div className="list">
-          {notes.map((n) => (
-            <div
-              key={n.id}
-              className={`item ${n.id === note?.id ? "active" : ""}`}
-              onClick={() => onSelect(n)}
-            >
-              <div className="item-title">{n.title || "无标题"}</div>
-              <div className="item-sub">{n.content.slice(0, 24) || "—"}</div>
-            </div>
-          ))}
-        </div>
-      )}
     </div>
   );
 }

@@ -73,18 +73,13 @@ fn start_mouse_watch(app: AppHandle, watcher: State<MouseWatcher>) {
 }
 
 #[tauri::command]
-fn load_notes(repo: State<db::NoteRepository>) -> Result<Vec<db::Note>, String> {
-    repo.load_all().map_err(|e| e.to_string())
+fn load_note(repo: State<db::NoteRepository>) -> Result<Option<db::Note>, String> {
+    repo.load().map_err(|e| e.to_string())
 }
 
 #[tauri::command]
 fn save_note(repo: State<db::NoteRepository>, note: db::Note) -> Result<db::Note, String> {
     repo.save(note).map_err(|e| e.to_string())
-}
-
-#[tauri::command]
-fn delete_note(repo: State<db::NoteRepository>, id: i64) -> Result<(), String> {
-    repo.delete(id).map_err(|e| e.to_string())
 }
 
 pub fn run() {
@@ -100,9 +95,8 @@ pub fn run() {
         })
         .invoke_handler(tauri::generate_handler![
             start_mouse_watch,
-            load_notes,
+            load_note,
             save_note,
-            delete_note,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

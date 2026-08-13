@@ -11,8 +11,7 @@
     "core:window:allow-start-dragging",
     "core:event:allow-listen",
     "allow-start-mouse-watch",
-    "allow-load-notes",
-    "allow-save-note",
-    "allow-delete-note"
+    "allow-load-note",
+    "allow-save-note"
   ]
 }

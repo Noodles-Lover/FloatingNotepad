@@ -177,22 +177,16 @@
       "description": "Permission identifier",
       "oneOf": [
         {
-          "description": "Allow deleting a note from the local SQLite database.",
+          "description": "Allow loading the single note document from the local SQLite database.",
           "type": "string",
-          "const": "allow-delete-note",
-          "markdownDescription": "Allow deleting a note from the local SQLite database."
+          "const": "allow-load-note",
+          "markdownDescription": "Allow loading the single note document from the local SQLite database."
         },
         {
-          "description": "Allow loading all saved notes from the local SQLite database.",
-          "type": "string",
-          "const": "allow-load-notes",
-          "markdownDescription": "Allow loading all saved notes from the local SQLite database."
-        },
-        {
-          "description": "Allow saving (insert/update) a note in the local SQLite database.",
+          "description": "Allow saving (insert/update) the note document in the local SQLite database.",
           "type": "string",
           "const": "allow-save-note",
-          "markdownDescription": "Allow saving (insert/update) a note in the local SQLite database."
+          "markdownDescription": "Allow saving (insert/update) the note document in the local SQLite database."
         },
         {
           "description": "Allow starting the global cursor watcher that drives the floating-ball reveal.",

@@ -5,8 +5,8 @@ import { BALL, WindowController, type Edge, type Rect } from "./window";
 /** 笔记面板尺寸（逻辑像素）。 */
 export const PANEL_W = 320;
 export const PANEL_H = 440;
-/** 展开后面板与屏幕上下边界保留的最小间距。 */
-const MARGIN_Y = 8;
+/** 展开后面板与屏幕边界保留的最小间距。 */
+const MARGIN = 6;
 
 /**
  * 笔记面板窗口控制器：负责“展开/收起笔记面板”这一形态下的所有窗口操作——
@@ -33,11 +33,11 @@ export class NoteWindow {
     const ballTop = Math.round(dockY - BALL / 2);
     const ballCy = ballTop + BALL / 2;
     const y = Math.max(
-      MARGIN_Y,
-      Math.min(ballCy - PANEL_H / 2, this.screen.h - PANEL_H - MARGIN_Y),
+      MARGIN,
+      Math.min(ballCy - PANEL_H / 2, this.screen.h - PANEL_H - MARGIN),
     );
-    // 紧贴边沿：右贴时面板左边界 = 球左边界；左贴时面板右边界 = 球右边界。
-    const x = dockEdge === "left" ? 0 : this.screen.w - PANEL_W;
+    // 与屏幕边沿也留 MARGIN：右贴时面板贴右边但内缩 MARGIN；左贴时贴左边内缩 MARGIN。
+    const x = dockEdge === "left" ? MARGIN : this.screen.w - PANEL_W - MARGIN;
     await this.win.setPosition(new LogicalPosition(Math.round(x), Math.round(y)));
   }
 
