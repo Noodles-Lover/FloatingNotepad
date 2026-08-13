@@ -1,6 +1,6 @@
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import { LogicalPosition, LogicalSize } from "@tauri-apps/api/dpi";
-import { BALL, type Edge, type Rect } from "./window";
+import { BALL, WindowController, type Edge, type Rect } from "./window";
 
 /** 笔记面板尺寸（逻辑像素）。 */
 export const PANEL_W = 320;
@@ -10,14 +10,17 @@ const MARGIN_Y = 8;
 
 /**
  * 笔记面板窗口控制器：负责“展开/收起笔记面板”这一形态下的所有窗口操作——
- * 尺寸、位置（紧贴停靠侧向外弹出、垂直中心对齐球）、以及真实的可见矩形
- * （供 proximity 判定鼠标是否仍在面板内）。
+ * 尺寸、位置（紧贴停靠侧向外弹出、垂直中心对齐球）、真实的可见矩形（供 proximity
+ * 判定鼠标是否仍在面板内），以及把窗口从“面板”收回到“球隐藏态”。
  *
- * 与 WindowController（管悬浮球）职责分离，互不打扰。
+ * 与 WindowController（管悬浮球）职责分离：收起时通过注入的 windowCtl 把球还原回隐藏态。
  */
 export class NoteWindow {
   private readonly win = getCurrentWindow();
   private readonly screen = { w: window.screen.width, h: window.screen.height };
+
+  /** 注入悬浮球控制器，收起面板时用来把球还原回隐藏停靠态。 */
+  constructor(private readonly windowCtl: WindowController) {}
 
   /**
    * 展开为笔记面板：紧贴停靠侧向外（左贴则向右、右贴则向左）弹出，垂直中心对齐球。
@@ -36,6 +39,14 @@ export class NoteWindow {
     // 紧贴边沿：右贴时面板左边界 = 球左边界；左贴时面板右边界 = 球右边界。
     const x = dockEdge === "left" ? 0 : this.screen.w - PANEL_W;
     await this.win.setPosition(new LogicalPosition(Math.round(x), Math.round(y)));
+  }
+
+  /**
+   * 收起笔记面板：把窗口形态还原回“球隐藏态”。
+   * 这是“自动消失”和“手动关闭”共用的唯一出口，App 侧播完收起动画后再调用它。
+   */
+  async collapse(): Promise<void> {
+    await this.windowCtl.dockHidden();
   }
 
   /**

@@ -29,14 +29,9 @@ body {
   display: flex;
   align-items: center;
   justify-content: center;
-  cursor: grab;
   user-select: none;
   -webkit-user-select: none;
   transition: transform 160ms ease-out;
-}
-
-.ball-wrap:active {
-  cursor: grabbing;
 }
 
 /* Hidden: slid half off the docked edge so only a sliver peeks in. */
@@ -170,11 +165,6 @@ body {
   align-items: center;
   font-weight: 700;
   color: #6b5526;
-  cursor: grab;
-}
-
-.panel-head:active {
-  cursor: grabbing;
 }
 
 .x {

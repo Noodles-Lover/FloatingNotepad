@@ -31,6 +31,7 @@ export default function App() {
   const hideTimer = useRef<number | null>(null); // 自动收起的计时器
   const closeTimer = useRef<number | null>(null); // 收起动画的计时器
   const draggingRef = useRef(false); // 与 dragging 同步，供 proximity 读取
+  const suppressUntil = useRef(0); // 收起后的冷却时间，期间禁止 proximity 重新弹出
 
   modeRef.current = mode;
 
@@ -44,7 +45,7 @@ export default function App() {
   const notesRepo = notesRepoRef.current;
 
   const noteWinRef = useRef<NoteWindow | null>(null);
-  if (!noteWinRef.current) noteWinRef.current = new NoteWindow();
+  if (!noteWinRef.current) noteWinRef.current = new NoteWindow(windowCtl);
   const noteWin = noteWinRef.current;
 
   // ---- 定时器管理 ----
@@ -59,18 +60,23 @@ export default function App() {
     }
   };
 
-  /** 真正执行“收起”：回到隐藏态并贴边停靠。 */
+  /**
+   * 真正执行“收起”：切回隐藏态并让窗口回到球隐藏态。
+   * 窗口层面的消失动作统一交给 NoteWindow.collapse()（自动消失与手动关闭都经此）。
+   */
   const doClose = useCallback(() => {
     setMode("hidden");
     setClosing(false);
     setActive(null);
-    windowCtl.dockHidden();
-  }, [windowCtl]);
+    noteWin.collapse();
+  }, [noteWin]);
 
-  /** 开始收起动画（自动隐藏和关闭按钮共用）。 */
+  /** 开始收起动画——自动隐藏（鼠标离开）和手动关闭（点叉/删除）共用的唯一入口。 */
   const beginClose = useCallback(() => {
     clearTimers();
     if (modeRef.current === "hidden") return;
+    // 关闭后进入短暂冷却，避免鼠标恰在隐藏缝里导致刚关又立刻弹出。
+    suppressUntil.current = Date.now() + 500;
     setClosing(true);
     closeTimer.current = window.setTimeout(doClose, CLOSE_ANIM);
   }, [doClose]);
@@ -109,6 +115,8 @@ export default function App() {
       .start(async (x, y) => {
         // 拖动时绝不抢窗口，避免与 OS 拖动互相打架。
         if (draggingRef.current) return;
+        // 刚收起后的冷却期内，禁止 proximity 把球重新弹出。
+        if (Date.now() < suppressUntil.current) return;
         const isInside = await inside(x, y);
         if (modeRef.current === "hidden") {
           if (isInside) {
