@@ -1,0 +1,28 @@
+# Explicit permission definitions for the app's own #[tauri::command]s.
+# Tauri v2 does NOT auto-generate these for the main app, so we define them
+# here (TOML only — JSON is not allowed for app-level permission files).
+# The capability file references these identifiers WITHOUT a plugin prefix.
+#
+# IMPORTANT: the command name in `commands.allow` MUST match the Rust
+# function name exactly (snake_case), because that is the name Tauri v2
+# registers for the IPC. The frontend `invoke(...)` must use the same name.
+
+[[permission]]
+identifier = "allow-start-mouse-watch"
+description = "Allow starting the global cursor watcher that drives the floating-ball reveal."
+commands.allow = ["start_mouse_watch"]
+
+[[permission]]
+identifier = "allow-load-notes"
+description = "Allow loading all saved notes from the local SQLite database."
+commands.allow = ["load_notes"]
+
+[[permission]]
+identifier = "allow-save-note"
+description = "Allow saving (insert/update) a note in the local SQLite database."
+commands.allow = ["save_note"]
+
+[[permission]]
+identifier = "allow-delete-note"
+description = "Allow deleting a note from the local SQLite database."
+commands.allow = ["delete_note"]

@@ -1,0 +1,25 @@
+# Dependencies
+node_modules/
+
+# Build output
+dist/
+src-tauri/target/
+
+# Rust
+**/*.rs.bk
+Cargo.lock
+
+# Logs
+*.log
+tauri-dev.log
+tauri-dev-err.log
+
+# Editor / OS
+.vscode/
+.idea/
+.DS_Store
+*.swp
+
+# Env
+.env
+.env.local
