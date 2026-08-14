@@ -48,6 +48,15 @@ export class WindowController {
     await this.placeWidget(this.dockEdge, interactive);
   }
 
+  /**
+   * 仅同步内部挂件尺寸，不触发任何窗口 resize/重排。
+   * 面板（笔记/设置）打开时调用：避免把整窗缩成挂件大小导致面板被卸载/留下小圆点，
+   * 真正应用尺寸留到收起后由 showWidget/dockHidden 自然处理。
+   */
+  syncWidgetSize(size: number): void {
+    this.widgetSize = size;
+  }
+
   /** 把任意垂直中心 Y 限制在屏幕可见范围内。 */
   private clampY(cy: number): number {
     const min = this.widgetSize / 2;
@@ -65,9 +74,11 @@ export class WindowController {
   /** 把挂件放到指定边的停靠位。interactive 控制是否穿透鼠标（隐藏态穿透、展示态不穿透）。 */
   async placeWidget(edge: Edge, interactive: boolean): Promise<void> {
     this.dockEdge = edge;
+    // 先移动再缩放：setSize 以窗口左上角为锚点，若先缩后移，窗口会瞬间收缩到旧（面板）位置的
+    // 左上角再跳到挂件位，视觉上出现“闪到面板角落再回正”的闪烁。先定位到挂件位再缩即可消除。
+    await this.win.setPosition(this.widgetPosFor(edge));
     await this.win.setSize(new LogicalSize(this.widgetSize, this.widgetSize));
     await this.win.setIgnoreCursorEvents(!interactive);
-    await this.win.setPosition(this.widgetPosFor(edge));
   }
 
   /** 当前贴附的边。 */
@@ -93,6 +104,17 @@ export class WindowController {
   /** 展示态：停靠、完全在屏内、可点击。 */
   async showWidget(): Promise<void> {
     await this.placeWidget(this.dockEdge, true);
+  }
+
+  /** 完全隐藏整个应用窗口（托盘“隐藏挂件”用）。 */
+  async hideApp(): Promise<void> {
+    await this.win.hide();
+  }
+
+  /** 显示整个应用窗口并回到展示态（托盘“显示挂件”用）。 */
+  async showApp(): Promise<void> {
+    await this.win.show();
+    await this.showWidget();
   }
 
   /**

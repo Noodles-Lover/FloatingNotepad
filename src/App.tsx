@@ -1,15 +1,17 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { invoke } from "@tauri-apps/api/core";
+import { listen, type UnlistenFn } from "@tauri-apps/api/event";
 import { WindowController, type Edge } from "./lib/window";
 import { NoteWindow } from "./lib/noteWindow";
 import { NoteRepository } from "./lib/db";
 import { ProximitySensor } from "./lib/proximity";
-import { loadConfig, DEFAULT_CONFIG, type AppConfig } from "./lib/config";
+import { loadConfig, saveConfigOverride, DEFAULT_CONFIG, type AppConfig } from "./lib/config";
 import { loadSkins, resolveSkin, loadSkinName, saveSkinName, type Skin } from "./lib/skins";
 import type { Note, Todo } from "./types";
 import FloatingWidget from "./components/FloatingWidget";
 import NotePanel from "./components/NotePanel";
 import SkinPanel from "./components/SkinPanel";
+import SettingsPanel from "./components/SettingsPanel";
 import "./App.css";
 
 /** 窗口的三种显示模式。 */
@@ -38,6 +40,7 @@ export default function App() {
   const [skinName, setSkinName] = useState<string>(() => loadSkinName()); // 当前选用皮肤名（永久保存）
   const [skin, setSkin] = useState<Skin | null>(null); // 当前选用皮肤对象（解析 skinName 后得到）
   const [skinOpen, setSkinOpen] = useState(false); // 皮肤面板是否打开
+  const [settingsOpen, setSettingsOpen] = useState(false); // 设置面板是否打开
 
   // ---- 跨渲染周期保存的可变引用 ----
   const modeRef = useRef<Mode>("hidden"); // 让 proximity 回调能读到最新 mode
@@ -45,13 +48,17 @@ export default function App() {
   const closeTimer = useRef<number | null>(null); // 收起动画的计时器
   const draggingRef = useRef(false); // 与 dragging 同步，供 proximity 读取
   const suppressUntil = useRef(0); // 收起后的冷却时间，期间禁止 proximity 重新弹出
+  const userMustLeaveRef = useRef(false); // 手动关闭（点叉）后，需鼠标先离开挂件范围才允许再次弹出
   const saveTimer = useRef<number | null>(null); // 自动保存的防抖计时器
   const configRef = useRef<AppConfig>(config); // 最新配置，供 proximity 读取 autoCloseDelay
   configRef.current = config;
+  const appHiddenRef = useRef(false); // 托盘“隐藏挂件”后整窗隐藏，期间 proximity 不响应
+  const modalOpenRef = useRef(false); // 皮肤/设置面板打开时，暂停 proximity 的收起与弹出
   const noteRef = useRef<Note>(note); // 最新文档，供防抖保存读取
   noteRef.current = note;
 
   modeRef.current = mode;
+  modalOpenRef.current = skinOpen || settingsOpen;
 
   // WindowController 与 NoteRepository 都是“只创建一次”的控制器实例。
   const windowCtlRef = useRef<WindowController | null>(null);
@@ -93,26 +100,52 @@ export default function App() {
     noteWin.collapse();
   }, [noteWin]);
 
-  /** 开始收起动画——自动隐藏（鼠标离开）和手动关闭（点叉）共用的唯一入口。 */
-  const beginClose = useCallback(() => {
-    clearTimers();
-    if (modeRef.current === "hidden") return;
-    // 关闭后进入短暂冷却，避免鼠标恰在隐藏缝里导致刚关又立刻弹出。
-    suppressUntil.current = Date.now() + 500;
-    setClosing(true);
-    closeTimer.current = window.setTimeout(doClose, CLOSE_ANIM);
-  }, [doClose]);
+  /** 开始收起动画——自动隐藏（鼠标离开）和手动关闭（点叉）共用的入口。
+   * @param fromUser 是否由用户点叉触发；手动关闭时鼠标仍在窗口内，需等其离开后才允许再弹出。 */
+  const beginClose = useCallback(
+    (fromUser = false) => {
+      clearTimers();
+      if (modeRef.current === "hidden") return;
+      // 关闭后进入短暂冷却，避免鼠标恰在隐藏缝里导致刚关又立刻弹出。
+      suppressUntil.current = Date.now() + 500;
+      if (fromUser) userMustLeaveRef.current = true;
+      setClosing(true);
+      closeTimer.current = window.setTimeout(doClose, CLOSE_ANIM);
+    },
+    [doClose],
+  );
 
   /** 把配置应用到控制器：挂件尺寸实时重排、面板尺寸下次展开生效、自动关闭时间即时生效。 */
   const applyConfigToCtl = useCallback(
     (cfg: AppConfig) => {
       noteWin.applyConfig(cfg);
+      // 始终同步挂件尺寸到控制器内部状态，避免设置期间跳过导致窗口与 DOM 尺寸脱节（截断/空隙）。
+      windowCtl.syncWidgetSize(cfg.widgetSize);
+      // 面板已展开（或设置面板打开）时，禁止把整窗 resize 成挂件尺寸，否则面板会瞬间缩小/被卸载；
+      // 挂件尺寸留到收起后由 showWidget/dockHidden 自然应用。
+      const panelActive = modeRef.current === "expanded" || modalOpenRef.current;
+      if (panelActive) return;
       // 用当前交互态重排挂件尺寸（展开时保持可交互，否则隐藏态穿透）。
       const interactive = modeRef.current !== "hidden" || draggingRef.current;
       windowCtl.setWidgetSize(cfg.widgetSize, interactive).catch((e) => console.error("[setWidgetSize] 失败:", e));
     },
     [noteWin, windowCtl],
   );
+
+  /** 设置面板改动：更新状态、应用到控制器并持久化到 localStorage。 */
+  const onConfigChange = useCallback(
+    (next: AppConfig) => {
+      setConfig(next);
+      applyConfigToCtl(next);
+      saveConfigOverride(next);
+    },
+    [applyConfigToCtl],
+  );
+
+  // 皮肤/设置面板打开时：清掉正在进行的收起计时，避免面板刚打开就被自动收起。
+  useEffect(() => {
+    if (skinOpen || settingsOpen) clearTimers();
+  }, [skinOpen, settingsOpen]);
 
   // 加载用户配置（出厂默认 <- public/config.json <- localStorage 覆盖），
   // 拿到后既要刷新 React 状态，也要立刻应用到窗口控制器（否则挂件大小/窗口尺寸不生效）。
@@ -159,11 +192,29 @@ export default function App() {
     });
   }, [windowCtl]);
 
-  // 初始化：贴边隐藏、启动全局鼠标监听、恢复上次笔记。
+  // 初始化：默认展示挂件、启动全局鼠标监听、恢复上次笔记。
   useEffect(() => {
-    windowCtl.dockHidden();
+    windowCtl.showWidget();
     invoke("start_mouse_watch").catch((e) => {
       console.error("[start_mouse_watch] 调用失败:", e);
+    });
+
+    // 系统托盘菜单（显示/隐藏挂件）通过事件驱动，这里监听并切换窗口形态。
+    let unlistenShow: UnlistenFn | null = null;
+    let unlistenHide: UnlistenFn | null = null;
+    listen("show-widget", () => {
+      appHiddenRef.current = false;
+      setMode("revealed");
+      windowCtl.showApp();
+    }).then((fn) => {
+      unlistenShow = fn;
+    });
+    listen("hide-widget", () => {
+      appHiddenRef.current = true;
+      setMode("hidden");
+      windowCtl.hideApp();
+    }).then((fn) => {
+      unlistenHide = fn;
     });
     notesRepo
       .load()
@@ -187,13 +238,24 @@ export default function App() {
       .start(async (x, y) => {
         // 拖动时绝不抢窗口，避免与 OS 拖动互相打架。
         if (draggingRef.current) return;
+        // 托盘已整窗隐藏时，忽略全局鼠标，避免又把窗口弹出。
+        if (appHiddenRef.current) return;
+        // 皮肤/设置面板打开时，不自动收起也不自动弹出，保证面板稳定可操作。
+        if (modalOpenRef.current) return;
         // 刚收起后的冷却期内，禁止 proximity 把球重新弹出。
         if (Date.now() < suppressUntil.current) return;
         const isInside = await inside(x, y);
         if (modeRef.current === "hidden") {
           if (isInside) {
-            setMode("revealed");
-            windowCtl.showWidget();
+            // 手动关闭（点叉）后鼠标仍停在挂件上：必须等其先离开，才允许再次弹出，
+            // 否则刚收起又会立刻弹回（自动关闭时鼠标已离开，不会触发此处）。
+            if (!userMustLeaveRef.current) {
+              setMode("revealed");
+              windowCtl.showWidget();
+            }
+          } else {
+            // 鼠标已离开一次，解除“必须离开”约束，后续可正常弹出。
+            userMustLeaveRef.current = false;
           }
         } else {
           if (isInside) {
@@ -209,6 +271,8 @@ export default function App() {
     return () => {
       sensor.stop();
       clearTimers();
+      unlistenShow?.();
+      unlistenHide?.();
     };
   }, [windowCtl, notesRepo, beginClose, noteWin]);
 
@@ -330,10 +394,11 @@ export default function App() {
           onEditTodoNote={onEditTodoNote}
           onPriorityTodo={onPriorityTodo}
           onDeleteTodo={onDeleteTodo}
-          onClose={beginClose}
+          onClose={() => beginClose(true)}
           closing={closing}
           edge={edge}
           onOpenSkin={() => setSkinOpen(true)}
+          onOpenSettings={() => setSettingsOpen(true)}
         />
       ) : (
         <FloatingWidget
@@ -355,6 +420,14 @@ export default function App() {
           current={skin?.name ?? ""}
           onSelect={onSelectSkin}
           onClose={() => setSkinOpen(false)}
+        />
+      )}
+
+      {settingsOpen && (
+        <SettingsPanel
+          config={config}
+          onChange={onConfigChange}
+          onClose={() => setSettingsOpen(false)}
         />
       )}
     </div>

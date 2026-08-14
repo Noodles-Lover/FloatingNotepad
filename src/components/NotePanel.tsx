@@ -15,6 +15,7 @@ interface Props {
   closing: boolean;
   edge: Edge; // 当前贴附的边，决定面板动画从哪侧飘出
   onOpenSkin: () => void; // 打开皮肤选择面板
+  onOpenSettings: () => void; // 打开设置面板
 }
 
 /** 根据优先级返回进度条颜色（1-5 绿、6-7 黄、8 橙、9-10 红）。 */
@@ -38,6 +39,7 @@ export default function NotePanel({
   closing,
   edge,
   onOpenSkin,
+  onOpenSettings,
 }: Props) {
   const taRef = useRef<HTMLTextAreaElement>(null);
   // 新增任务的输入框（本地态，回车或点“添加”后清空并上抛）。
@@ -84,6 +86,9 @@ export default function NotePanel({
         <div className="head-actions">
           <button className="skin-btn" onClick={onOpenSkin} title="皮肤">
             皮肤
+          </button>
+          <button className="skin-btn" onClick={onOpenSettings} title="设置">
+            设置
           </button>
           <button className="x" onClick={onClose} title="收起 (Esc)">
             ×

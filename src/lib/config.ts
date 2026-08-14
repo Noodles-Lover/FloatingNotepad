@@ -95,3 +95,12 @@ function sanitize(part: Partial<AppConfig>): Partial<AppConfig> {
     out.idleOpacity = part.idleOpacity;
   return out;
 }
+
+/** 把用户覆盖写回 localStorage（应用内“设置”面板调用，优先级最高）。 */
+export function saveConfigOverride(cfg: AppConfig): void {
+  try {
+    localStorage.setItem(LS_KEY, JSON.stringify(sanitize(cfg)));
+  } catch {
+    /* 忽略写入失败（如隐私模式） */
+  }
+}

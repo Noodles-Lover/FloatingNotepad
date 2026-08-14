@@ -5,6 +5,8 @@ use std::thread;
 use std::time::Duration;
 
 use serde::Serialize;
+use tauri::menu::{Menu, MenuItem};
+use tauri::tray::TrayIconBuilder;
 use tauri::{AppHandle, Emitter, Manager, State};
 
 /// Event payload broadcast on every cursor poll.
@@ -60,6 +62,21 @@ fn current_cursor() -> Option<(i32, i32)> {
 #[cfg(not(target_os = "windows"))]
 fn current_cursor() -> Option<(i32, i32)> {
     None
+}
+
+#[tauri::command]
+fn show_main(app: AppHandle) {
+    if let Some(window) = app.get_webview_window("main") {
+        let _ = window.show();
+        let _ = window.set_focus();
+    }
+}
+
+#[tauri::command]
+fn hide_main(app: AppHandle) {
+    if let Some(window) = app.get_webview_window("main") {
+        let _ = window.hide();
+    }
 }
 
 // ---- Commands: thin adapters over the services above ----
@@ -125,6 +142,30 @@ pub fn run() {
             app.state::<db::NoteRepository>()
                 .init()
                 .map_err(|e| e.to_string())?;
+
+            // 系统托盘：右键菜单显示 / 隐藏挂件。
+            let show_item = MenuItem::with_id(app, "show", "显示挂件", true, None::<&str>)?;
+            let hide_item = MenuItem::with_id(app, "hide", "隐藏挂件", true, None::<&str>)?;
+            let quit_item = MenuItem::with_id(app, "quit", "退出", true, None::<&str>)?;
+            let menu = Menu::with_items(app, &[&show_item, &hide_item, &quit_item])?;
+            let _tray = TrayIconBuilder::with_id("main-tray")
+                .icon(app.default_window_icon().unwrap().clone())
+                .tooltip("浮窗便签")
+                .menu(&menu)
+                .on_menu_event(|app, event| match event.id().as_ref() {
+                    "show" => {
+                        let _ = app.emit("show-widget", ());
+                    }
+                    "hide" => {
+                        let _ = app.emit("hide-widget", ());
+                    }
+                    "quit" => {
+                        app.exit(0);
+                    }
+                    _ => {}
+                })
+                .build(app)?;
+
             Ok(())
         })
         .invoke_handler(tauri::generate_handler![
@@ -132,6 +173,8 @@ pub fn run() {
             load_note,
             save_note,
             list_skins,
+            show_main,
+            hide_main,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

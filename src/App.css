@@ -611,6 +611,33 @@ body {
   gap: 16px;
 }
 
+/* ---- 设置面板里的滑块行 ---- */
+.set-row {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.set-label {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  font-size: 13px;
+  color: #6b5a2e;
+}
+
+.set-val {
+  font-weight: 700;
+  color: #3c5320;
+  font-variant-numeric: tabular-nums;
+}
+
+.set-row input[type="range"] {
+  width: 100%;
+  accent-color: #97b35a;
+  cursor: pointer;
+}
+
 .skin-group-title {
   font-size: 13px;
   font-weight: 700;

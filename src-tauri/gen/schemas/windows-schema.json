@@ -177,6 +177,12 @@
       "description": "Permission identifier",
       "oneOf": [
         {
+          "description": "Allow hiding the main floating window from Rust/tray.",
+          "type": "string",
+          "const": "allow-hide-main",
+          "markdownDescription": "Allow hiding the main floating window from Rust/tray."
+        },
+        {
           "description": "Allow listing the skin (material pack) folders under public/skin.",
           "type": "string",
           "const": "allow-list-skins",
@@ -193,6 +199,12 @@
           "type": "string",
           "const": "allow-save-note",
           "markdownDescription": "Allow saving (insert/update) the note document in the local SQLite database."
+        },
+        {
+          "description": "Allow showing the main floating window from Rust/tray.",
+          "type": "string",
+          "const": "allow-show-main",
+          "markdownDescription": "Allow showing the main floating window from Rust/tray."
         },
         {
           "description": "Allow starting the global cursor watcher that drives the floating-ball reveal.",

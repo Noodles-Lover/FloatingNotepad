@@ -26,3 +26,13 @@ commands.allow = ["save_note"]
 identifier = "allow-list-skins"
 description = "Allow listing the skin (material pack) folders under public/skin."
 commands.allow = ["list_skins"]
+
+[[permission]]
+identifier = "allow-show-main"
+description = "Allow showing the main floating window from Rust/tray."
+commands.allow = ["show_main"]
+
+[[permission]]
+identifier = "allow-hide-main"
+description = "Allow hiding the main floating window from Rust/tray."
+commands.allow = ["hide_main"]
