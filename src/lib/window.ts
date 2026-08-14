@@ -1,11 +1,6 @@
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import { LogicalPosition, LogicalSize } from "@tauri-apps/api/dpi";
 
-// ---- 尺寸常量（逻辑像素）----
-export const BALL = 56; // 悬浮球直径
-/** 隐藏态时，CSS 把球滑出多少像素，只留一条“缝”露在屏幕内。 */
-export const PEEK = 24;
-
 /** 贴附的边：只在左右两边之间切换。 */
 export type Edge = "left" | "right";
 
@@ -19,7 +14,7 @@ export interface Rect {
 
 /**
  * 窗口控制器：封装所有与 Tauri 窗口相关的操作。
- * - 球停靠在左或右边沿的任意垂直高度；
+ * - 挂件停靠在左或右边沿的任意垂直高度；
  * - 拖动松手后吸附到更近的边（只移动 X 轴，保留释放时的高度）；
  * - 笔记面板从停靠侧向外展开。
  * 所有布局/坐标计算都集中在这里，UI 组件只调用它，不直接碰窗口 API。
@@ -31,37 +26,48 @@ export class WindowController {
   private dockY: number; // 当前停靠高度的“中心 Y”（逻辑像素）
   private dragEndCb: ((edge: Edge) => void) | null = null; // 拖动结束回调
   private dragPoll: number | null = null; // 拖动松手检测的定时器
+  /** 是否使用整颗停靠模式：变化模式（idle/hover 两张）下“半掩”由素材自身表现，挂件不再做 CSS 滑出。 */
+  private solidMode = false;
+  /** 悬浮挂件尺寸（逻辑像素），由用户配置驱动。 */
+  private widgetSize: number;
 
-  constructor() {
+  constructor(widgetSize: number = 56) {
+    this.widgetSize = widgetSize;
     // 初始停靠在垂直正中央。
     this.dockY = Math.round(this.screen.h / 2);
   }
 
-  /** 注册“OS 拖动结束”回调；球吸附到就近边后会带上最终边沿调用它。 */
+  /** 注册“OS 拖动结束”回调；挂件吸附到就近边后会带上最终边沿调用它。 */
   onDragEnd(cb: (edge: Edge) => void): void {
     this.dragEndCb = cb;
   }
 
+  /** 设置悬浮挂件尺寸（逻辑像素），并立即按新尺寸重新停靠。 */
+  async setWidgetSize(size: number, interactive: boolean): Promise<void> {
+    this.widgetSize = size;
+    await this.placeWidget(this.dockEdge, interactive);
+  }
+
   /** 把任意垂直中心 Y 限制在屏幕可见范围内。 */
   private clampY(cy: number): number {
-    const min = BALL / 2;
-    const max = this.screen.h - BALL / 2;
+    const min = this.widgetSize / 2;
+    const max = this.screen.h - this.widgetSize / 2;
     return Math.max(min, Math.min(max, cy));
   }
 
-  /** 计算“完全停靠（无 CSS 滑出）”时球的左上角坐标。 */
-  private ballPosFor(edge: Edge): LogicalPosition {
-    const x = edge === "left" ? 0 : this.screen.w - BALL;
-    const y = Math.round(this.dockY - BALL / 2);
+  /** 计算“完全停靠（无 CSS 滑出）”时挂件的左上角坐标。 */
+  private widgetPosFor(edge: Edge): LogicalPosition {
+    const x = edge === "left" ? 0 : this.screen.w - this.widgetSize;
+    const y = Math.round(this.dockY - this.widgetSize / 2);
     return new LogicalPosition(x, y);
   }
 
-  /** 把球放到指定边的停靠位。interactive 控制是否穿透鼠标（隐藏态穿透、展示态不穿透）。 */
-  async placeBall(edge: Edge, interactive: boolean): Promise<void> {
+  /** 把挂件放到指定边的停靠位。interactive 控制是否穿透鼠标（隐藏态穿透、展示态不穿透）。 */
+  async placeWidget(edge: Edge, interactive: boolean): Promise<void> {
     this.dockEdge = edge;
-    await this.win.setSize(new LogicalSize(BALL, BALL));
+    await this.win.setSize(new LogicalSize(this.widgetSize, this.widgetSize));
     await this.win.setIgnoreCursorEvents(!interactive);
-    await this.win.setPosition(this.ballPosFor(edge));
+    await this.win.setPosition(this.widgetPosFor(edge));
   }
 
   /** 当前贴附的边。 */
@@ -69,36 +75,41 @@ export class WindowController {
     return this.dockEdge;
   }
 
-  /** 球当前的中心 Y（逻辑像素），面板展开时用来垂直对齐。 */
+  /** 设置是否使用整颗停靠模式（变化模式为整颗，滑动模式由 CSS 滑出；影响 hidden 撞箱范围）。 */
+  setSolidMode(on: boolean): void {
+    this.solidMode = on;
+  }
+
+  /** 挂件当前的中心 Y（逻辑像素），面板展开时用来垂直对齐。 */
   getDockY(): number {
     return this.dockY;
   }
 
   /** 隐藏态：停靠、鼠标穿透、并由 CSS 滑出半截。 */
   async dockHidden(): Promise<void> {
-    await this.placeBall(this.dockEdge, false);
+    await this.placeWidget(this.dockEdge, false);
   }
 
   /** 展示态：停靠、完全在屏内、可点击。 */
-  async showBall(): Promise<void> {
-    await this.placeBall(this.dockEdge, true);
+  async showWidget(): Promise<void> {
+    await this.placeWidget(this.dockEdge, true);
   }
 
   /**
-   * 贴边吸附：比较球当前的中心 X 与屏幕中线，决定贴左还是贴右；
+   * 贴边吸附：比较挂件当前的中心 X 与屏幕中线，决定贴左还是贴右；
    * 只移动 X 轴，保留释放时的 Y 高度（同时同步 dockY 供后续使用）。
    */
-  async snapBallToNearestEdge(): Promise<void> {
+  async snapWidgetToNearestEdge(): Promise<void> {
     const dpr = window.devicePixelRatio || 1;
     const phys = await this.win.outerPosition();
     // outerPosition 返回的是物理像素，转成逻辑像素才能和 screen 比较。
     const pos = phys.toLogical(dpr);
-    const cx = pos.x + BALL / 2; // 球的中心 X（逻辑像素）
+    const cx = pos.x + this.widgetSize / 2; // 挂件的中心 X（逻辑像素）
     const edge: Edge = cx < this.screen.w / 2 ? "left" : "right";
     // 保持释放高度，并把它记进 dockY，避免下次被拉回旧高度。
-    this.dockY = this.clampY(pos.y + BALL / 2);
+    this.dockY = this.clampY(pos.y + this.widgetSize / 2);
     this.dockEdge = edge;
-    await this.win.setPosition(this.ballPosFor(edge));
+    await this.win.setPosition(this.widgetPosFor(edge));
   }
 
   /**
@@ -120,7 +131,7 @@ export class WindowController {
           if (stable >= 3) {
             if (this.dragPoll !== null) window.clearInterval(this.dragPoll);
             this.dragPoll = null;
-            await this.snapBallToNearestEdge();
+            await this.snapWidgetToNearestEdge();
             this.dragEndCb?.(this.dockEdge);
           }
         } else {
@@ -135,21 +146,34 @@ export class WindowController {
   }
 
   /**
-   * 返回“球”在当前模式下的实际可见矩形，供 proximity 判定鼠标是否在内。
-   * 只处理 hidden / revealed 两种球形态；expanded（笔记面板）由 NoteWindow 负责。
+   * 返回“挂件”在当前模式下的实际可见矩形，供 proximity 判定鼠标是否在内。
+   * 只处理 hidden / revealed 两种挂件形态；expanded（笔记面板）由 NoteWindow 负责。
    */
   async boundsForMode(mode: "hidden" | "revealed"): Promise<Rect> {
-    const top = Math.round(this.dockY - BALL / 2);
+    const top = Math.round(this.dockY - this.widgetSize / 2);
+    // 隐藏态只露出的“缝”宽度：随挂件大小，但不超过一半。
+    const peek = Math.round(this.widgetSize * 0.45);
     if (mode === "revealed") {
       // revealed：窗口已真实停在停靠位，直接读真实位置。
       const dpr = window.devicePixelRatio || 1;
       const physPos = await this.win.outerPosition();
       const pos = physPos.toLogical(dpr);
-      return { left: pos.x, right: pos.x + BALL, top: pos.y, bottom: pos.y + BALL };
+      return {
+        left: pos.x,
+        right: pos.x + this.widgetSize,
+        top: pos.y,
+        bottom: pos.y + this.widgetSize,
+      };
     }
-    // hidden：CSS 把球滑出，只露 PEEK 宽的“缝”，碰撞箱只算那条缝。
+    // hidden：滑动模式下 CSS 把挂件滑出，只露 PEEK 宽的“缝”，碰撞箱只算那条缝。
+    // 变化模式下挂件不滑出（半掩由素材表现），碰撞箱为整颗挂件。
+    if (this.solidMode) {
+      return this.dockEdge === "right"
+        ? { left: this.screen.w - this.widgetSize, right: this.screen.w, top, bottom: top + this.widgetSize }
+        : { left: 0, right: this.widgetSize, top, bottom: top + this.widgetSize };
+    }
     return this.dockEdge === "right"
-      ? { left: this.screen.w - PEEK, right: this.screen.w, top, bottom: top + BALL }
-      : { left: 0, right: PEEK, top, bottom: top + BALL };
+      ? { left: this.screen.w - peek, right: this.screen.w, top, bottom: top + this.widgetSize }
+      : { left: 0, right: peek, top, bottom: top + this.widgetSize };
   }
 }

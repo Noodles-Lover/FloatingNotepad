@@ -4,16 +4,17 @@ import { WindowController, type Edge } from "./lib/window";
 import { NoteWindow } from "./lib/noteWindow";
 import { NoteRepository } from "./lib/db";
 import { ProximitySensor } from "./lib/proximity";
+import { loadConfig, DEFAULT_CONFIG, type AppConfig } from "./lib/config";
+import { loadSkins, resolveSkin, loadSkinName, saveSkinName, type Skin } from "./lib/skins";
 import type { Note, Todo } from "./types";
-import FloatingBall from "./components/FloatingBall";
+import FloatingWidget from "./components/FloatingWidget";
 import NotePanel from "./components/NotePanel";
+import SkinPanel from "./components/SkinPanel";
 import "./App.css";
 
 /** 窗口的三种显示模式。 */
 type Mode = "hidden" | "revealed" | "expanded";
 
-/** 鼠标离开 UI 范围多久后自动收起（毫秒）。 */
-const HIDE_DELAY = 600;
 /** 收起动画时长（毫秒），动画结束后才真正卸载/隐藏。 */
 const CLOSE_ANIM = 220;
 /** 文本/任务改动后多久落库一次（防抖，毫秒）。 */
@@ -29,9 +30,14 @@ export default function App() {
   // ---- 视图状态 ----
   const [mode, setMode] = useState<Mode>("hidden"); // 当前模式：隐藏 / 展示 / 展开面板
   const [closing, setClosing] = useState(false); // 是否正在播放收起动画
-  const [edge, setEdge] = useState<Edge>("right"); // 悬浮球当前贴附的边
-  const [dragging, setDragging] = useState(false); // 悬浮球是否正在被拖动
+  const [edge, setEdge] = useState<Edge>("right"); // 悬浮挂件当前贴附的边
+  const [dragging, setDragging] = useState(false); // 悬浮挂件是否正在被拖动
   const [note, setNote] = useState<Note>(emptyNote()); // 唯一一份笔记文档
+  const [config, setConfig] = useState<AppConfig>(DEFAULT_CONFIG); // 用户配置（挂件大小/窗口/自动关闭）
+  const [skins, setSkins] = useState<Skin[]>([]); // 可用皮肤清单（运行时从 skin 目录自动读取）
+  const [skinName, setSkinName] = useState<string>(() => loadSkinName()); // 当前选用皮肤名（永久保存）
+  const [skin, setSkin] = useState<Skin | null>(null); // 当前选用皮肤对象（解析 skinName 后得到）
+  const [skinOpen, setSkinOpen] = useState(false); // 皮肤面板是否打开
 
   // ---- 跨渲染周期保存的可变引用 ----
   const modeRef = useRef<Mode>("hidden"); // 让 proximity 回调能读到最新 mode
@@ -40,6 +46,8 @@ export default function App() {
   const draggingRef = useRef(false); // 与 dragging 同步，供 proximity 读取
   const suppressUntil = useRef(0); // 收起后的冷却时间，期间禁止 proximity 重新弹出
   const saveTimer = useRef<number | null>(null); // 自动保存的防抖计时器
+  const configRef = useRef<AppConfig>(config); // 最新配置，供 proximity 读取 autoCloseDelay
+  configRef.current = config;
   const noteRef = useRef<Note>(note); // 最新文档，供防抖保存读取
   noteRef.current = note;
 
@@ -47,7 +55,7 @@ export default function App() {
 
   // WindowController 与 NoteRepository 都是“只创建一次”的控制器实例。
   const windowCtlRef = useRef<WindowController | null>(null);
-  if (!windowCtlRef.current) windowCtlRef.current = new WindowController();
+  if (!windowCtlRef.current) windowCtlRef.current = new WindowController(config.widgetSize);
   const windowCtl = windowCtlRef.current;
 
   const notesRepoRef = useRef<NoteRepository | null>(null);
@@ -55,7 +63,7 @@ export default function App() {
   const notesRepo = notesRepoRef.current;
 
   const noteWinRef = useRef<NoteWindow | null>(null);
-  if (!noteWinRef.current) noteWinRef.current = new NoteWindow(windowCtl);
+  if (!noteWinRef.current) noteWinRef.current = new NoteWindow(windowCtl, config);
   const noteWin = noteWinRef.current;
 
   // ---- 定时器管理 ----
@@ -95,7 +103,52 @@ export default function App() {
     closeTimer.current = window.setTimeout(doClose, CLOSE_ANIM);
   }, [doClose]);
 
-  // 注册“拖动结束”回调：球被 OS 拖动松手后，WindowController 会贴边并回调这里。
+  /** 把配置应用到控制器：挂件尺寸实时重排、面板尺寸下次展开生效、自动关闭时间即时生效。 */
+  const applyConfigToCtl = useCallback(
+    (cfg: AppConfig) => {
+      noteWin.applyConfig(cfg);
+      // 用当前交互态重排挂件尺寸（展开时保持可交互，否则隐藏态穿透）。
+      const interactive = modeRef.current !== "hidden" || draggingRef.current;
+      windowCtl.setWidgetSize(cfg.widgetSize, interactive).catch((e) => console.error("[setWidgetSize] 失败:", e));
+    },
+    [noteWin, windowCtl],
+  );
+
+  // 加载用户配置（出厂默认 <- public/config.json <- localStorage 覆盖），
+  // 拿到后既要刷新 React 状态，也要立刻应用到窗口控制器（否则挂件大小/窗口尺寸不生效）。
+  useEffect(() => {
+    let alive = true;
+    loadConfig()
+      .then((cfg) => {
+        if (!alive) return;
+        setConfig(cfg);
+        applyConfigToCtl(cfg);
+      })
+      .catch((e) => console.error("[loadConfig] 失败:", e));
+    return () => {
+      alive = false;
+    };
+  }, [applyConfigToCtl]);
+
+  // 加载皮肤清单并解析当前选用皮肤；变化模式对应 solidMode=true（整颗停靠、不滑出），
+  // 滑动模式/无皮肤对应 solidMode=false（CSS 滑出半掩）。提升到 App 级避免重挂载闪现。
+  useEffect(() => {
+    let alive = true;
+    loadSkins()
+      .then((list) => {
+        if (!alive) return;
+        setSkins(list);
+        const cur = resolveSkin(list, skinName);
+        setSkin(cur);
+        windowCtl.setSolidMode(cur.mode === "transform");
+      })
+      .catch((e) => console.error("[loadSkins] 失败:", e));
+    return () => {
+      alive = false;
+    };
+  }, [windowCtl, skinName]);
+
+  // 注册“拖动结束”回调：挂件被 OS 拖动松手后，WindowController 会贴边并回调这里。
   useEffect(() => {
     windowCtl.onDragEnd((finalEdge) => {
       setEdge(finalEdge);
@@ -120,7 +173,7 @@ export default function App() {
       .catch((e) => console.error("[load] 失败:", e));
 
     // 判断某个屏幕坐标是否落在当前模式的 UI 范围内。
-    // expanded（面板）读 NoteWindow 真实矩形；hidden/revealed（球）读 WindowController。
+    // expanded（面板）读 NoteWindow 真实矩形；hidden/revealed（挂件）读 WindowController。
     const inside = async (x: number, y: number): Promise<boolean> => {
       const b =
         modeRef.current === "expanded"
@@ -140,14 +193,14 @@ export default function App() {
         if (modeRef.current === "hidden") {
           if (isInside) {
             setMode("revealed");
-            windowCtl.showBall();
+            windowCtl.showWidget();
           }
         } else {
           if (isInside) {
             clearTimers();
             setClosing(false);
           } else if (!hideTimer.current && !closeTimer.current) {
-            hideTimer.current = window.setTimeout(beginClose, HIDE_DELAY);
+            hideTimer.current = window.setTimeout(beginClose, configRef.current.autoCloseDelay);
           }
         }
       })
@@ -164,15 +217,28 @@ export default function App() {
     clearTimers();
     setClosing(false);
     setMode("expanded");
-    // 面板由 NoteWindow 负责窗口形态；球当前的 dockEdge/dockY 决定对齐与弹出方向。
+    // 面板由 NoteWindow 负责窗口形态；挂件当前的 dockEdge/dockY 决定对齐与弹出方向。
     noteWin.expand(windowCtl.currentEdge(), windowCtl.getDockY());
   }, [noteWin, windowCtl]);
 
-  /** 悬浮球通知 App：拖动状态切换（开始 / 结束）。 */
+  /** 悬浮挂件通知 App：拖动状态切换（开始 / 结束）。 */
   const onDraggingChange = useCallback((next: boolean) => {
     draggingRef.current = next;
     setDragging(next);
   }, []);
+
+  /** 切换皮肤：更新状态、下发 solidMode、永久保存到 localStorage（独立 key）。 */
+  const onSelectSkin = useCallback(
+    (name: string) => {
+      const cur = resolveSkin(skins, name);
+      setSkinName(name);
+      setSkin(cur);
+      windowCtl.setSolidMode(cur.mode === "transform");
+      saveSkinName(name);
+      setSkinOpen(false);
+    },
+    [skins, windowCtl],
+  );
 
   // ---- 笔记文档编辑（自动保存）----
   const onContentChange = useCallback(
@@ -185,8 +251,21 @@ export default function App() {
 
   const onAddTodo = useCallback(
     (text: string) => {
-      const todo: Todo = { id: crypto.randomUUID(), text, done: false };
+      const todo: Todo = { id: crypto.randomUUID(), text, done: false, priority: 5, note: "" };
       setNote((prev) => ({ ...prev, todos: [...prev.todos, todo] }));
+      scheduleSave();
+    },
+    [scheduleSave],
+  );
+
+  const onPriorityTodo = useCallback(
+    (id: string, priority: number) => {
+      setNote((prev) => ({
+        ...prev,
+        todos: prev.todos.map((t) =>
+          t.id === id ? { ...t, priority: Math.min(10, Math.max(1, priority)) } : t,
+        ),
+      }));
       scheduleSave();
     },
     [scheduleSave],
@@ -214,6 +293,17 @@ export default function App() {
     [scheduleSave],
   );
 
+  const onEditTodoNote = useCallback(
+    (id: string, note: string) => {
+      setNote((prev) => ({
+        ...prev,
+        todos: prev.todos.map((t) => (t.id === id ? { ...t, note } : t)),
+      }));
+      scheduleSave();
+    },
+    [scheduleSave],
+  );
+
   const onDeleteTodo = useCallback(
     (id: string) => {
       setNote((prev) => ({ ...prev, todos: prev.todos.filter((t) => t.id !== id) }));
@@ -222,28 +312,49 @@ export default function App() {
     [scheduleSave],
   );
 
+  // 渲染时按优先级降序排列（高优先级在前），不修改底层存储顺序。
+  const sortedNote: Note = {
+    ...note,
+    todos: [...note.todos].sort((a, b) => b.priority - a.priority),
+  };
+
   return (
     <div className="app">
       {mode === "expanded" ? (
         <NotePanel
-          note={note}
+          note={sortedNote}
           onContentChange={onContentChange}
           onAddTodo={onAddTodo}
           onToggleTodo={onToggleTodo}
           onEditTodo={onEditTodo}
+          onEditTodoNote={onEditTodoNote}
+          onPriorityTodo={onPriorityTodo}
           onDeleteTodo={onDeleteTodo}
           onClose={beginClose}
           closing={closing}
           edge={edge}
+          onOpenSkin={() => setSkinOpen(true)}
         />
       ) : (
-        <FloatingBall
+        <FloatingWidget
           revealed={mode === "revealed" || dragging}
           dragging={dragging}
           edge={edge}
           windowCtl={windowCtl}
           onOpen={openPanel}
           onDraggingChange={onDraggingChange}
+          widgetSize={config.widgetSize}
+          idleOpacity={config.idleOpacity}
+          skin={skin ?? { name: "default", mode: "slide", widget: "/skin/default/widget.png" }}
+        />
+      )}
+
+      {skinOpen && (
+        <SkinPanel
+          skins={skins}
+          current={skin?.name ?? ""}
+          onSelect={onSelectSkin}
+          onClose={() => setSkinOpen(false)}
         />
       )}
     </div>

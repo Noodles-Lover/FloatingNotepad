@@ -82,6 +82,40 @@ fn save_note(repo: State<db::NoteRepository>, note: db::Note) -> Result<db::Note
     repo.save(note).map_err(|e| e.to_string())
 }
 
+/// 列出 skin/ 下的所有材质包（文件夹名即材质名）。
+/// dev：资源目录为 src-tauri，皮肤在 ../public/skin；
+/// prod：资源目录为 resources，皮肤已随包打包到 resources/skin。
+#[tauri::command]
+fn list_skins(app: AppHandle) -> Result<Vec<String>, String> {
+    let base = app
+        .path()
+        .resource_dir()
+        .map_err(|e| format!("无法获取资源目录: {e}"))?;
+    let dir = if base.join("skin").is_dir() {
+        base.join("skin")
+    } else {
+        base.join("../public/skin")
+    };
+
+    let mut names: Vec<String> = Vec::new();
+    if let Ok(entries) = std::fs::read_dir(&dir) {
+        for entry in entries.flatten() {
+            if let Ok(ft) = entry.file_type() {
+                if ft.is_dir() {
+                    if let Some(name) = entry.file_name().to_str() {
+                        // 跳过以 '.' 开头的隐藏目录（如 .git）。
+                        if !name.starts_with('.') {
+                            names.push(name.to_string());
+                        }
+                    }
+                }
+            }
+        }
+    }
+    names.sort();
+    Ok(names)
+}
+
 pub fn run() {
     tauri::Builder::default()
         .setup(|app| {
@@ -97,6 +131,7 @@ pub fn run() {
             start_mouse_watch,
             load_note,
             save_note,
+            list_skins,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

@@ -177,6 +177,12 @@
       "description": "Permission identifier",
       "oneOf": [
         {
+          "description": "Allow listing the skin (material pack) folders under public/skin.",
+          "type": "string",
+          "const": "allow-list-skins",
+          "markdownDescription": "Allow listing the skin (material pack) folders under public/skin."
+        },
+        {
           "description": "Allow loading the single note document from the local SQLite database.",
           "type": "string",
           "const": "allow-load-note",

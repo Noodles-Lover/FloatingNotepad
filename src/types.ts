@@ -3,6 +3,8 @@ export interface Todo {
   id: string; // 前端生成的唯一 id（保存时序列化为 JSON）
   text: string; // 任务内容
   done: boolean; // 是否完成
+  priority: number; // 优先级 1-10，越高越靠前，默认 5
+  note: string; // 任务备注（可选，默认空）
 }
 
 /**

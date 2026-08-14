@@ -21,3 +21,8 @@ commands.allow = ["load_note"]
 identifier = "allow-save-note"
 description = "Allow saving (insert/update) the note document in the local SQLite database."
 commands.allow = ["save_note"]
+
+[[permission]]
+identifier = "allow-list-skins"
+description = "Allow listing the skin (material pack) folders under public/skin."
+commands.allow = ["list_skins"]

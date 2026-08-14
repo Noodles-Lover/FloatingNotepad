@@ -22,10 +22,10 @@ body {
   height: 100%;
 }
 
-/* ---------- Floating ball ---------- */
-.ball-wrap {
-  width: 56px;
-  height: 56px;
+/* ---------- Floating widget ---------- */
+.widget-wrap {
+  width: var(--widget-size, 56px);
+  height: var(--widget-size, 56px);
   display: flex;
   align-items: center;
   justify-content: center;
@@ -35,44 +35,76 @@ body {
 }
 
 /* Hidden: slid half off the docked edge so only a sliver peeks in. */
-.ball-wrap.hidden.dock-right {
-  transform: translateX(28px);
+.widget-wrap.hidden.dock-right {
+  transform: translateX(calc(var(--widget-size, 56px) / 2));
 }
 
-.ball-wrap.hidden.dock-left {
-  transform: translateX(-28px);
+.widget-wrap.hidden.dock-left {
+  transform: translateX(calc(var(--widget-size, 56px) / -2));
 }
 
 /* Dragging or revealed: fully on screen. */
-.ball-wrap.revealed,
-.ball-wrap.dragging {
+.widget-wrap.revealed,
+.widget-wrap.dragging {
   transform: translateX(0);
 }
 
-/* Hidden (docked, click-through): dimmed so it reads as a resting dock. */
-.ball-wrap.hidden .ball {
-  opacity: 0.5;
-}
-
-.ball-wrap.revealed .ball {
-  transform: scale(1.06);
-}
-
-.ball {
-  width: 48px;
-  height: 48px;
-  border-radius: 50%;
-  background: radial-gradient(circle at 30% 30%, #1d9e75, #0f6e56);
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  box-shadow: 0 4px 14px rgba(0, 0, 0, 0.4);
-  color: #eafff5;
-  font-size: 22px;
-  cursor: inherit;
+/* ---------- 滑动素材模式（idle + hover 两张） ---------- */
+.widget-img {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
+  object-position: left center; /* 图片靠贴附边：贴左靠左、贴右时翻转后视觉靠右 */
+  pointer-events: none;
   user-select: none;
   -webkit-user-select: none;
-  transition: opacity 200ms ease-out, transform 160ms ease-out;
+  transition: opacity 180ms ease-out, transform 180ms ease-out;
+}
+
+/* 变化模式（idle/hover 两张）下：隐藏态整颗停靠，不做 CSS 滑出。 */
+.widget-wrap.solid.hidden.dock-right,
+.widget-wrap.solid.hidden.dock-left {
+  transform: translateX(0);
+}
+
+/* 默认图（按左侧设计）：贴右侧时整体水平翻转，让“探出”方向朝左。 */
+.widget-wrap.flipped .widget-img {
+  transform: scaleX(-1);
+}
+
+/* 默认图：隐藏态可见（不透明度由配置 idleOpacity 控制），hover 时淡出。 */
+.widget-img-idle {
+  opacity: var(--idle-opacity, 0.85);
+}
+
+.widget-wrap.revealed .widget-img-idle {
+  opacity: 0;
+}
+
+/* hover 探出图：默认隐藏，revealed/hover 时淡入，不播放位移动画。 */
+.widget-img-hover {
+  opacity: 0;
+}
+
+.widget-wrap.revealed .widget-img-hover {
+  opacity: 1;
+}
+
+/* ---------- 滑动模式（单张 widget.png，用 CSS 滑出半掩） ---------- */
+/* 滑动模式不挂 solid，因此走 .widget-wrap.hidden 的半截滑出；单图始终显示，隐藏态用 idleOpacity。 */
+.widget-img-single {
+  opacity: var(--idle-opacity, 0.7);
+}
+
+.widget-wrap.revealed .widget-img-single {
+  opacity: 1;
+}
+
+/* 贴右侧时水平翻转，让“探出”方向朝左。 */
+.widget-wrap.flipped .widget-img-single {
+  transform: scaleX(-1);
 }
 
 /* ---------- Note panel (light-yellow notebook) ---------- */
@@ -98,7 +130,7 @@ body {
   animation: panel-out 220ms ease-in forwards;
 }
 
-/* 右贴：从右侧（球所在侧）向左飘出，缩放锚点在右。 */
+/* 右贴：从右侧（挂件所在侧）向左飘出，缩放锚点在右。 */
 .panel.dock-right {
   transform-origin: right center;
 }
@@ -169,12 +201,29 @@ body {
 }
 
 .x {
-  background: none;
-  border: none;
-  color: #a8915a;
-  font-size: 20px;
-  cursor: pointer;
+  width: 26px;
+  height: 26px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: rgba(168, 145, 90, 0.15);
+  border: 1px solid rgba(168, 145, 90, 0.35);
+  color: #6b5526;
+  font-size: 18px;
   line-height: 1;
+  border-radius: 50%;
+  cursor: pointer;
+  transition: background 140ms ease, transform 140ms ease;
+}
+
+.x:hover {
+  background: rgba(192, 88, 75, 0.18);
+  border-color: rgba(192, 88, 75, 0.5);
+  color: #c0584b;
+}
+
+.x:active {
+  transform: scale(0.92);
 }
 
 .title {
@@ -224,12 +273,19 @@ body {
 
 .todo {
   display: flex;
-  align-items: center;
-  gap: 6px;
+  flex-direction: column;
+  gap: 4px;
   background: #fffdf5;
   border: 1px solid #efe4c2;
   border-radius: 8px;
   padding: 4px 6px;
+}
+
+.todo-main {
+  position: relative;
+  display: flex;
+  align-items: center;
+  gap: 6px;
 }
 
 .todo input[type="checkbox"] {
@@ -237,6 +293,84 @@ body {
   width: 16px;
   height: 16px;
   cursor: pointer;
+}
+
+/* 备注按钮 */
+.todo-note-btn {
+  flex: 0 0 auto;
+  width: 20px;
+  height: 20px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: rgba(120, 100, 50, 0.1);
+  border: 1px solid rgba(120, 100, 50, 0.28);
+  color: #8a7338;
+  font-size: 13px;
+  line-height: 1;
+  border-radius: 5px;
+  cursor: pointer;
+  padding: 0;
+  transition: background 120ms ease, color 120ms ease;
+}
+
+.todo-note-btn:hover {
+  background: rgba(120, 100, 50, 0.22);
+}
+
+.todo-note-btn.has {
+  background: rgba(47, 185, 140, 0.16);
+  border-color: rgba(47, 185, 140, 0.45);
+  color: #169a72;
+}
+
+/* hover 任务时显示的备注气泡（fixed 定位，脱离列表裁切） */
+.todo-note-pop {
+  position: fixed;
+  transform: translateX(-50%) translateY(-100%);
+  max-width: 240px;
+  background: #3a2f17;
+  color: #fdf6e3;
+  font-size: 12px;
+  line-height: 1.4;
+  padding: 6px 9px;
+  border-radius: 7px;
+  box-shadow: 0 6px 18px rgba(0, 0, 0, 0.35);
+  white-space: pre-wrap;
+  word-break: break-word;
+  z-index: 50;
+  pointer-events: none;
+}
+
+/* 小三角 */
+.todo-note-pop::after {
+  content: "";
+  position: absolute;
+  top: 100%;
+  left: 50%;
+  transform: translateX(-50%);
+  border: 5px solid transparent;
+  border-top-color: #3a2f17;
+}
+
+/* 展开编辑的备注输入框 */
+.todo-note-input {
+  width: 100%;
+  resize: vertical;
+  min-height: 38px;
+  background: #fffdf5;
+  border: 1px solid #e3d3a0;
+  color: #5b4a2a;
+  border-radius: 7px;
+  padding: 6px 8px;
+  font-size: 12px;
+  line-height: 1.4;
+  user-select: text;
+  -webkit-user-select: text;
+}
+
+.todo-note-input:focus {
+  outline: 1px solid #d8bd6e;
 }
 
 .todo-text {
@@ -263,13 +397,28 @@ body {
 
 .todo-del {
   flex: 0 0 auto;
-  background: none;
-  border: none;
+  width: 22px;
+  height: 22px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: rgba(192, 88, 75, 0.12);
+  border: 1px solid rgba(192, 88, 75, 0.3);
   color: #c0584b;
-  font-size: 18px;
+  font-size: 16px;
   line-height: 1;
+  border-radius: 50%;
   cursor: pointer;
-  padding: 0 2px;
+  transition: background 140ms ease, transform 140ms ease;
+}
+
+.todo-del:hover {
+  background: rgba(192, 88, 75, 0.28);
+  color: #a23b30;
+}
+
+.todo-del:active {
+  transform: scale(0.9);
 }
 
 .todo-add {
@@ -291,15 +440,249 @@ body {
 }
 
 .todo-add-btn {
-  background: #f4e2a1;
+  background: linear-gradient(#f6e6a8, #efd98a);
   border: 1px solid #d8bd6e;
   color: #6b5526;
   border-radius: 8px;
-  padding: 4px 12px;
+  padding: 4px 14px;
   font-weight: 600;
   cursor: pointer;
+  transition: filter 140ms ease, transform 140ms ease;
 }
 
 .todo-add-btn:hover {
-  background: #efd98a;
+  filter: brightness(1.04);
 }
+
+.todo-add-btn:active {
+  transform: scale(0.97);
+}
+
+/* ---------- Priority control ---------- */
+.prio {
+  flex: 0 0 auto;
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.prio-step {
+  width: 18px;
+  height: 18px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: #fbf3d8;
+  border: 1px solid #e3d3a0;
+  color: #6b5526;
+  font-size: 13px;
+  line-height: 1;
+  border-radius: 5px;
+  cursor: pointer;
+  padding: 0;
+  transition: background 120ms ease;
+}
+
+.prio-step:hover:not(:disabled) {
+  background: #f3e6b8;
+}
+
+.prio-step:disabled {
+  opacity: 0.4;
+  cursor: default;
+}
+
+.prio-num {
+  min-width: 16px;
+  text-align: center;
+  font-size: 12px;
+  font-weight: 700;
+}
+
+.prio-bar {
+  width: 46px;
+  height: 6px;
+  border-radius: 4px;
+  background: rgba(0, 0, 0, 0.08);
+  overflow: hidden;
+  display: inline-flex;
+}
+
+.prio-fill {
+  height: 100%;
+  border-radius: 4px;
+  transition: width 160ms ease, background 160ms ease;
+}
+
+/* ---------- Panel head actions（皮肤按钮等） ---------- */
+.head-actions {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.skin-btn {
+  height: 26px;
+  padding: 0 12px;
+  display: flex;
+  align-items: center;
+  background: rgba(168, 145, 90, 0.15);
+  border: 1px solid rgba(168, 145, 90, 0.35);
+  color: #6b5526;
+  font-size: 13px;
+  font-weight: 600;
+  border-radius: 13px;
+  cursor: pointer;
+  transition: background 140ms ease, transform 140ms ease;
+}
+
+.skin-btn:hover {
+  background: rgba(168, 145, 90, 0.28);
+}
+
+.skin-btn:active {
+  transform: scale(0.95);
+}
+
+/* ---------- Skin panel（皮肤选择覆盖层） ---------- */
+.skin-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 100;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: rgba(40, 32, 16, 0.42);
+  animation: skin-fade 140ms ease-out;
+}
+
+.skin-panel {
+  width: min(420px, 86vw);
+  max-height: 80vh;
+  display: flex;
+  flex-direction: column;
+  background: #fff8e1;
+  border: 1px solid #e8d9a8;
+  box-shadow: 0 16px 48px rgba(120, 90, 20, 0.4);
+  border-radius: 14px;
+  overflow: hidden;
+}
+
+.skin-head {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 12px 14px;
+  font-weight: 700;
+  color: #6b5526;
+  border-bottom: 1px solid #efe4c2;
+}
+
+.skin-x {
+  width: 26px;
+  height: 26px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: rgba(168, 145, 90, 0.15);
+  border: 1px solid rgba(168, 145, 90, 0.35);
+  color: #6b5526;
+  font-size: 18px;
+  line-height: 1;
+  border-radius: 50%;
+  cursor: pointer;
+  transition: background 140ms ease, transform 140ms ease;
+}
+
+.skin-x:hover {
+  background: rgba(192, 88, 75, 0.18);
+  color: #c0584b;
+}
+
+.skin-x:active {
+  transform: scale(0.92);
+}
+
+.skin-body {
+  padding: 12px 14px;
+  overflow: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+.skin-group-title {
+  font-size: 13px;
+  font-weight: 700;
+  color: #8a7338;
+  margin-bottom: 8px;
+}
+
+.skin-empty {
+  font-size: 12px;
+  color: #b3a273;
+}
+
+.skin-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(92px, 1fr));
+  gap: 10px;
+}
+
+.skin-card {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 6px;
+  padding: 8px 6px;
+  background: #fffdf5;
+  border: 2px solid #efe4c2;
+  border-radius: 10px;
+  cursor: pointer;
+  transition: border-color 140ms ease, transform 140ms ease, box-shadow 140ms ease;
+}
+
+.skin-card:hover {
+  transform: translateY(-2px);
+  box-shadow: 0 6px 16px rgba(120, 90, 20, 0.18);
+}
+
+.skin-card.active {
+  border-color: #d8a93c;
+  box-shadow: 0 0 0 2px rgba(216, 169, 60, 0.35);
+}
+
+.skin-thumb {
+  width: 56px;
+  height: 56px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  overflow: hidden;
+  border-radius: 8px;
+  background: #f3e9c8;
+}
+
+.skin-thumb img {
+  max-width: 100%;
+  max-height: 100%;
+  object-fit: contain;
+  pointer-events: none;
+}
+
+.skin-name {
+  font-size: 12px;
+  color: #5b4a2a;
+  text-align: center;
+  line-height: 1.2;
+}
+
+@keyframes skin-fade {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+

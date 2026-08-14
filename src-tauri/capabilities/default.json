@@ -12,6 +12,7 @@
     "core:event:allow-listen",
     "allow-start-mouse-watch",
     "allow-load-note",
-    "allow-save-note"
+    "allow-save-note",
+    "allow-list-skins"
   ]
 }
