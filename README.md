@@ -35,6 +35,8 @@ npm run tauri:dev      # 等价于 npx tauri dev
 - 鼠标移到右边沿附近 → 挂件滑出（revealed）。
 - 点击挂件 → 展开速记面板（expanded），可输入标题/正文，**输入即自动保存**到本地 `notes.db`。
 - 面板内按 `Esc` 或点右上角 `×` 收起；鼠标离开球一段时间也会自动收边。
+- 面板顶部「皮肤」可换挂件材质；「设置」可调挂件尺寸、面板宽高、自动收起延时、闲置不透明度（即时生效并本地保存）。
+- 右下角系统托盘菜单可「显示挂件 / 隐藏挂件 / 退出」。
 - 下方列表可切换 / 删除历史笔记。
 
 ---
@@ -50,7 +52,7 @@ npm run tauri:dev      # 等价于 npx tauri dev
 - 仅单显示器；多屏 / 热插拔未处理。
 - DPI 缩放在前端用 `devicePixelRatio` 做了近似换算，高 DPI 下感应区可能有偏差，需后续用 Tauri `scaleFactor` 校正。
 - 没有做"点击窗口外部自动收起"的全局点击监听（原型先用 Esc / × 关闭）。
-- 图标是占位方块，正式用请替换。
+- 应用图标已接入：源图放 `public/icon.png`，由 `npx tauri icon public/icon.png` 生成全套图标到 `src-tauri/icons/`。
 
 ---
 
@@ -70,14 +72,15 @@ floating-notepad/
 │  └─ components/
 │     ├─ FloatingWidget.tsx
 │     ├─ NotePanel.tsx
-│     └─ SkinPanel.tsx
+│     ├─ SkinPanel.tsx
+│     └─ SettingsPanel.tsx  # 挂件/面板参数设置
 └─ src-tauri/                # Rust 后端
    ├─ Cargo.toml
    ├─ tauri.conf.json
    ├─ build.rs
-   ├─ icons/
+   ├─ icons/                # 应用图标（由 tauri icon 生成）
    └─ src/
       ├─ main.rs
-      ├─ lib.rs              # 命令 + 鼠标轮询
+      ├─ lib.rs              # 命令 + 鼠标轮询 + 系统托盘
       └─ db.rs              # SQLite
 ```
