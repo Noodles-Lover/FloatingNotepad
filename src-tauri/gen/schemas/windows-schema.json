@@ -189,16 +189,22 @@
           "markdownDescription": "Allow listing the skin (material pack) folders under public/skin."
         },
         {
-          "description": "Allow loading the single note document from the local SQLite database.",
+          "description": "Allow loading all scratch tabs and the active tab id from the local SQLite database.",
           "type": "string",
-          "const": "allow-load-note",
-          "markdownDescription": "Allow loading the single note document from the local SQLite database."
+          "const": "allow-load-tabs",
+          "markdownDescription": "Allow loading all scratch tabs and the active tab id from the local SQLite database."
         },
         {
-          "description": "Allow saving (insert/update) the note document in the local SQLite database.",
+          "description": "Allow saving (replace) all scratch tabs in the local SQLite database.",
           "type": "string",
-          "const": "allow-save-note",
-          "markdownDescription": "Allow saving (insert/update) the note document in the local SQLite database."
+          "const": "allow-save-tabs",
+          "markdownDescription": "Allow saving (replace) all scratch tabs in the local SQLite database."
+        },
+        {
+          "description": "Allow persisting the currently active scratch tab id.",
+          "type": "string",
+          "const": "allow-set-active-tab",
+          "markdownDescription": "Allow persisting the currently active scratch tab id."
         },
         {
           "description": "Allow showing the main floating window from Rust/tray.",

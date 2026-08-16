@@ -3,11 +3,11 @@ import { invoke } from "@tauri-apps/api/core";
 import { listen, type UnlistenFn } from "@tauri-apps/api/event";
 import { WindowController, type Edge } from "./lib/window";
 import { NoteWindow } from "./lib/noteWindow";
-import { NoteRepository } from "./lib/db";
+import { loadState, saveTabs, setActiveTab } from "./lib/db";
 import { ProximitySensor } from "./lib/proximity";
-import { loadConfig, saveConfigOverride, DEFAULT_CONFIG, type AppConfig } from "./lib/config";
+import { loadConfig, saveConfig, DEFAULT_CONFIG, type AppConfig } from "./lib/config";
 import { loadSkins, resolveSkin, loadSkinName, saveSkinName, type Skin } from "./lib/skins";
-import type { Note, Todo } from "./types";
+import type { Tab, Todo } from "./types";
 import FloatingWidget from "./components/FloatingWidget";
 import NotePanel from "./components/NotePanel";
 import SkinPanel from "./components/SkinPanel";
@@ -22,10 +22,9 @@ const CLOSE_ANIM = 220;
 /** 文本/任务改动后多久落库一次（防抖，毫秒）。 */
 const SAVE_DEBOUNCE = 400;
 
-/** 新建一份空白笔记文档（固定 id = 1，单文档模型）。 */
-function emptyNote(): Note {
-  const now = Date.now();
-  return { id: 1, content: "", todos: [], created_at: now, updated_at: now };
+/** 新建一个空白标签页。 */
+function newTab(seq: number): Tab {
+  return { id: Date.now() + seq, title: `速记 ${seq}`, note: "", todos: [] };
 }
 
 export default function App() {
@@ -34,7 +33,8 @@ export default function App() {
   const [closing, setClosing] = useState(false); // 是否正在播放收起动画
   const [edge, setEdge] = useState<Edge>("right"); // 悬浮挂件当前贴附的边
   const [dragging, setDragging] = useState(false); // 悬浮挂件是否正在被拖动
-  const [note, setNote] = useState<Note>(emptyNote()); // 唯一一份笔记文档
+  const [tabs, setTabs] = useState<Tab[]>([]); // 全部速记标签页
+  const [activeTabId, setActiveTabId] = useState<number>(0); // 当前激活的标签页 id
   const [config, setConfig] = useState<AppConfig>(DEFAULT_CONFIG); // 用户配置（挂件大小/窗口/自动关闭）
   const [skins, setSkins] = useState<Skin[]>([]); // 可用皮肤清单（运行时从 skin 目录自动读取）
   const [skinName, setSkinName] = useState<string>(() => loadSkinName()); // 当前选用皮肤名（永久保存）
@@ -54,24 +54,26 @@ export default function App() {
   configRef.current = config;
   const appHiddenRef = useRef(false); // 托盘“隐藏挂件”后整窗隐藏，期间 proximity 不响应
   const modalOpenRef = useRef(false); // 皮肤/设置面板打开时，暂停 proximity 的收起与弹出
-  const noteRef = useRef<Note>(note); // 最新文档，供防抖保存读取
-  noteRef.current = note;
+  const tabsRef = useRef<Tab[]>(tabs); // 最新标签页，供防抖保存读取
+  tabsRef.current = tabs;
+  const activeRef = useRef<number>(activeTabId); // 最新激活 id，供防抖保存读取
+  activeRef.current = activeTabId;
+  const loadedRef = useRef(false); // 标签页是否已从后端加载完成（防止启动期空数据覆盖）
 
   modeRef.current = mode;
   modalOpenRef.current = skinOpen || settingsOpen;
 
-  // WindowController 与 NoteRepository 都是“只创建一次”的控制器实例。
+  // WindowController 等控制器都是“只创建一次”的实例。
   const windowCtlRef = useRef<WindowController | null>(null);
   if (!windowCtlRef.current) windowCtlRef.current = new WindowController(config.widgetSize);
   const windowCtl = windowCtlRef.current;
 
-  const notesRepoRef = useRef<NoteRepository | null>(null);
-  if (!notesRepoRef.current) notesRepoRef.current = new NoteRepository();
-  const notesRepo = notesRepoRef.current;
-
   const noteWinRef = useRef<NoteWindow | null>(null);
   if (!noteWinRef.current) noteWinRef.current = new NoteWindow(windowCtl, config);
   const noteWin = noteWinRef.current;
+
+  // ---- 当前激活的标签页（派生）----
+  const activeTab: Tab | undefined = tabs.find((t) => t.id === activeTabId) ?? tabs[0];
 
   // ---- 定时器管理 ----
   const clearTimers = () => {
@@ -87,11 +89,13 @@ export default function App() {
 
   /** 防抖落库：任何文本/任务改动都会触发，SAVE_DEBOUNCE 内只存一次。 */
   const scheduleSave = useCallback(() => {
+    // 未加载完成前绝不落库，否则会用初始的空 tabs 覆盖掉刚迁移/恢复的数据。
+    if (!loadedRef.current) return;
     if (saveTimer.current) window.clearTimeout(saveTimer.current);
     saveTimer.current = window.setTimeout(() => {
-      notesRepo.save(noteRef.current).catch((e) => console.error("[save] 失败:", e));
+      saveTabs(tabsRef.current).catch((e) => console.error("[save] 失败:", e));
     }, SAVE_DEBOUNCE);
-  }, [notesRepo]);
+  }, []);
 
   /** 真正执行“收起”：切回隐藏态并让窗口回到球隐藏态。窗口动作统一交给 NoteWindow。 */
   const doClose = useCallback(() => {
@@ -137,7 +141,7 @@ export default function App() {
     (next: AppConfig) => {
       setConfig(next);
       applyConfigToCtl(next);
-      saveConfigOverride(next);
+      saveConfig(next);
     },
     [applyConfigToCtl],
   );
@@ -147,7 +151,7 @@ export default function App() {
     if (skinOpen || settingsOpen) clearTimers();
   }, [skinOpen, settingsOpen]);
 
-  // 加载用户配置（出厂默认 <- public/config.json <- localStorage 覆盖），
+  // 加载用户配置（出厂默认 <- public/config.ini <- localStorage 覆盖），
   // 拿到后既要刷新 React 状态，也要立刻应用到窗口控制器（否则挂件大小/窗口尺寸不生效）。
   useEffect(() => {
     let alive = true;
@@ -192,8 +196,12 @@ export default function App() {
     });
   }, [windowCtl]);
 
-  // 初始化：默认展示挂件、启动全局鼠标监听、恢复上次笔记。
+  // 初始化：默认展示挂件、启动全局鼠标监听、恢复上次标签页。
   useEffect(() => {
+    // 先用真实显示器尺寸刷新屏幕，否则 window.screen 在 Tauri 下不可靠，
+    // 会把挂件/面板定位到屏幕外（表现为“点一下挂件就消失、窗口看不见”）。
+    windowCtl.refreshScreen().catch((e) => console.error("[refreshScreen] 失败:", e));
+    noteWin.refreshScreen().catch((e) => console.error("[refreshScreen] 失败:", e));
     windowCtl.showWidget();
     invoke("start_mouse_watch").catch((e) => {
       console.error("[start_mouse_watch] 调用失败:", e);
@@ -216,12 +224,19 @@ export default function App() {
     }).then((fn) => {
       unlistenHide = fn;
     });
-    notesRepo
-      .load()
-      .then((n) => {
-        if (n) setNote(n);
+    loadState()
+      .then((state) => {
+        loadedRef.current = true;
+        if (state.tabs.length === 0) return;
+        setTabs(state.tabs);
+        setActiveTabId(state.activeTabId);
+        // 主动存回一次，确保数据库中的 position / active_tab_id 与前端一致（含已迁移的待办）。
+        scheduleSave();
       })
-      .catch((e) => console.error("[load] 失败:", e));
+      .catch((e) => {
+        loadedRef.current = true;
+        console.error("[load] 失败:", e);
+      });
 
     // 判断某个屏幕坐标是否落在当前模式的 UI 范围内。
     // expanded（面板）读 NoteWindow 真实矩形；hidden/revealed（挂件）读 WindowController。
@@ -261,7 +276,8 @@ export default function App() {
           if (isInside) {
             clearTimers();
             setClosing(false);
-          } else if (!hideTimer.current && !closeTimer.current) {
+          } else if (!configRef.current.pinned && !hideTimer.current && !closeTimer.current) {
+            // 面板未固定时才随鼠标离开自动收起；固定后只有手动点叉能关闭。
             hideTimer.current = window.setTimeout(beginClose, configRef.current.autoCloseDelay);
           }
         }
@@ -274,7 +290,7 @@ export default function App() {
       unlistenShow?.();
       unlistenHide?.();
     };
-  }, [windowCtl, notesRepo, beginClose, noteWin]);
+  }, [windowCtl, beginClose, noteWin]);
 
   /** 打开笔记面板。 */
   const openPanel = useCallback(() => {
@@ -304,96 +320,137 @@ export default function App() {
     [skins, windowCtl],
   );
 
-  // ---- 笔记文档编辑（自动保存）----
-  const onContentChange = useCallback(
-    (content: string) => {
-      setNote((prev) => ({ ...prev, content }));
+  // ---- 标签页操作 ----
+  const switchTab = useCallback((id: number) => {
+    setActiveTabId(id);
+    setActiveTab(id).catch((e) => console.error("[setActiveTab] 失败:", e));
+  }, []);
+
+  const addTab = useCallback(() => {
+    setTabs((prev) => {
+      const tab = newTab(prev.length + 1);
+      setActiveTabId(tab.id);
+      setActiveTab(tab.id).catch(() => {});
+      return [...prev, tab];
+    });
+    scheduleSave();
+  }, [scheduleSave]);
+
+  const renameTab = useCallback(
+    (id: number, title: string) => {
+      setTabs((prev) => prev.map((t) => (t.id === id ? { ...t, title } : t)));
       scheduleSave();
     },
     [scheduleSave],
+  );
+
+  // ---- 当前标签页的编辑（自动保存）----
+  const updateActive = useCallback(
+    (patch: Partial<Tab>) => {
+      setTabs((prev) =>
+        prev.map((t) => (t.id === activeRef.current ? { ...t, ...patch } : t)),
+      );
+      scheduleSave();
+    },
+    [scheduleSave],
+  );
+
+  const onContentChange = useCallback(
+    (content: string) => {
+      updateActive({ note: content });
+    },
+    [updateActive],
   );
 
   const onAddTodo = useCallback(
     (text: string) => {
       const todo: Todo = { id: crypto.randomUUID(), text, done: false, priority: 5, note: "" };
-      setNote((prev) => ({ ...prev, todos: [...prev.todos, todo] }));
-      scheduleSave();
+      const cur = tabsRef.current.find((t) => t.id === activeRef.current);
+      const todos = [...(cur?.todos ?? []), todo];
+      updateActive({ todos });
     },
-    [scheduleSave],
-  );
-
-  const onPriorityTodo = useCallback(
-    (id: string, priority: number) => {
-      setNote((prev) => ({
-        ...prev,
-        todos: prev.todos.map((t) =>
-          t.id === id ? { ...t, priority: Math.min(10, Math.max(1, priority)) } : t,
-        ),
-      }));
-      scheduleSave();
-    },
-    [scheduleSave],
+    [updateActive],
   );
 
   const onToggleTodo = useCallback(
     (id: string) => {
-      setNote((prev) => ({
-        ...prev,
-        todos: prev.todos.map((t) => (t.id === id ? { ...t, done: !t.done } : t)),
-      }));
-      scheduleSave();
+      const cur = tabsRef.current.find((t) => t.id === activeRef.current);
+      const todos = (cur?.todos ?? []).map((t) =>
+        t.id === id ? { ...t, done: !t.done } : t,
+      );
+      updateActive({ todos });
     },
-    [scheduleSave],
+    [updateActive],
   );
 
   const onEditTodo = useCallback(
     (id: string, text: string) => {
-      setNote((prev) => ({
-        ...prev,
-        todos: prev.todos.map((t) => (t.id === id ? { ...t, text } : t)),
-      }));
-      scheduleSave();
+      const cur = tabsRef.current.find((t) => t.id === activeRef.current);
+      const todos = (cur?.todos ?? []).map((t) => (t.id === id ? { ...t, text } : t));
+      updateActive({ todos });
     },
-    [scheduleSave],
+    [updateActive],
+  );
+
+  const onPriorityTodo = useCallback(
+    (id: string, priority: number) => {
+      const cur = tabsRef.current.find((t) => t.id === activeRef.current);
+      const todos = (cur?.todos ?? []).map((t) =>
+        t.id === id ? { ...t, priority } : t,
+      );
+      updateActive({ todos });
+    },
+    [updateActive],
   );
 
   const onEditTodoNote = useCallback(
     (id: string, note: string) => {
-      setNote((prev) => ({
-        ...prev,
-        todos: prev.todos.map((t) => (t.id === id ? { ...t, note } : t)),
-      }));
-      scheduleSave();
+      const cur = tabsRef.current.find((t) => t.id === activeRef.current);
+      const todos = (cur?.todos ?? []).map((t) => (t.id === id ? { ...t, note } : t));
+      updateActive({ todos });
     },
-    [scheduleSave],
+    [updateActive],
   );
 
   const onDeleteTodo = useCallback(
     (id: string) => {
-      setNote((prev) => ({ ...prev, todos: prev.todos.filter((t) => t.id !== id) }));
-      scheduleSave();
+      const cur = tabsRef.current.find((t) => t.id === activeRef.current);
+      const todos = (cur?.todos ?? []).filter((t) => t.id !== id);
+      updateActive({ todos });
     },
-    [scheduleSave],
+    [updateActive],
   );
 
+  /** 切换面板固定状态并持久化。 */
+  const onTogglePin = useCallback(() => {
+    onConfigChange({ ...configRef.current, pinned: !configRef.current.pinned });
+  }, [onConfigChange]);
+
   // 渲染时按优先级降序排列（高优先级在前），不修改底层存储顺序。
-  const sortedNote: Note = {
-    ...note,
-    todos: [...note.todos].sort((a, b) => b.priority - a.priority),
-  };
+  const sortedTodos = [...(activeTab?.todos ?? [])].sort(
+    (a, b) => b.priority - a.priority,
+  );
 
   return (
     <div className="app">
       {mode === "expanded" ? (
         <NotePanel
-          note={sortedNote}
+          note={activeTab?.note ?? ""}
+          todos={sortedTodos}
+          tabs={tabs}
+          activeTabId={activeTabId}
           onContentChange={onContentChange}
           onAddTodo={onAddTodo}
           onToggleTodo={onToggleTodo}
           onEditTodo={onEditTodo}
-          onEditTodoNote={onEditTodoNote}
           onPriorityTodo={onPriorityTodo}
+          onEditTodoNote={onEditTodoNote}
           onDeleteTodo={onDeleteTodo}
+          pinned={config.pinned}
+          onTogglePin={onTogglePin}
+          onSwitchTab={switchTab}
+          onAddTab={addTab}
+          onRenameTab={renameTab}
           onClose={() => beginClose(true)}
           closing={closing}
           edge={edge}

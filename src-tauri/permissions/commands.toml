@@ -13,14 +13,19 @@ description = "Allow starting the global cursor watcher that drives the floating
 commands.allow = ["start_mouse_watch"]
 
 [[permission]]
-identifier = "allow-load-note"
-description = "Allow loading the single note document from the local SQLite database."
-commands.allow = ["load_note"]
+identifier = "allow-load-tabs"
+description = "Allow loading all scratch tabs and the active tab id from the local SQLite database."
+commands.allow = ["load_tabs"]
 
 [[permission]]
-identifier = "allow-save-note"
-description = "Allow saving (insert/update) the note document in the local SQLite database."
-commands.allow = ["save_note"]
+identifier = "allow-save-tabs"
+description = "Allow saving (replace) all scratch tabs in the local SQLite database."
+commands.allow = ["save_tabs"]
+
+[[permission]]
+identifier = "allow-set-active-tab"
+description = "Allow persisting the currently active scratch tab id."
+commands.allow = ["set_active_tab"]
 
 [[permission]]
 identifier = "allow-list-skins"

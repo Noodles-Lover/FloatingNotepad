@@ -107,6 +107,92 @@ body {
   transform: scaleX(-1);
 }
 
+/* ---------- 速记标签页 ---------- */
+.tab-bar {
+  display: flex;
+  align-items: stretch;
+  gap: 4px;
+  overflow-x: auto;
+  overflow-y: hidden;
+  padding-bottom: 2px;
+  user-select: none;
+  -webkit-user-select: none;
+}
+
+.tab-bar::-webkit-scrollbar {
+  height: 5px;
+}
+
+.tab {
+  flex: 0 0 auto;
+  max-width: 130px;
+  display: flex;
+  align-items: center;
+  background: #f3e9c8;
+  border: 1px solid #e3d3a0;
+  border-bottom: none;
+  border-radius: 8px 8px 0 0;
+  padding: 4px 10px;
+  font-size: 13px;
+  color: #8a7338;
+  cursor: pointer;
+  white-space: nowrap;
+  overflow: hidden;
+  transition: background 140ms ease, color 140ms ease;
+}
+
+.tab:hover {
+  background: #efe0b4;
+}
+
+.tab.active {
+  background: #fffdf5;
+  color: #5b4a2a;
+  font-weight: 700;
+  box-shadow: 0 -2px 0 #d8a93c inset;
+}
+
+.tab-title {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  pointer-events: none;
+}
+
+.tab-rename {
+  width: 110px;
+  border: 1px solid #d8bd6e;
+  border-radius: 5px;
+  background: #fffdf5;
+  color: #5b4a2a;
+  font-size: 13px;
+  padding: 1px 5px;
+}
+
+.tab-add {
+  flex: 0 0 auto;
+  width: 28px;
+  height: 28px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: rgba(168, 145, 90, 0.15);
+  border: 1px solid #d8bd6e;
+  color: #6b5526;
+  font-size: 18px;
+  line-height: 1;
+  border-radius: 8px;
+  cursor: pointer;
+  transition: background 140ms ease, transform 140ms ease;
+}
+
+.tab-add:hover {
+  background: rgba(168, 145, 90, 0.3);
+}
+
+.tab-add:active {
+  transform: scale(0.92);
+}
+
 /* ---------- Note panel (light-yellow notebook) ---------- */
 .panel {
   width: 100%;
@@ -235,6 +321,92 @@ body {
   font-size: 14px;
   user-select: text;
   -webkit-user-select: text;
+}
+
+/* ---------- 速记标签页 ---------- */
+.tab-bar {
+  display: flex;
+  align-items: stretch;
+  gap: 4px;
+  overflow-x: auto;
+  overflow-y: hidden;
+  padding-bottom: 4px;
+  user-select: none;
+  -webkit-user-select: none;
+}
+
+.tab-bar::-webkit-scrollbar {
+  height: 5px;
+}
+
+.tab {
+  flex: 0 0 auto;
+  max-width: 130px;
+  display: flex;
+  align-items: center;
+  background: #f3e9c8;
+  border: 1px solid #e3d3a0;
+  border-bottom: none;
+  border-radius: 8px 8px 0 0;
+  padding: 4px 10px;
+  font-size: 13px;
+  color: #8a7338;
+  cursor: pointer;
+  white-space: nowrap;
+  overflow: hidden;
+  transition: background 140ms ease, color 140ms ease;
+}
+
+.tab:hover {
+  background: #efe0b4;
+}
+
+.tab.active {
+  background: #fffdf5;
+  color: #5b4a2a;
+  font-weight: 700;
+  box-shadow: 0 -2px 0 #d8a93c inset;
+}
+
+.tab-title {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  pointer-events: none;
+}
+
+.tab-rename {
+  width: 110px;
+  border: 1px solid #d8bd6e;
+  border-radius: 5px;
+  background: #fffdf5;
+  color: #5b4a2a;
+  font-size: 13px;
+  padding: 1px 5px;
+}
+
+.tab-add {
+  flex: 0 0 auto;
+  width: 28px;
+  height: 28px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: rgba(168, 145, 90, 0.15);
+  border: 1px solid #d8bd6e;
+  color: #6b5526;
+  font-size: 18px;
+  line-height: 1;
+  border-radius: 8px;
+  cursor: pointer;
+  transition: background 140ms ease, transform 140ms ease;
+}
+
+.tab-add:hover {
+  background: rgba(168, 145, 90, 0.3);
+}
+
+.tab-add:active {
+  transform: scale(0.92);
 }
 
 .content {
@@ -542,6 +714,36 @@ body {
 
 .skin-btn:active {
   transform: scale(0.95);
+}
+
+/* 固定按钮：默认与皮肤按钮一致，激活态高亮表示已固定 */
+.pin-btn {
+  height: 26px;
+  padding: 0 12px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border: 1px solid var(--border, rgba(168, 145, 90, 0.3));
+  border-radius: 7px;
+  background: rgba(168, 145, 90, 0.14);
+  color: var(--text-strong, #f4ecd8);
+  font-size: 13px;
+  cursor: pointer;
+  transition: background 140ms ease, transform 140ms ease;
+}
+
+.pin-btn:hover {
+  background: rgba(168, 145, 90, 0.28);
+}
+
+.pin-btn:active {
+  transform: scale(0.95);
+}
+
+.pin-btn.active {
+  background: rgba(120, 200, 120, 0.3);
+  border-color: rgba(120, 200, 120, 0.6);
+  color: #d6ffd6;
 }
 
 /* ---------- Skin panel（皮肤选择覆盖层） ---------- */

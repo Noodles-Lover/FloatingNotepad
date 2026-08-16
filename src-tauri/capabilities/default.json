@@ -16,8 +16,9 @@
     "core:event:allow-listen",
     "core:event:allow-emit",
     "allow-start-mouse-watch",
-    "allow-load-note",
-    "allow-save-note",
+    "allow-load-tabs",
+    "allow-save-tabs",
+    "allow-set-active-tab",
     "allow-list-skins",
     "allow-show-main",
     "allow-hide-main"

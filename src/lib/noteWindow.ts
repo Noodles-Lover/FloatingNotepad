@@ -1,4 +1,4 @@
-import { getCurrentWindow } from "@tauri-apps/api/window";
+import { getCurrentWindow, currentMonitor } from "@tauri-apps/api/window";
 import { LogicalPosition, LogicalSize } from "@tauri-apps/api/dpi";
 import { WindowController, type Edge, type Rect } from "./window";
 import type { AppConfig } from "./config";
@@ -15,7 +15,8 @@ const MARGIN = 6;
  */
 export class NoteWindow {
   private readonly win = getCurrentWindow();
-  private readonly screen = { w: window.screen.width, h: window.screen.height };
+  /** 屏幕逻辑尺寸，启动后由 refreshScreen() 用真实显示器尺寸覆盖。 */
+  private screen = { w: window.screen.width, h: window.screen.height };
   private panelW: number;
   private panelH: number;
   private widgetSize: number;
@@ -37,6 +38,19 @@ export class NoteWindow {
     this.panelW = cfg.windowWidth;
     this.panelH = cfg.windowHeight;
     this.widgetSize = cfg.widgetSize;
+  }
+
+  /** 用 Tauri 真实显示器尺寸刷新内部 screen（逻辑像素），避免窗口被放到屏幕外。 */
+  async refreshScreen(): Promise<void> {
+    try {
+      const mon = await currentMonitor();
+      if (mon) {
+        const size = mon.size.toLogical(mon.scaleFactor);
+        this.screen = { w: size.width, h: size.height };
+      }
+    } catch (e) {
+      console.error("[NoteWindow.refreshScreen] 失败:", e);
+    }
   }
 
   /**

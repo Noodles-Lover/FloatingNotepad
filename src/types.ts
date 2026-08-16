@@ -1,20 +1,21 @@
-/** 单条 to-do 任务。 */
 export interface Todo {
-  id: string; // 前端生成的唯一 id（保存时序列化为 JSON）
-  text: string; // 任务内容
-  done: boolean; // 是否完成
-  priority: number; // 优先级 1-10，越高越靠前，默认 5
-  note: string; // 任务备注（可选，默认空）
+  id: string;
+  text: string;
+  done: boolean;
+  priority: number; // 0=低 1=中 2=高（兼容旧数据）
+  note: string; // 备注
 }
 
-/**
- * 应用只维护一份笔记文档：一段自由文本 + 一组 to-do 任务。
- * 固定使用 id = 1 存储，启动时恢复。
- */
-export interface Note {
+/** 一个速记标签页：独立标题、文本与待办，永久存储。 */
+export interface Tab {
   id: number;
-  content: string; // 文本域内容
-  todos: Todo[]; // to-do 列表
-  created_at: number;
-  updated_at: number;
+  title: string;
+  note: string;
+  todos: Todo[];
+}
+
+/** 应用启动时从后端读取的整体状态。 */
+export interface PersistState {
+  tabs: Tab[];
+  activeTabId: number;
 }

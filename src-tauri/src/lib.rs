@@ -90,13 +90,20 @@ fn start_mouse_watch(app: AppHandle, watcher: State<MouseWatcher>) {
 }
 
 #[tauri::command]
-fn load_note(repo: State<db::NoteRepository>) -> Result<Option<db::Note>, String> {
-    repo.load().map_err(|e| e.to_string())
+fn load_tabs() -> Result<db::PersistState, String> {
+    Ok(db::load_state())
 }
 
 #[tauri::command]
-fn save_note(repo: State<db::NoteRepository>, note: db::Note) -> Result<db::Note, String> {
-    repo.save(note).map_err(|e| e.to_string())
+fn save_tabs(tabs: Vec<db::TabInput>) -> Result<(), String> {
+    db::save_tabs(tabs);
+    Ok(())
+}
+
+#[tauri::command]
+fn set_active_tab(tab_id: i64) -> Result<(), String> {
+    db::set_active_tab(tab_id);
+    Ok(())
 }
 
 /// 列出 skin/ 下的所有材质包（文件夹名即材质名）。
@@ -136,12 +143,9 @@ fn list_skins(app: AppHandle) -> Result<Vec<String>, String> {
 pub fn run() {
     tauri::Builder::default()
         .setup(|app| {
-            app.manage(db::NoteRepository::new(app.handle().clone()));
             app.manage(MouseWatcher::new());
             // Create the schema up front; fail loudly if storage is unavailable.
-            app.state::<db::NoteRepository>()
-                .init()
-                .map_err(|e| e.to_string())?;
+            db::init_db(app);
 
             // 系统托盘：右键菜单显示 / 隐藏挂件。
             let show_item = MenuItem::with_id(app, "show", "显示挂件", true, None::<&str>)?;
@@ -170,8 +174,9 @@ pub fn run() {
         })
         .invoke_handler(tauri::generate_handler![
             start_mouse_watch,
-            load_note,
-            save_note,
+            load_tabs,
+            save_tabs,
+            set_active_tab,
             list_skins,
             show_main,
             hide_main,

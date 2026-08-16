@@ -1,9 +1,12 @@
 import { useEffect, useRef, useState } from "react";
-import type { Note } from "../types";
+import type { Tab, Todo } from "../types";
 import type { Edge } from "../lib/window";
 
 interface Props {
-  note: Note;
+  note: string;
+  todos: Todo[];
+  tabs: Tab[];
+  activeTabId: number;
   onContentChange: (content: string) => void;
   onAddTodo: (text: string) => void;
   onToggleTodo: (id: string) => void;
@@ -11,6 +14,11 @@ interface Props {
   onEditTodoNote: (id: string, note: string) => void;
   onPriorityTodo: (id: string, priority: number) => void;
   onDeleteTodo: (id: string) => void;
+  pinned: boolean;
+  onTogglePin: () => void;
+  onSwitchTab: (id: number) => void;
+  onAddTab: () => void;
+  onRenameTab: (id: number, title: string) => void;
   onClose: () => void;
   closing: boolean;
   edge: Edge; // 当前贴附的边，决定面板动画从哪侧飘出
@@ -28,6 +36,9 @@ function priorityColor(p: number): string {
 
 export default function NotePanel({
   note,
+  todos,
+  tabs,
+  activeTabId,
   onContentChange,
   onAddTodo,
   onToggleTodo,
@@ -35,6 +46,11 @@ export default function NotePanel({
   onEditTodoNote,
   onPriorityTodo,
   onDeleteTodo,
+  pinned,
+  onTogglePin,
+  onSwitchTab,
+  onAddTab,
+  onRenameTab,
   onClose,
   closing,
   edge,
@@ -46,15 +62,11 @@ export default function NotePanel({
   const [newText, setNewText] = useState("");
   // 当前正在编辑备注的任务 id 集合（点击任务行切换展开备注输入框）。
   const [editingNotes, setEditingNotes] = useState<Set<string>>(new Set());
-
-  const toggleNote = (id: string) => {
-    setEditingNotes((prev) => {
-      const next = new Set(prev);
-      if (next.has(id)) next.delete(id);
-      else next.add(id);
-      return next;
-    });
-  };
+  // 正在重命名的标签页 id 与临时标题（双击标题进入编辑）。
+  const [editingTabId, setEditingTabId] = useState<number | null>(null);
+  const [editTitle, setEditTitle] = useState("");
+  // 备注气泡：脱离 todo-list 的 overflow 裁切，用 fixed 定位在任务行上方。
+  const [hoverNote, setHoverNote] = useState<{ text: string; rect: DOMRect } | null>(null);
 
   useEffect(() => {
     taRef.current?.focus();
@@ -76,14 +88,40 @@ export default function NotePanel({
     setNewText("");
   };
 
-  // 备注气泡：脱离 todo-list 的 overflow 裁切，用 fixed 定位在任务行上方。
-  const [hoverNote, setHoverNote] = useState<{ text: string; rect: DOMRect } | null>(null);
+  const toggleNote = (id: string) => {
+    setEditingNotes((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
+  };
+
+  const beginRename = (tab: Tab) => {
+    setEditingTabId(tab.id);
+    setEditTitle(tab.title);
+  };
+
+  const commitRename = () => {
+    if (editingTabId !== null) {
+      const title = editTitle.trim() || "速记";
+      onRenameTab(editingTabId, title);
+    }
+    setEditingTabId(null);
+  };
 
   return (
     <div className={`panel dock-${edge} ${closing ? "closing" : ""}`}>
       <div className="panel-head">
         <span>速记</span>
         <div className="head-actions">
+          <button
+            className={`pin-btn ${pinned ? "active" : ""}`}
+            onClick={onTogglePin}
+            title={pinned ? "已固定（点此取消固定）" : "固定面板（固定后不自动收起）"}
+          >
+            {pinned ? "已固定" : "固定"}
+          </button>
           <button className="skin-btn" onClick={onOpenSkin} title="皮肤">
             皮肤
           </button>
@@ -96,17 +134,50 @@ export default function NotePanel({
         </div>
       </div>
 
+      {/* 速记标签页：双击标题重命名，单击切换，右侧 + 新增 */}
+      <div className="tab-bar">
+        {tabs.map((tab) => (
+          <div
+            key={tab.id}
+            className={`tab ${tab.id === activeTabId ? "active" : ""}`}
+            onClick={() => onSwitchTab(tab.id)}
+            onDoubleClick={() => beginRename(tab)}
+            title="单击切换，双击重命名"
+          >
+            {editingTabId === tab.id ? (
+              <input
+                className="tab-rename"
+                autoFocus
+                value={editTitle}
+                onChange={(e) => setEditTitle(e.target.value)}
+                onBlur={commitRename}
+                onKeyDown={(e) => {
+                  if (e.key === "Enter") commitRename();
+                  if (e.key === "Escape") setEditingTabId(null);
+                }}
+                onClick={(e) => e.stopPropagation()}
+              />
+            ) : (
+              <span className="tab-title">{tab.title}</span>
+            )}
+          </div>
+        ))}
+        <button className="tab-add" onClick={onAddTab} title="新增标签页">
+          +
+        </button>
+      </div>
+
       <textarea
         ref={taRef}
         className="content"
-        value={note.content}
+        value={note}
         placeholder="写点什么…"
         onChange={(e) => onContentChange(e.target.value)}
       />
 
       <div className="todo-head">待办</div>
       <div className="todo-list">
-        {note.todos.map((t) => {
+        {todos.map((t) => {
           const color = priorityColor(t.priority);
           const editing = editingNotes.has(t.id);
           return (

@@ -1,4 +1,4 @@
-import { getCurrentWindow } from "@tauri-apps/api/window";
+import { getCurrentWindow, currentMonitor } from "@tauri-apps/api/window";
 import { LogicalPosition, LogicalSize } from "@tauri-apps/api/dpi";
 
 /** 贴附的边：只在左右两边之间切换。 */
@@ -21,7 +21,8 @@ export interface Rect {
  */
 export class WindowController {
   private readonly win = getCurrentWindow(); // 当前窗口
-  private readonly screen = { w: window.screen.width, h: window.screen.height }; // 屏幕逻辑尺寸
+  /** 屏幕逻辑尺寸。初始用 window.screen 兜底，启动后由 refreshScreen() 用真实显示器尺寸覆盖。 */
+  private screen = { w: window.screen.width, h: window.screen.height };
   private dockEdge: Edge = "right"; // 当前贴附的边
   private dockY: number; // 当前停靠高度的“中心 Y”（逻辑像素）
   private dragEndCb: ((edge: Edge) => void) | null = null; // 拖动结束回调
@@ -40,6 +41,23 @@ export class WindowController {
   /** 注册“OS 拖动结束”回调；挂件吸附到就近边后会带上最终边沿调用它。 */
   onDragEnd(cb: (edge: Edge) => void): void {
     this.dragEndCb = cb;
+  }
+
+  /**
+   * 用 Tauri 真实显示器尺寸刷新内部 screen（逻辑像素）。
+   * window.screen 在 Tauri WebView 里不可靠（多屏/缩放下会错位，导致窗口被放到屏幕外），
+   * 必须用 currentMonitor() 获取当前窗口所在显示器的真实尺寸。
+   */
+  async refreshScreen(): Promise<void> {
+    try {
+      const mon = await currentMonitor();
+      if (mon) {
+        const size = mon.size.toLogical(mon.scaleFactor);
+        this.screen = { w: size.width, h: size.height };
+      }
+    } catch (e) {
+      console.error("[refreshScreen] 失败，沿用 window.screen:", e);
+    }
   }
 
   /** 设置悬浮挂件尺寸（逻辑像素），并立即按新尺寸重新停靠。 */

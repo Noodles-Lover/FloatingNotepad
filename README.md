@@ -33,18 +33,18 @@ npm run tauri:dev      # 等价于 npx tauri dev
 ## 交互说明
 - 启动后挂件贴在**右边沿**，只露一条小边（hidden）。
 - 鼠标移到右边沿附近 → 挂件滑出（revealed）。
-- 点击挂件 → 展开速记面板（expanded），可输入标题/正文，**输入即自动保存**到本地 `notes.db`。
+- 点击挂件 → 展开速记面板（expanded），可输入正文与待办，**输入即自动保存**到本地 `notes.db`。
 - 面板内按 `Esc` 或点右上角 `×` 收起；鼠标离开球一段时间也会自动收边。
+- **速记标签页**：面板文本域上方是一排标签页。**单击**切换、**双击标题**重命名、**右侧 +** 新增一个空白标签页。所有标签页及当前激活页都永久存储，下次启动自动恢复。
 - 面板顶部「皮肤」可换挂件材质；「设置」可调挂件尺寸、面板宽高、自动收起延时、闲置不透明度（即时生效并本地保存）。
 - 右下角系统托盘菜单可「显示挂件 / 隐藏挂件 / 退出」。
-- 下方列表可切换 / 删除历史笔记。
 
 ---
 
 ## 关键实现点
 - **贴边感应**：Rust 侧 `start_mouse_watch` 用 `GetCursorPos` 每 ~100ms 轮询一次全局光标，通过 `cursor-move` 事件发给前端；前端判断"是否靠近右边沿 + 在挂件的纵向范围内"决定是否弹出（策略放在前端，方便你调阈值）。
 - **窗口形态**：单窗口，无边框 + 透明 + 置顶（`tauri.conf.json` 的 `windows`）。hidden 状态用 CSS `translateX` 把挂件滑出可视区，避免移动 OS 窗口带来的抖动。
-- **持久化**：`rusqlite` 在 `app_data_dir` 下建 `notes.db`，提供 `load_notes / save_note / delete_note` 三个命令。
+- **速记标签页（多文档）**：`notes.db` 中用 `tabs` 表存每个标签页（`id / title / content / todos / position`），`meta` 表存 `active_tab_id`。首次启动会把旧版单条笔记迁移为首个标签页。Rust 提供 `load_tabs / save_tabs / set_active_tab` 三个命令；前端用 `Tab` 模型管理多页，所有编辑防抖落库。
 
 ---
 

@@ -17,6 +17,8 @@ export interface AppConfig {
   autoCloseDelay: number;
   /** 闲置（隐藏态）时悬浮挂件的不透明度（0.1~1，1 为完全不透明）。 */
   idleOpacity: number;
+  /** 面板固定：固定后不随鼠标离开自动收起，只能手动点叉关闭。 */
+  pinned: boolean;
 }
 
 export const DEFAULT_CONFIG: AppConfig = {
@@ -25,6 +27,7 @@ export const DEFAULT_CONFIG: AppConfig = {
   windowHeight: 440,
   autoCloseDelay: 600,
   idleOpacity: 0.7,
+  pinned: false,
 };
 
 const LS_KEY = "floating-notepad.config";
@@ -60,6 +63,7 @@ export async function loadConfig(): Promise<AppConfig> {
       if (kv.windowHeight) parsed.windowHeight = Number(kv.windowHeight);
       if (kv.autoCloseDelay) parsed.autoCloseDelay = Number(kv.autoCloseDelay);
       if (kv.idleOpacity) parsed.idleOpacity = Number(kv.idleOpacity);
+      if (kv.pinned) parsed.pinned = kv.pinned === "true";
       base = { ...base, ...sanitize(parsed) };
     }
   } catch {
@@ -93,11 +97,12 @@ function sanitize(part: Partial<AppConfig>): Partial<AppConfig> {
     out.autoCloseDelay = Math.round(part.autoCloseDelay);
   if (typeof part.idleOpacity === "number" && part.idleOpacity >= 0.1 && part.idleOpacity <= 1)
     out.idleOpacity = part.idleOpacity;
+  if (typeof part.pinned === "boolean") out.pinned = part.pinned;
   return out;
 }
 
 /** 把用户覆盖写回 localStorage（应用内“设置”面板调用，优先级最高）。 */
-export function saveConfigOverride(cfg: AppConfig): void {
+export function saveConfig(cfg: AppConfig): void {
   try {
     localStorage.setItem(LS_KEY, JSON.stringify(sanitize(cfg)));
   } catch {
