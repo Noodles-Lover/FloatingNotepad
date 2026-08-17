@@ -189,16 +189,34 @@
           "markdownDescription": "Allow listing the skin (material pack) folders under public/skin."
         },
         {
+          "description": "Allow loading all todo categories and the active category id from the local SQLite database.",
+          "type": "string",
+          "const": "allow-load-categories",
+          "markdownDescription": "Allow loading all todo categories and the active category id from the local SQLite database."
+        },
+        {
           "description": "Allow loading all scratch tabs and the active tab id from the local SQLite database.",
           "type": "string",
           "const": "allow-load-tabs",
           "markdownDescription": "Allow loading all scratch tabs and the active tab id from the local SQLite database."
         },
         {
+          "description": "Allow saving (replace) all todo categories in the local SQLite database.",
+          "type": "string",
+          "const": "allow-save-categories",
+          "markdownDescription": "Allow saving (replace) all todo categories in the local SQLite database."
+        },
+        {
           "description": "Allow saving (replace) all scratch tabs in the local SQLite database.",
           "type": "string",
           "const": "allow-save-tabs",
           "markdownDescription": "Allow saving (replace) all scratch tabs in the local SQLite database."
+        },
+        {
+          "description": "Allow persisting the currently active todo category id.",
+          "type": "string",
+          "const": "allow-set-active-category",
+          "markdownDescription": "Allow persisting the currently active todo category id."
         },
         {
           "description": "Allow persisting the currently active scratch tab id.",

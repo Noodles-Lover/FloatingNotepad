@@ -6,11 +6,17 @@ export interface Todo {
   note: string; // 备注
 }
 
-/** 一个速记标签页：独立标题、文本与待办，永久存储。 */
+/** 一个速记标签页：独立标题与文本，永久存储（待办已解耦到分类）。 */
 export interface Tab {
   id: number;
   title: string;
   note: string;
+}
+
+/** 一个待办分类：独立标题与任务列表，永久存储。默认分类名为“主要”。 */
+export interface Category {
+  id: number;
+  title: string;
   todos: Todo[];
 }
 

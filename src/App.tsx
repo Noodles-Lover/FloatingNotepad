@@ -3,15 +3,16 @@ import { invoke } from "@tauri-apps/api/core";
 import { listen, type UnlistenFn } from "@tauri-apps/api/event";
 import { WindowController, type Edge } from "./lib/window";
 import { NoteWindow } from "./lib/noteWindow";
-import { loadState, saveTabs, setActiveTab } from "./lib/db";
+import { loadState, saveTabs, setActiveTab, loadCategories, saveCategories, setActiveCategory } from "./lib/db";
 import { ProximitySensor } from "./lib/proximity";
 import { loadConfig, saveConfig, DEFAULT_CONFIG, type AppConfig } from "./lib/config";
 import { loadSkins, resolveSkin, loadSkinName, saveSkinName, type Skin } from "./lib/skins";
-import type { Tab, Todo } from "./types";
+import type { Category, Tab, Todo } from "./types";
 import FloatingWidget from "./components/FloatingWidget";
 import NotePanel from "./components/NotePanel";
 import SkinPanel from "./components/SkinPanel";
 import SettingsPanel from "./components/SettingsPanel";
+import ConfirmDialog from "./components/ConfirmDialog";
 import "./App.css";
 
 /** 窗口的三种显示模式。 */
@@ -24,7 +25,12 @@ const SAVE_DEBOUNCE = 400;
 
 /** 新建一个空白标签页。 */
 function newTab(seq: number): Tab {
-  return { id: Date.now() + seq, title: `速记 ${seq}`, note: "", todos: [] };
+  return { id: Date.now() + seq, title: `浮笺 ${seq}`, note: "" };
+}
+
+/** 新建一个空白待办分类（默认名为“主要”之外的新增分类）。 */
+function newCategory(seq: number): Category {
+  return { id: Date.now() + seq, title: `分类 ${seq}`, todos: [] };
 }
 
 export default function App() {
@@ -35,12 +41,19 @@ export default function App() {
   const [dragging, setDragging] = useState(false); // 悬浮挂件是否正在被拖动
   const [tabs, setTabs] = useState<Tab[]>([]); // 全部速记标签页
   const [activeTabId, setActiveTabId] = useState<number>(0); // 当前激活的标签页 id
+  const [categories, setCategories] = useState<Category[]>([]); // 全部待办分类
+  const [activeCategoryId, setActiveCategoryId] = useState<number>(0); // 当前激活的分类 id
   const [config, setConfig] = useState<AppConfig>(DEFAULT_CONFIG); // 用户配置（挂件大小/窗口/自动关闭）
   const [skins, setSkins] = useState<Skin[]>([]); // 可用皮肤清单（运行时从 skin 目录自动读取）
   const [skinName, setSkinName] = useState<string>(() => loadSkinName()); // 当前选用皮肤名（永久保存）
   const [skin, setSkin] = useState<Skin | null>(null); // 当前选用皮肤对象（解析 skinName 后得到）
   const [skinOpen, setSkinOpen] = useState(false); // 皮肤面板是否打开
   const [settingsOpen, setSettingsOpen] = useState(false); // 设置面板是否打开
+  // 删除确认弹窗：pendingDelete 非空时弹出，用户确认才真正删除（避免误删不可恢复）。
+  const [pendingDelete, setPendingDelete] = useState<{
+    kind: "tab" | "category";
+    id: number;
+  } | null>(null);
 
   // ---- 跨渲染周期保存的可变引用 ----
   const modeRef = useRef<Mode>("hidden"); // 让 proximity 回调能读到最新 mode
@@ -59,6 +72,11 @@ export default function App() {
   const activeRef = useRef<number>(activeTabId); // 最新激活 id，供防抖保存读取
   activeRef.current = activeTabId;
   const loadedRef = useRef(false); // 标签页是否已从后端加载完成（防止启动期空数据覆盖）
+  const catsRef = useRef<Category[]>(categories); // 最新分类，供防抖保存读取
+  catsRef.current = categories;
+  const activeCatRef = useRef<number>(activeCategoryId); // 最新激活分类 id
+  activeCatRef.current = activeCategoryId;
+  const loadedCatRef = useRef(false); // 分类是否已从后端加载完成
 
   modeRef.current = mode;
   modalOpenRef.current = skinOpen || settingsOpen;
@@ -87,14 +105,20 @@ export default function App() {
     }
   };
 
-  /** 防抖落库：任何文本/任务改动都会触发，SAVE_DEBOUNCE 内只存一次。 */
-  const scheduleSave = useCallback(() => {
-    // 未加载完成前绝不落库，否则会用初始的空 tabs 覆盖掉刚迁移/恢复的数据。
-    if (!loadedRef.current) return;
+  /** 防抖落库：任何文本/任务改动都会触发，SAVE_DEBOUNCE 内只存一次。tabs 与分类分别守卫。
+   * @param immediate 传 true 时立即落库（用于删除等结构性变更，避免 HMR/防抖竞态导致复原）。 */
+  const scheduleSave = useCallback((immediate = false) => {
     if (saveTimer.current) window.clearTimeout(saveTimer.current);
-    saveTimer.current = window.setTimeout(() => {
-      saveTabs(tabsRef.current).catch((e) => console.error("[save] 失败:", e));
-    }, SAVE_DEBOUNCE);
+    const flush = () => {
+      if (loadedRef.current) {
+        saveTabs(tabsRef.current).catch((e) => console.error("[save] 失败:", e));
+      }
+      if (loadedCatRef.current) {
+        saveCategories(catsRef.current).catch((e) => console.error("[saveCat] 失败:", e));
+      }
+    };
+    if (immediate) flush();
+    else saveTimer.current = window.setTimeout(flush, SAVE_DEBOUNCE);
   }, []);
 
   /** 真正执行“收起”：切回隐藏态并让窗口回到球隐藏态。窗口动作统一交给 NoteWindow。 */
@@ -230,12 +254,24 @@ export default function App() {
         if (state.tabs.length === 0) return;
         setTabs(state.tabs);
         setActiveTabId(state.activeTabId);
-        // 主动存回一次，确保数据库中的 position / active_tab_id 与前端一致（含已迁移的待办）。
+        // 主动存回一次，确保数据库中的 position / active_tab_id 与前端一致。
         scheduleSave();
       })
       .catch((e) => {
         loadedRef.current = true;
         console.error("[load] 失败:", e);
+      });
+
+    loadCategories()
+      .then((state) => {
+        loadedCatRef.current = true;
+        if (state.categories.length === 0) return;
+        setCategories(state.categories);
+        setActiveCategoryId(state.activeCategoryId);
+      })
+      .catch((e) => {
+        loadedCatRef.current = true;
+        console.error("[loadCategories] 失败:", e);
       });
 
     // 判断某个屏幕坐标是否落在当前模式的 UI 范围内。
@@ -327,13 +363,14 @@ export default function App() {
   }, []);
 
   const addTab = useCallback(() => {
-    setTabs((prev) => {
-      const tab = newTab(prev.length + 1);
-      setActiveTabId(tab.id);
-      setActiveTab(tab.id).catch(() => {});
-      return [...prev, tab];
-    });
-    scheduleSave();
+    const tab = newTab(tabsRef.current.length + 1);
+    setActiveTabId(tab.id);
+    setActiveTab(tab.id).catch(() => {});
+    activeRef.current = tab.id;
+    const next = [...tabsRef.current, tab];
+    tabsRef.current = next;
+    setTabs(next);
+    saveTabs(next).catch((e) => console.error("[save] 新建失败:", e));
   }, [scheduleSave]);
 
   const renameTab = useCallback(
@@ -344,11 +381,118 @@ export default function App() {
     [scheduleSave],
   );
 
+  // ---- 待办分类操作（与标签页平行）----
+  const switchCategory = useCallback((id: number) => {
+    setActiveCategoryId(id);
+    setActiveCategory(id).catch((e) => console.error("[setActiveCategory] 失败:", e));
+  }, []);
+
+  const addCategory = useCallback(() => {
+    const cat = newCategory(catsRef.current.length + 1);
+    setActiveCategoryId(cat.id);
+    setActiveCategory(cat.id).catch(() => {});
+    activeCatRef.current = cat.id;
+    const next = [...catsRef.current, cat];
+    catsRef.current = next;
+    setCategories(next);
+    saveCategories(next).catch((e) => console.error("[saveCat] 新建失败:", e));
+  }, [scheduleSave]);
+
+  const renameCategory = useCallback(
+    (id: number, title: string) => {
+      setCategories((prev) => prev.map((c) => (c.id === id ? { ...c, title } : c)));
+      scheduleSave();
+    },
+    [scheduleSave],
+  );
+
+  /** 真正执行标签页删除：保底至少保留 1 个；若删的是激活项则切到相邻项。立即落库。 */
+  const commitDeleteTab = useCallback(
+    (id: number) => {
+      const prev = tabsRef.current;
+      if (prev.length <= 1) return; // 至少保留一个
+      const idx = prev.findIndex((t) => t.id === id);
+      if (idx === -1) return;
+      const next = prev.filter((t) => t.id !== id);
+      if (activeRef.current === id) {
+        const fallback = next[Math.max(0, idx - 1)];
+        setActiveTabId(fallback.id);
+        setActiveTab(fallback.id).catch(() => {});
+        activeRef.current = fallback.id;
+      }
+      tabsRef.current = next;
+      setTabs(next);
+      // 结构性变更：直接用最新列表落库，不依赖 ref 时序/防抖，确保删除立即持久化
+      saveTabs(next).catch((e) => console.error("[save] 删除失败:", e));
+    },
+    [scheduleSave],
+  );
+
+  /** 真正执行分类删除：保底至少保留 1 个；若删的是激活项则切到相邻项。立即落库。 */
+  const commitDeleteCategory = useCallback(
+    (id: number) => {
+      const prev = catsRef.current;
+      if (prev.length <= 1) return; // 至少保留一个分类
+      const idx = prev.findIndex((c) => c.id === id);
+      if (idx === -1) return;
+      const next = prev.filter((c) => c.id !== id);
+      if (activeCatRef.current === id) {
+        const fallback = next[Math.max(0, idx - 1)];
+        setActiveCategoryId(fallback.id);
+        setActiveCategory(fallback.id).catch(() => {});
+        activeCatRef.current = fallback.id;
+      }
+      catsRef.current = next;
+      setCategories(next);
+      saveCategories(next).catch((e) => console.error("[saveCat] 删除失败:", e));
+    },
+    [scheduleSave],
+  );
+
+  /** 删除标签页（带确认）：有内容则先弹确认框，否则直接删除。 */
+  const requestDeleteTab = useCallback(
+    (id: number) => {
+      const tab = tabsRef.current.find((t) => t.id === id);
+      if (tab && tab.note.trim()) setPendingDelete({ kind: "tab", id });
+      else commitDeleteTab(id);
+    },
+    [commitDeleteTab],
+  );
+
+  /** 删除分类（带确认）：有待办则先弹确认框，否则直接删除。 */
+  const requestDeleteCategory = useCallback(
+    (id: number) => {
+      const cat = catsRef.current.find((c) => c.id === id);
+      if (cat && cat.todos.length > 0) setPendingDelete({ kind: "category", id });
+      else commitDeleteCategory(id);
+    },
+    [commitDeleteCategory],
+  );
+
+  /** 确认弹窗“确定”：执行真正删除并关闭弹窗。 */
+  const confirmDelete = useCallback(() => {
+    if (!pendingDelete) return;
+    if (pendingDelete.kind === "tab") commitDeleteTab(pendingDelete.id);
+    else commitDeleteCategory(pendingDelete.id);
+    setPendingDelete(null);
+  }, [pendingDelete, commitDeleteTab, commitDeleteCategory]);
+
   // ---- 当前标签页的编辑（自动保存）----
   const updateActive = useCallback(
     (patch: Partial<Tab>) => {
       setTabs((prev) =>
         prev.map((t) => (t.id === activeRef.current ? { ...t, ...patch } : t)),
+      );
+      scheduleSave();
+    },
+    [scheduleSave],
+  );
+
+  // ---- 当前分类的编辑（自动保存）----
+  const updateActiveCategory = useCallback(
+    (patch: Partial<Category>) => {
+      setCategories((prev) =>
+        prev.map((c) => (c.id === activeCatRef.current ? { ...c, ...patch } : c)),
       );
       scheduleSave();
     },
@@ -365,60 +509,60 @@ export default function App() {
   const onAddTodo = useCallback(
     (text: string) => {
       const todo: Todo = { id: crypto.randomUUID(), text, done: false, priority: 5, note: "" };
-      const cur = tabsRef.current.find((t) => t.id === activeRef.current);
+      const cur = catsRef.current.find((c) => c.id === activeCatRef.current);
       const todos = [...(cur?.todos ?? []), todo];
-      updateActive({ todos });
+      updateActiveCategory({ todos });
     },
-    [updateActive],
+    [updateActiveCategory],
   );
 
   const onToggleTodo = useCallback(
     (id: string) => {
-      const cur = tabsRef.current.find((t) => t.id === activeRef.current);
+      const cur = catsRef.current.find((c) => c.id === activeCatRef.current);
       const todos = (cur?.todos ?? []).map((t) =>
         t.id === id ? { ...t, done: !t.done } : t,
       );
-      updateActive({ todos });
+      updateActiveCategory({ todos });
     },
-    [updateActive],
+    [updateActiveCategory],
   );
 
   const onEditTodo = useCallback(
     (id: string, text: string) => {
-      const cur = tabsRef.current.find((t) => t.id === activeRef.current);
+      const cur = catsRef.current.find((c) => c.id === activeCatRef.current);
       const todos = (cur?.todos ?? []).map((t) => (t.id === id ? { ...t, text } : t));
-      updateActive({ todos });
+      updateActiveCategory({ todos });
     },
-    [updateActive],
+    [updateActiveCategory],
   );
 
   const onPriorityTodo = useCallback(
     (id: string, priority: number) => {
-      const cur = tabsRef.current.find((t) => t.id === activeRef.current);
+      const cur = catsRef.current.find((c) => c.id === activeCatRef.current);
       const todos = (cur?.todos ?? []).map((t) =>
         t.id === id ? { ...t, priority } : t,
       );
-      updateActive({ todos });
+      updateActiveCategory({ todos });
     },
-    [updateActive],
+    [updateActiveCategory],
   );
 
   const onEditTodoNote = useCallback(
     (id: string, note: string) => {
-      const cur = tabsRef.current.find((t) => t.id === activeRef.current);
+      const cur = catsRef.current.find((c) => c.id === activeCatRef.current);
       const todos = (cur?.todos ?? []).map((t) => (t.id === id ? { ...t, note } : t));
-      updateActive({ todos });
+      updateActiveCategory({ todos });
     },
-    [updateActive],
+    [updateActiveCategory],
   );
 
   const onDeleteTodo = useCallback(
     (id: string) => {
-      const cur = tabsRef.current.find((t) => t.id === activeRef.current);
+      const cur = catsRef.current.find((c) => c.id === activeCatRef.current);
       const todos = (cur?.todos ?? []).filter((t) => t.id !== id);
-      updateActive({ todos });
+      updateActiveCategory({ todos });
     },
-    [updateActive],
+    [updateActiveCategory],
   );
 
   /** 切换面板固定状态并持久化。 */
@@ -427,7 +571,9 @@ export default function App() {
   }, [onConfigChange]);
 
   // 渲染时按优先级降序排列（高优先级在前），不修改底层存储顺序。
-  const sortedTodos = [...(activeTab?.todos ?? [])].sort(
+  const activeCategory: Category | undefined =
+    categories.find((c) => c.id === activeCategoryId) ?? categories[0];
+  const sortedTodos = [...(activeCategory?.todos ?? [])].sort(
     (a, b) => b.priority - a.priority,
   );
 
@@ -446,11 +592,18 @@ export default function App() {
           onPriorityTodo={onPriorityTodo}
           onEditTodoNote={onEditTodoNote}
           onDeleteTodo={onDeleteTodo}
+          categories={categories}
+          activeCategoryId={activeCategoryId}
+          onSwitchCategory={switchCategory}
+          onAddCategory={addCategory}
+          onRenameCategory={renameCategory}
+          onDeleteCategory={requestDeleteCategory}
           pinned={config.pinned}
           onTogglePin={onTogglePin}
           onSwitchTab={switchTab}
           onAddTab={addTab}
           onRenameTab={renameTab}
+          onDeleteTab={requestDeleteTab}
           onClose={() => beginClose(true)}
           closing={closing}
           edge={edge}
@@ -487,6 +640,18 @@ export default function App() {
           onClose={() => setSettingsOpen(false)}
         />
       )}
+
+      <ConfirmDialog
+        open={pendingDelete !== null}
+        title={pendingDelete?.kind === "category" ? "删除待办分类" : "删除浮笺"}
+        message={
+          pendingDelete?.kind === "category"
+            ? "该分类下有待办内容，删除后不可恢复，确定删除吗？"
+            : "该“浮笺”有内容，删除后不可恢复，确定删除吗？"
+        }
+        onConfirm={confirmDelete}
+        onCancel={() => setPendingDelete(null)}
+      />
     </div>
   );
 }

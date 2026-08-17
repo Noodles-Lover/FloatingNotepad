@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from "react";
-import type { Tab, Todo } from "../types";
+import type { Category, Tab, Todo } from "../types";
 import type { Edge } from "../lib/window";
+import { TabBar } from "./TabBar";
 
 interface Props {
   note: string;
@@ -14,16 +15,56 @@ interface Props {
   onEditTodoNote: (id: string, note: string) => void;
   onPriorityTodo: (id: string, priority: number) => void;
   onDeleteTodo: (id: string) => void;
+  categories: Category[];
+  activeCategoryId: number;
+  onSwitchCategory: (id: number) => void;
+  onAddCategory: () => void;
+  onRenameCategory: (id: number, title: string) => void;
+  onDeleteCategory: (id: number) => void;
   pinned: boolean;
   onTogglePin: () => void;
   onSwitchTab: (id: number) => void;
   onAddTab: () => void;
   onRenameTab: (id: number, title: string) => void;
+  onDeleteTab: (id: number) => void;
   onClose: () => void;
   closing: boolean;
   edge: Edge; // 当前贴附的边，决定面板动画从哪侧飘出
   onOpenSkin: () => void; // 打开皮肤选择面板
   onOpenSettings: () => void; // 打开设置面板
+}
+
+/** 图钉图标（lucide 风格的内联 SVG，避免引入额外依赖）。 */
+function PinIcon() {
+  return (
+    <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+      <path d="M12 17v5" />
+      <path d="M9 10.76a2 2 0 0 1-1.11 1.79l-1.78.9A2 2 0 0 0 5 15.24V16a1 1 0 0 0 1 1h12a1 1 0 0 0 1-1v-.76a2 2 0 0 0-1.11-1.79l-1.78-.9A2 2 0 0 1 15 10.76V7a1 1 0 0 1 1-1 2 2 0 0 0 0-4H8a2 2 0 0 0 0 4 1 1 0 0 1 1 1z" />
+    </svg>
+  );
+}
+
+/** 设置（齿轮）图标。 */
+function SettingsIcon() {
+  return (
+    <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+      <path d="M12.22 2h-.44a2 2 0 0 0-2 2v.18a2 2 0 0 1-1 1.73l-.43.25a2 2 0 0 1-2 0l-.15-.08a2 2 0 0 0-2.73.73l-.22.38a2 2 0 0 0 .73 2.73l.15.1a2 2 0 0 1 1 1.72v.51a2 2 0 0 1-1 1.74l-.15.09a2 2 0 0 0-.73 2.73l.22.38a2 2 0 0 0 2.73.73l.15-.08a2 2 0 0 1 2 0l.43.25a2 2 0 0 1 1 1.73V20a2 2 0 0 0 2 2h.44a2 2 0 0 0 2-2v-.18a2 2 0 0 1 1-1.73l.43-.25a2 2 0 0 1 2 0l.15.08a2 2 0 0 0 2.73-.73l.22-.39a2 2 0 0 0-.73-2.73l-.15-.08a2 2 0 0 1-1-1.74v-.5a2 2 0 0 1 1-1.74l.15-.09a2 2 0 0 0 .73-2.73l-.22-.38a2 2 0 0 0-2.73-.73l-.15.08a2 2 0 0 1-2 0l-.43-.25a2 2 0 0 1-1-1.73V4a2 2 0 0 0-2-2z" />
+      <circle cx="12" cy="12" r="3" />
+    </svg>
+  );
+}
+
+/** 皮肤（调色板）图标。 */
+function PaletteIcon() {
+  return (
+    <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+      <circle cx="13.5" cy="6.5" r="1" />
+      <circle cx="17.5" cy="10.5" r="1" />
+      <circle cx="8.5" cy="7.5" r="1" />
+      <circle cx="6.5" cy="12.5" r="1" />
+      <path d="M12 2C6.5 2 2 6.5 2 12s4.5 10 10 10c.926 0 1.648-.746 1.648-1.688 0-.437-.18-.835-.437-1.125-.29-.289-.438-.652-.438-1.125a1.64 1.64 0 0 1 1.668-1.668h1.996c3.051 0 5.555-2.503 5.555-5.555C21.965 6.012 17.461 2 12 2z" />
+    </svg>
+  );
 }
 
 /** 根据优先级返回进度条颜色（1-5 绿、6-7 黄、8 橙、9-10 红）。 */
@@ -46,11 +87,18 @@ export default function NotePanel({
   onEditTodoNote,
   onPriorityTodo,
   onDeleteTodo,
+  categories,
+  activeCategoryId,
+  onSwitchCategory,
+  onAddCategory,
+  onRenameCategory,
+  onDeleteCategory,
   pinned,
   onTogglePin,
   onSwitchTab,
   onAddTab,
   onRenameTab,
+  onDeleteTab,
   onClose,
   closing,
   edge,
@@ -62,9 +110,6 @@ export default function NotePanel({
   const [newText, setNewText] = useState("");
   // 当前正在编辑备注的任务 id 集合（点击任务行切换展开备注输入框）。
   const [editingNotes, setEditingNotes] = useState<Set<string>>(new Set());
-  // 正在重命名的标签页 id 与临时标题（双击标题进入编辑）。
-  const [editingTabId, setEditingTabId] = useState<number | null>(null);
-  const [editTitle, setEditTitle] = useState("");
   // 备注气泡：脱离 todo-list 的 overflow 裁切，用 fixed 定位在任务行上方。
   const [hoverNote, setHoverNote] = useState<{ text: string; rect: DOMRect } | null>(null);
 
@@ -97,36 +142,23 @@ export default function NotePanel({
     });
   };
 
-  const beginRename = (tab: Tab) => {
-    setEditingTabId(tab.id);
-    setEditTitle(tab.title);
-  };
-
-  const commitRename = () => {
-    if (editingTabId !== null) {
-      const title = editTitle.trim() || "速记";
-      onRenameTab(editingTabId, title);
-    }
-    setEditingTabId(null);
-  };
-
   return (
     <div className={`panel dock-${edge} ${closing ? "closing" : ""}`}>
       <div className="panel-head">
-        <span>速记</span>
+        <span>浮笺</span>
         <div className="head-actions">
           <button
-            className={`pin-btn ${pinned ? "active" : ""}`}
+            className={`icon-btn pin-btn ${pinned ? "active" : ""}`}
             onClick={onTogglePin}
             title={pinned ? "已固定（点此取消固定）" : "固定面板（固定后不自动收起）"}
           >
-            {pinned ? "已固定" : "固定"}
+            <PinIcon />
           </button>
-          <button className="skin-btn" onClick={onOpenSkin} title="皮肤">
-            皮肤
+          <button className="icon-btn" onClick={onOpenSkin} title="皮肤">
+            <PaletteIcon />
           </button>
-          <button className="skin-btn" onClick={onOpenSettings} title="设置">
-            设置
+          <button className="icon-btn" onClick={onOpenSettings} title="设置">
+            <SettingsIcon />
           </button>
           <button className="x" onClick={onClose} title="收起 (Esc)">
             ×
@@ -134,38 +166,17 @@ export default function NotePanel({
         </div>
       </div>
 
-      {/* 速记标签页：双击标题重命名，单击切换，右侧 + 新增 */}
-      <div className="tab-bar">
-        {tabs.map((tab) => (
-          <div
-            key={tab.id}
-            className={`tab ${tab.id === activeTabId ? "active" : ""}`}
-            onClick={() => onSwitchTab(tab.id)}
-            onDoubleClick={() => beginRename(tab)}
-            title="单击切换，双击重命名"
-          >
-            {editingTabId === tab.id ? (
-              <input
-                className="tab-rename"
-                autoFocus
-                value={editTitle}
-                onChange={(e) => setEditTitle(e.target.value)}
-                onBlur={commitRename}
-                onKeyDown={(e) => {
-                  if (e.key === "Enter") commitRename();
-                  if (e.key === "Escape") setEditingTabId(null);
-                }}
-                onClick={(e) => e.stopPropagation()}
-              />
-            ) : (
-              <span className="tab-title">{tab.title}</span>
-            )}
-          </div>
-        ))}
-        <button className="tab-add" onClick={onAddTab} title="新增标签页">
-          +
-        </button>
-      </div>
+      {/* 速记标签页：复用通用 TabBar（双击重命名、单击切换、+ 新增、悬停删除） */}
+      <TabBar
+        items={tabs}
+        activeId={activeTabId}
+        onSwitch={onSwitchTab}
+        onAdd={onAddTab}
+        onRename={onRenameTab}
+        onDelete={onDeleteTab}
+        addTitle="新增标签页"
+        defaultTitle="浮笺"
+      />
 
       <textarea
         ref={taRef}
@@ -173,6 +184,18 @@ export default function NotePanel({
         value={note}
         placeholder="写点什么…"
         onChange={(e) => onContentChange(e.target.value)}
+      />
+
+      {/* 待办分类：同样复用通用 TabBar，数据与速记完全独立存储 */}
+      <TabBar
+        items={categories}
+        activeId={activeCategoryId}
+        onSwitch={onSwitchCategory}
+        onAdd={onAddCategory}
+        onRename={onRenameCategory}
+        onDelete={onDeleteCategory}
+        addTitle="新增分类"
+        defaultTitle="分类"
       />
 
       <div className="todo-head">待办</div>

@@ -1,12 +1,11 @@
 import { invoke } from "@tauri-apps/api/core";
-import { Tab, Todo } from "../types";
+import { Category, Tab, Todo } from "../types";
 
-/** 后端返回的标签页（todos 为 JSON 字符串），前端不直接持有此结构。 */
+/** 后端返回的标签页，前端不直接持有此结构。 */
 interface RawTab {
   id: number;
   title: string;
   content: string;
-  todos: string;
   position: number;
 }
 
@@ -19,6 +18,24 @@ interface RawTabInput {
   id: number;
   title: string;
   content: string;
+}
+
+/** 后端返回的待办分类，前端不直接持有此结构。 */
+interface RawCategory {
+  id: number;
+  title: string;
+  todos: string;
+  position: number;
+}
+
+interface RawCategoryState {
+  categories: RawCategory[];
+  active_category_id: number;
+}
+
+interface RawCategoryInput {
+  id: number;
+  title: string;
   todos: string;
 }
 
@@ -38,7 +55,6 @@ export const loadState = async (): Promise<{ tabs: Tab[]; activeTabId: number }>
     id: t.id,
     title: t.title,
     note: t.content,
-    todos: parseTodos(t.todos),
   }));
   return { tabs, activeTabId: raw.active_tab_id };
 };
@@ -49,7 +65,6 @@ export const saveTabs = async (tabs: Tab[]): Promise<void> => {
     id: t.id,
     title: t.title,
     content: t.note,
-    todos: JSON.stringify(t.todos),
   }));
   await invoke<void>("save_tabs", { tabs: payload });
 };
@@ -57,3 +72,31 @@ export const saveTabs = async (tabs: Tab[]): Promise<void> => {
 /** 持久化当前激活的标签页 id。 */
 export const setActiveTab = (tabId: number): Promise<void> =>
   invoke<void>("set_active_tab", { tabId });
+
+/** 加载全部待办分类与当前激活的分类 id（永久存储）。 */
+export const loadCategories = async (): Promise<{
+  categories: Category[];
+  activeCategoryId: number;
+}> => {
+  const raw = await invoke<RawCategoryState>("load_categories");
+  const categories: Category[] = raw.categories.map((c) => ({
+    id: c.id,
+    title: c.title,
+    todos: parseTodos(c.todos),
+  }));
+  return { categories, activeCategoryId: raw.active_category_id };
+};
+
+/** 把全部待办分类写回（覆盖式保存，永久存储）。 */
+export const saveCategories = async (categories: Category[]): Promise<void> => {
+  const payload: RawCategoryInput[] = categories.map((c) => ({
+    id: c.id,
+    title: c.title,
+    todos: JSON.stringify(c.todos),
+  }));
+  await invoke<void>("save_categories", { categories: payload });
+};
+
+/** 持久化当前激活的待办分类 id。 */
+export const setActiveCategory = (categoryId: number): Promise<void> =>
+  invoke<void>("set_active_category", { categoryId });

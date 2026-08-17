@@ -113,7 +113,8 @@ body {
   align-items: stretch;
   gap: 4px;
   overflow-x: auto;
-  overflow-y: hidden;
+  /* 顶部留白，给浮在标签左上角的删除角标让出空间，避免被裁切 */
+  padding-top: 8px;
   padding-bottom: 2px;
   user-select: none;
   -webkit-user-select: none;
@@ -124,6 +125,7 @@ body {
 }
 
 .tab {
+  position: relative;
   flex: 0 0 auto;
   max-width: 130px;
   display: flex;
@@ -132,12 +134,13 @@ body {
   border: 1px solid #e3d3a0;
   border-bottom: none;
   border-radius: 8px 8px 0 0;
+  /* 删除按钮绝对定位在右上角，不占内部宽度，故 padding 恢复正常 */
   padding: 4px 10px;
   font-size: 13px;
   color: #8a7338;
   cursor: pointer;
   white-space: nowrap;
-  overflow: hidden;
+  overflow: visible;
   transition: background 140ms ease, color 140ms ease;
 }
 
@@ -191,6 +194,65 @@ body {
 
 .tab-add:active {
   transform: scale(0.92);
+}
+
+/* 删除按钮：浮在标签页右上角外侧的浅色小 ×，hover 标签时显示，不占内部宽度 */
+.tab-del {
+  position: absolute;
+  top: -6px;
+  right: -6px;
+  width: 15px;
+  height: 15px;
+  display: none;
+  align-items: center;
+  justify-content: center;
+  border-radius: 50%;
+  background: rgba(255, 137, 129, 0.5);
+  color: transparent;
+  font-size: 13px;
+  line-height: 1;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.18);
+  cursor: pointer;
+  transition: background 140ms ease, color 140ms ease;
+}
+
+.tab:hover .tab-del {
+  display: inline-flex;
+  color: #c0392b;
+}
+
+.tab-del:hover {
+  background: rgba(226, 72, 61, 0.32);
+  color: #a23b30;
+}
+
+/* ---------- 头部图标按钮（图钉 / 皮肤 / 设置） ---------- */
+.icon-btn {
+  width: 26px;
+  height: 26px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border: 1px solid var(--border, rgba(168, 145, 90, 0.3));
+  border-radius: 7px;
+  background: rgba(168, 145, 90, 0.14);
+  color: #6b5526;
+  cursor: pointer;
+  transition: background 140ms ease, transform 140ms ease;
+}
+
+.icon-btn:hover {
+  background: rgba(168, 145, 90, 0.28);
+}
+
+.icon-btn:active {
+  transform: scale(0.95);
+}
+
+.icon-btn.active {
+  background: rgba(120, 200, 120, 0.3);
+  border-color: rgba(120, 200, 120, 0.6);
+  color: #1f7a3f;
 }
 
 /* ---------- Note panel (light-yellow notebook) ---------- */
@@ -324,91 +386,6 @@ body {
 }
 
 /* ---------- 速记标签页 ---------- */
-.tab-bar {
-  display: flex;
-  align-items: stretch;
-  gap: 4px;
-  overflow-x: auto;
-  overflow-y: hidden;
-  padding-bottom: 4px;
-  user-select: none;
-  -webkit-user-select: none;
-}
-
-.tab-bar::-webkit-scrollbar {
-  height: 5px;
-}
-
-.tab {
-  flex: 0 0 auto;
-  max-width: 130px;
-  display: flex;
-  align-items: center;
-  background: #f3e9c8;
-  border: 1px solid #e3d3a0;
-  border-bottom: none;
-  border-radius: 8px 8px 0 0;
-  padding: 4px 10px;
-  font-size: 13px;
-  color: #8a7338;
-  cursor: pointer;
-  white-space: nowrap;
-  overflow: hidden;
-  transition: background 140ms ease, color 140ms ease;
-}
-
-.tab:hover {
-  background: #efe0b4;
-}
-
-.tab.active {
-  background: #fffdf5;
-  color: #5b4a2a;
-  font-weight: 700;
-  box-shadow: 0 -2px 0 #d8a93c inset;
-}
-
-.tab-title {
-  overflow: hidden;
-  text-overflow: ellipsis;
-  pointer-events: none;
-}
-
-.tab-rename {
-  width: 110px;
-  border: 1px solid #d8bd6e;
-  border-radius: 5px;
-  background: #fffdf5;
-  color: #5b4a2a;
-  font-size: 13px;
-  padding: 1px 5px;
-}
-
-.tab-add {
-  flex: 0 0 auto;
-  width: 28px;
-  height: 28px;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  background: rgba(168, 145, 90, 0.15);
-  border: 1px solid #d8bd6e;
-  color: #6b5526;
-  font-size: 18px;
-  line-height: 1;
-  border-radius: 8px;
-  cursor: pointer;
-  transition: background 140ms ease, transform 140ms ease;
-}
-
-.tab-add:hover {
-  background: rgba(168, 145, 90, 0.3);
-}
-
-.tab-add:active {
-  transform: scale(0.92);
-}
-
 .content {
   height: 150px;
   resize: none;
@@ -718,15 +695,7 @@ body {
 
 /* 固定按钮：默认与皮肤按钮一致，激活态高亮表示已固定 */
 .pin-btn {
-  height: 26px;
-  padding: 0 12px;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  border: 1px solid var(--border, rgba(168, 145, 90, 0.3));
-  border-radius: 7px;
-  background: rgba(168, 145, 90, 0.14);
-  color: var(--text-strong, #f4ecd8);
+  color: #6b5526;
   font-size: 13px;
   cursor: pointer;
   transition: background 140ms ease, transform 140ms ease;
@@ -743,7 +712,7 @@ body {
 .pin-btn.active {
   background: rgba(120, 200, 120, 0.3);
   border-color: rgba(120, 200, 120, 0.6);
-  color: #d6ffd6;
+  color: #1f7a3f;
 }
 
 /* ---------- Skin panel（皮肤选择覆盖层） ---------- */
@@ -850,6 +819,80 @@ body {
 .skin-empty {
   font-size: 12px;
   color: #b3a273;
+}
+
+/* ---- 删除确认弹窗 ---- */
+.confirm-mask {
+  position: fixed;
+  inset: 0;
+  background: rgba(60, 50, 25, 0.28);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 999;
+}
+
+.confirm-box {
+  width: 280px;
+  background: #fffdf5;
+  border: 1px solid #e3d3a0;
+  border-radius: 12px;
+  box-shadow: 0 12px 32px rgba(40, 30, 10, 0.28);
+  padding: 18px 18px 14px;
+  font-family: inherit;
+}
+
+.confirm-title {
+  font-size: 15px;
+  font-weight: 700;
+  color: #5b4a2a;
+  margin-bottom: 8px;
+}
+
+.confirm-msg {
+  font-size: 13px;
+  line-height: 1.5;
+  color: #7a6638;
+}
+
+.confirm-actions {
+  margin-top: 16px;
+  display: flex;
+  justify-content: flex-end;
+  gap: 10px;
+}
+
+.confirm-btn {
+  border: 1px solid #e3d3a0;
+  border-radius: 8px;
+  padding: 6px 16px;
+  font-size: 13px;
+  cursor: pointer;
+  font-family: inherit;
+  transition: background 140ms ease, transform 140ms ease;
+}
+
+.confirm-btn.cancel {
+  background: #f3ecd6;
+  color: #6b5526;
+}
+
+.confirm-btn.cancel:hover {
+  background: #ece2c4;
+}
+
+.confirm-btn.ok {
+  background: rgba(226, 72, 61, 0.9);
+  border-color: rgba(226, 72, 61, 0.9);
+  color: #fff;
+}
+
+.confirm-btn.ok:hover {
+  background: #c0392b;
+}
+
+.confirm-btn:active {
+  transform: scale(0.96);
 }
 
 .skin-grid {

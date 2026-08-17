@@ -106,6 +106,23 @@ fn set_active_tab(tab_id: i64) -> Result<(), String> {
     Ok(())
 }
 
+#[tauri::command]
+fn load_categories() -> Result<db::CategoryState, String> {
+    Ok(db::load_categories())
+}
+
+#[tauri::command]
+fn save_categories(categories: Vec<db::CategoryInput>) -> Result<(), String> {
+    db::save_categories(categories);
+    Ok(())
+}
+
+#[tauri::command]
+fn set_active_category(category_id: i64) -> Result<(), String> {
+    db::set_active_category(category_id);
+    Ok(())
+}
+
 /// 列出 skin/ 下的所有材质包（文件夹名即材质名）。
 /// dev：资源目录为 src-tauri，皮肤在 ../public/skin；
 /// prod：资源目录为 resources，皮肤已随包打包到 resources/skin。
@@ -177,6 +194,9 @@ pub fn run() {
             load_tabs,
             save_tabs,
             set_active_tab,
+            load_categories,
+            save_categories,
+            set_active_category,
             list_skins,
             show_main,
             hide_main,

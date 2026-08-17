@@ -28,6 +28,21 @@ description = "Allow persisting the currently active scratch tab id."
 commands.allow = ["set_active_tab"]
 
 [[permission]]
+identifier = "allow-load-categories"
+description = "Allow loading all todo categories and the active category id from the local SQLite database."
+commands.allow = ["load_categories"]
+
+[[permission]]
+identifier = "allow-save-categories"
+description = "Allow saving (replace) all todo categories in the local SQLite database."
+commands.allow = ["save_categories"]
+
+[[permission]]
+identifier = "allow-set-active-category"
+description = "Allow persisting the currently active todo category id."
+commands.allow = ["set_active_category"]
+
+[[permission]]
 identifier = "allow-list-skins"
 description = "Allow listing the skin (material pack) folders under public/skin."
 commands.allow = ["list_skins"]

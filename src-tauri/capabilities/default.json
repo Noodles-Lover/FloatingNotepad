@@ -19,6 +19,9 @@
     "allow-load-tabs",
     "allow-save-tabs",
     "allow-set-active-tab",
+    "allow-load-categories",
+    "allow-save-categories",
+    "allow-set-active-category",
     "allow-list-skins",
     "allow-show-main",
     "allow-hide-main"
