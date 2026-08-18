@@ -406,6 +406,42 @@ export default function App() {
     [scheduleSave],
   );
 
+  /** 重排标签页顺序：把 fromId 移动到 toId 之前（toId 为 null 时放到末尾）。立即落库。 */
+  const reorderTabs = useCallback(
+    (fromId: number, toId: number | null) => {
+      const prev = tabsRef.current;
+      const fromIdx = prev.findIndex((t) => t.id === fromId);
+      if (fromIdx === -1) return;
+      const moved = prev[fromIdx];
+      const rest = prev.filter((t) => t.id !== fromId);
+      const insertAt = toId === null ? rest.length : rest.findIndex((t) => t.id === toId);
+      const at = insertAt === -1 ? rest.length : insertAt;
+      const next = [...rest.slice(0, at), moved, ...rest.slice(at)];
+      tabsRef.current = next;
+      setTabs(next);
+      saveTabs(next).catch((e) => console.error("[save] 重排失败:", e));
+    },
+    [scheduleSave],
+  );
+
+  /** 重排待办分类顺序：与标签页同理。立即落库。 */
+  const reorderCategories = useCallback(
+    (fromId: number, toId: number | null) => {
+      const prev = catsRef.current;
+      const fromIdx = prev.findIndex((c) => c.id === fromId);
+      if (fromIdx === -1) return;
+      const moved = prev[fromIdx];
+      const rest = prev.filter((c) => c.id !== fromId);
+      const insertAt = toId === null ? rest.length : rest.findIndex((c) => c.id === toId);
+      const at = insertAt === -1 ? rest.length : insertAt;
+      const next = [...rest.slice(0, at), moved, ...rest.slice(at)];
+      catsRef.current = next;
+      setCategories(next);
+      saveCategories(next).catch((e) => console.error("[saveCat] 重排失败:", e));
+    },
+    [scheduleSave],
+  );
+
   /** 真正执行标签页删除：保底至少保留 1 个；若删的是激活项则切到相邻项。立即落库。 */
   const commitDeleteTab = useCallback(
     (id: number) => {
@@ -598,12 +634,14 @@ export default function App() {
           onAddCategory={addCategory}
           onRenameCategory={renameCategory}
           onDeleteCategory={requestDeleteCategory}
+          onReorderCategory={reorderCategories}
           pinned={config.pinned}
           onTogglePin={onTogglePin}
           onSwitchTab={switchTab}
           onAddTab={addTab}
           onRenameTab={renameTab}
           onDeleteTab={requestDeleteTab}
+          onReorderTab={reorderTabs}
           onClose={() => beginClose(true)}
           closing={closing}
           edge={edge}

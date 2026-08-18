@@ -20,6 +20,9 @@ tauri-dev-err.log
 .DS_Store
 *.swp
 
+# AI assistant workspace
+.codebuddy/
+
 # Env
 .env
 .env.local

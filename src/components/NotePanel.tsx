@@ -27,6 +27,8 @@ interface Props {
   onAddTab: () => void;
   onRenameTab: (id: number, title: string) => void;
   onDeleteTab: (id: number) => void;
+  onReorderTab: (fromId: number, toId: number | null) => void;
+  onReorderCategory: (fromId: number, toId: number | null) => void;
   onClose: () => void;
   closing: boolean;
   edge: Edge; // 当前贴附的边，决定面板动画从哪侧飘出
@@ -99,6 +101,8 @@ export default function NotePanel({
   onAddTab,
   onRenameTab,
   onDeleteTab,
+  onReorderTab,
+  onReorderCategory,
   onClose,
   closing,
   edge,
@@ -174,6 +178,7 @@ export default function NotePanel({
         onAdd={onAddTab}
         onRename={onRenameTab}
         onDelete={onDeleteTab}
+        onReorder={onReorderTab}
         addTitle="新增标签页"
         defaultTitle="浮笺"
       />
@@ -194,6 +199,7 @@ export default function NotePanel({
         onAdd={onAddCategory}
         onRename={onRenameCategory}
         onDelete={onDeleteCategory}
+        onReorder={onReorderCategory}
         addTitle="新增分类"
         defaultTitle="分类"
       />

@@ -116,6 +116,8 @@ body {
   /* 顶部留白，给浮在标签左上角的删除角标让出空间，避免被裁切 */
   padding-top: 8px;
   padding-bottom: 2px;
+  /* 左侧留白，给拖拽插入指示（左侧阴影）让出空间，避免被裁切 */
+  padding-left: 6px;
   user-select: none;
   -webkit-user-select: none;
 }
@@ -141,7 +143,13 @@ body {
   cursor: pointer;
   white-space: nowrap;
   overflow: visible;
+  cursor: grab;
+  touch-action: none;
   transition: background 140ms ease, color 140ms ease;
+}
+
+.tab.dragging {
+  cursor: grabbing;
 }
 
 .tab:hover {
@@ -153,6 +161,24 @@ body {
   color: #5b4a2a;
   font-weight: 700;
   box-shadow: 0 -2px 0 #d8a93c inset;
+}
+
+/* 拖拽态：被拖动的项半透明，悬停目标显示插入提示竖线 */
+.tab.dragging {
+  opacity: 0.45;
+}
+
+.tab.drag-over {
+  box-shadow: -3px 0 0 #d8a93c;
+}
+
+.tab.drag-over.tab.active {
+  box-shadow: -3px 0 0 #d8a93c, 0 -2px 0 #d8a93c inset;
+}
+
+/* 拖到末尾（“+”左侧）时的插入提示 */
+.tab-add.drag-over-end {
+  box-shadow: -3px 0 0 #d8a93c;
 }
 
 .tab-title {
