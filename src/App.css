@@ -56,22 +56,25 @@ body {
   width: 100%;
   height: 100%;
   object-fit: contain;
-  object-position: left center; /* 图片靠贴附边：贴左靠左、贴右时翻转后视觉靠右 */
+  /* 原图按“右侧构图”：内容集中在图片右侧。始终让图片框右对齐，
+     内容即贴近框右；靠右时不翻转直接贴右，靠左时翻转(scaleX)后内容贴左。
+     若用 left center，靠左翻转后会因原图左半空白而留出空隙。 */
+  object-position: right center;
   pointer-events: none;
   user-select: none;
   -webkit-user-select: none;
   transition: opacity 180ms ease-out, transform 180ms ease-out;
 }
 
+/* 默认图（按右侧构图）：贴左侧时整体水平翻转，让内容贴左；贴右侧不翻转、框靠右对齐。 */
+.widget-wrap.flipped .widget-img {
+  transform: scaleX(-1);
+}
+
 /* 变化模式（idle/hover 两张）下：隐藏态整颗停靠，不做 CSS 滑出。 */
 .widget-wrap.solid.hidden.dock-right,
 .widget-wrap.solid.hidden.dock-left {
   transform: translateX(0);
-}
-
-/* 默认图（按左侧设计）：贴右侧时整体水平翻转，让“探出”方向朝左。 */
-.widget-wrap.flipped .widget-img {
-  transform: scaleX(-1);
 }
 
 /* 默认图：隐藏态可见（不透明度由配置 idleOpacity 控制），hover 时淡出。 */
@@ -102,7 +105,7 @@ body {
   opacity: 1;
 }
 
-/* 贴右侧时水平翻转，让“探出”方向朝左。 */
+/* 贴左侧时水平翻转，让“探出”方向朝右（滑动模式单张图）。 */
 .widget-wrap.flipped .widget-img-single {
   transform: scaleX(-1);
 }

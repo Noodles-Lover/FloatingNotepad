@@ -100,8 +100,8 @@ export default function FloatingWidget({
     `dock-${edge}`,
     // 变化模式（idle/hover 两张）：整颗停靠、不滑出（滑动模式则用 CSS 滑出半掩）。
     skin.mode === "transform" ? "solid" : "",
-    // 默认图按左侧设计：贴右侧时水平翻转，让“探出”方向朝左（滑动模式与变化模式通用）。
-    edge === "right" ? "flipped" : "",
+    // 默认图按左侧设计：贴左侧时水平翻转，让“探出”方向朝右（滑动模式与变化模式通用）。
+    edge === "left" ? "flipped" : "",
   ]
     .filter(Boolean)
     .join(" ");

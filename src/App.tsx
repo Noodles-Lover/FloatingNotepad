@@ -33,6 +33,14 @@ function newCategory(seq: number): Category {
   return { id: Date.now() + seq, title: `分类 ${seq}`, todos: [] };
 }
 
+/** 待办排序：已完成的永远沉底；未完成的按优先级降序（高在前）。 */
+function sortTodos(list: Todo[]): Todo[] {
+  return [...list].sort((a, b) => {
+    if (a.done !== b.done) return a.done ? 1 : -1;
+    return b.priority - a.priority;
+  });
+}
+
 export default function App() {
   // ---- 视图状态 ----
   const [mode, setMode] = useState<Mode>("hidden"); // 当前模式：隐藏 / 展示 / 展开面板
@@ -43,6 +51,10 @@ export default function App() {
   const [activeTabId, setActiveTabId] = useState<number>(0); // 当前激活的标签页 id
   const [categories, setCategories] = useState<Category[]>([]); // 全部待办分类
   const [activeCategoryId, setActiveCategoryId] = useState<number>(0); // 当前激活的分类 id
+  // 待办展示顺序（节流排序后的结果，避免连点优先级时列表跳动）。
+  const [displayTodos, setDisplayTodos] = useState<Todo[]>([]);
+  const displayTodosRef = useRef<Todo[]>([]); // 最新展示顺序（供 effect 读取，避免依赖循环）
+  const sortTimerRef = useRef<number | null>(null); // 800ms 重排定时器
   const [config, setConfig] = useState<AppConfig>(DEFAULT_CONFIG); // 用户配置（挂件大小/窗口/自动关闭）
   const [skins, setSkins] = useState<Skin[]>([]); // 可用皮肤清单（运行时从 skin 目录自动读取）
   const [skinName, setSkinName] = useState<string>(() => loadSkinName()); // 当前选用皮肤名（永久保存）
@@ -281,7 +293,9 @@ export default function App() {
         modeRef.current === "expanded"
           ? await noteWin.bounds()
           : await windowCtl.boundsForMode(modeRef.current);
-      return x >= b.left && x <= b.right && y >= b.top && y <= b.bottom;
+      // 碰撞箱外扩：鼠标在面板真实范围外 panelMargin 像素内仍视为“在内”，避免边缘误关闭。
+      const m = configRef.current.panelMargin;
+      return x >= b.left - m && x <= b.right + m && y >= b.top - m && y <= b.bottom + m;
     };
 
     const sensor = new ProximitySensor();
@@ -609,16 +623,59 @@ export default function App() {
   // 渲染时按优先级降序排列（高优先级在前），不修改底层存储顺序。
   const activeCategory: Category | undefined =
     categories.find((c) => c.id === activeCategoryId) ?? categories[0];
-  const sortedTodos = [...(activeCategory?.todos ?? [])].sort(
-    (a, b) => b.priority - a.priority,
-  );
+  const liveTodos = activeCategory?.todos ?? [];
+
+  // 节流排序：底层 todos 变化（优先级/完成态/增删）时，先保持当前显示顺序（不打乱），
+  // 800ms 内若没有新的改动才按 sortTodos 重新排序，避免连点 ± 时列表跳动。
+  useEffect(() => {
+    const prev = displayTodosRef.current;
+    const prevIds = new Set(prev.map((t) => t.id));
+    const curIds = new Set(liveTodos.map((t) => t.id));
+    const overlap = prev.length > 0 && [...prevIds].some((id) => curIds.has(id));
+    if (!overlap) {
+      // 切换分类（或首次）：立即排序，不节流。
+      if (sortTimerRef.current !== null) clearTimeout(sortTimerRef.current);
+      const sorted = sortTodos(liveTodos);
+      displayTodosRef.current = sorted;
+      setDisplayTodos(sorted);
+      return;
+    }
+    // 同分类内改动：先同步内容且保持当前顺序（新增追加、删除移除、文本更新均不打乱）。
+    const byId = new Map(liveTodos.map((t) => [t.id, t]));
+    const merged: Todo[] = [];
+    const seen = new Set<string>();
+    for (const t of prev) {
+      if (byId.has(t.id)) {
+        merged.push(byId.get(t.id)!);
+        seen.add(t.id);
+      }
+    }
+    for (const t of liveTodos) {
+      if (!seen.has(t.id)) merged.push(t);
+    }
+    displayTodosRef.current = merged;
+    setDisplayTodos(merged);
+    if (sortTimerRef.current !== null) clearTimeout(sortTimerRef.current);
+    sortTimerRef.current = window.setTimeout(() => {
+      const sorted = sortTodos(liveTodos);
+      displayTodosRef.current = sorted;
+      setDisplayTodos(sorted);
+    }, 800);
+  }, [liveTodos]);
+
+  // 卸载时清除未触发的重排定时器。
+  useEffect(() => {
+    return () => {
+      if (sortTimerRef.current !== null) clearTimeout(sortTimerRef.current);
+    };
+  }, []);
 
   return (
     <div className="app">
       {mode === "expanded" ? (
         <NotePanel
           note={activeTab?.note ?? ""}
-          todos={sortedTodos}
+          todos={displayTodos}
           tabs={tabs}
           activeTabId={activeTabId}
           onContentChange={onContentChange}

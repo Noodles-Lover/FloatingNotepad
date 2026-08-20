@@ -111,6 +111,15 @@ export default function SettingsPanel({ config, onChange, onClose }: Props) {
             unit="%"
             onChange={(v) => set({ idleOpacity: v / 100 })}
           />
+          <Slider
+            label="碰撞箱外扩"
+            value={config.panelMargin}
+            min={0}
+            max={100}
+            step={1}
+            unit="px"
+            onChange={(v) => set({ panelMargin: v })}
+          />
         </div>
       </div>
     </div>

@@ -27,8 +27,7 @@ tauri-dev-err.log
 .env
 .env.local
 
-# Skin images (ignore all material packs by default; un-ignore specific ones below)
+# Skin images (ship only the default skin; ignore all other material packs)
 public/skin/*
 !public/skin/README.txt
-!public/skin/cat/
-!public/skin/pen/
+!public/skin/default/

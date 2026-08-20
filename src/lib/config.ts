@@ -19,6 +19,9 @@ export interface AppConfig {
   idleOpacity: number;
   /** 面板固定：固定后不随鼠标离开自动收起，只能手动点叉关闭。 */
   pinned: boolean;
+  /** 碰撞箱外扩（逻辑像素）：鼠标在笔记面板真实范围外该距离内仍视为“在内”，
+   *  不会触发自动收起。默认 5px，调大可避免面板边缘附近误关闭。 */
+  panelMargin: number;
 }
 
 export const DEFAULT_CONFIG: AppConfig = {
@@ -28,6 +31,7 @@ export const DEFAULT_CONFIG: AppConfig = {
   autoCloseDelay: 600,
   idleOpacity: 0.7,
   pinned: false,
+  panelMargin: 15,
 };
 
 const LS_KEY = "floating-notepad.config";
@@ -64,6 +68,7 @@ export async function loadConfig(): Promise<AppConfig> {
       if (kv.autoCloseDelay) parsed.autoCloseDelay = Number(kv.autoCloseDelay);
       if (kv.idleOpacity) parsed.idleOpacity = Number(kv.idleOpacity);
       if (kv.pinned) parsed.pinned = kv.pinned === "true";
+      if (kv.panelMargin) parsed.panelMargin = Number(kv.panelMargin);
       base = { ...base, ...sanitize(parsed) };
     }
   } catch {
@@ -98,6 +103,8 @@ function sanitize(part: Partial<AppConfig>): Partial<AppConfig> {
   if (typeof part.idleOpacity === "number" && part.idleOpacity >= 0.1 && part.idleOpacity <= 1)
     out.idleOpacity = part.idleOpacity;
   if (typeof part.pinned === "boolean") out.pinned = part.pinned;
+  if (typeof part.panelMargin === "number" && part.panelMargin >= 0 && part.panelMargin <= 100)
+    out.panelMargin = Math.round(part.panelMargin);
   return out;
 }
 

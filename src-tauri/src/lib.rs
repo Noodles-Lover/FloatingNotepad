@@ -64,21 +64,6 @@ fn current_cursor() -> Option<(i32, i32)> {
     None
 }
 
-#[tauri::command]
-fn show_main(app: AppHandle) {
-    if let Some(window) = app.get_webview_window("main") {
-        let _ = window.show();
-        let _ = window.set_focus();
-    }
-}
-
-#[tauri::command]
-fn hide_main(app: AppHandle) {
-    if let Some(window) = app.get_webview_window("main") {
-        let _ = window.hide();
-    }
-}
-
 // ---- Commands: thin adapters over the services above ----
 // NOTE: Tauri v2 registers the command under the Rust function name
 // (snake_case) by default. The frontend `invoke` and the `commands.allow`
@@ -124,19 +109,26 @@ fn set_active_category(category_id: i64) -> Result<(), String> {
 }
 
 /// 列出 skin/ 下的所有材质包（文件夹名即材质名）。
-/// dev：资源目录为 src-tauri，皮肤在 ../public/skin；
-/// prod：资源目录为 resources，皮肤已随包打包到 resources/skin。
+/// dev：resource_dir() 指向 target/debug，实时皮肤源码在 项目根/public/skin；
+///   target/debug/skin 是旧构建残留的过时拷贝，故不再优先用。
+/// prod：resource_dir() 指向打包的 resources，皮肤在 resources/skin。
+/// 由于 dev 下 resource_dir 的具体层级随版本变化，这里枚举多个候选路径，
+/// 取第一个真实存在的目录，避免拼错路径导致读不到任何皮肤。
 #[tauri::command]
 fn list_skins(app: AppHandle) -> Result<Vec<String>, String> {
     let base = app
         .path()
         .resource_dir()
         .map_err(|e| format!("无法获取资源目录: {e}"))?;
-    let dir = if base.join("skin").is_dir() {
-        base.join("skin")
-    } else {
-        base.join("../public/skin")
-    };
+    let candidates = [
+        base.join("../public/skin"),   // resource_dir = src-tauri
+        base.join("../../public/skin"), // resource_dir = target/debug
+        base.join("skin"),             // prod 打包目录
+    ];
+    let dir = candidates
+        .into_iter()
+        .find(|p| p.is_dir())
+        .unwrap_or_else(|| base.join("skin"));
 
     let mut names: Vec<String> = Vec::new();
     if let Ok(entries) = std::fs::read_dir(&dir) {
@@ -198,8 +190,6 @@ pub fn run() {
             save_categories,
             set_active_category,
             list_skins,
-            show_main,
-            hide_main,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
