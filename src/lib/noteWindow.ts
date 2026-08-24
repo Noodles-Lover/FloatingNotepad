@@ -59,7 +59,7 @@ export class NoteWindow {
    * @param dockY    挂件的中心 Y（逻辑像素），用来对齐面板垂直中心
    */
   async expand(dockEdge: Edge, dockY: number): Promise<void> {
-    await this.win.setIgnoreCursorEvents(false);
+    // 窗口交互性由 Rust 的 toggle_passthrough 控制 WS_EX_TRANSPARENT。
     await this.win.setSize(new LogicalSize(this.panelW, this.panelH));
     const widgetTop = Math.round(dockY - this.widgetSize / 2);
     const widgetCy = widgetTop + this.widgetSize / 2;

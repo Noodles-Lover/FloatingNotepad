@@ -237,6 +237,12 @@
           "markdownDescription": "Allow starting the global cursor watcher that drives the floating-ball reveal."
         },
         {
+          "description": "Allow toggling mouse passthrough (WS_EX_TRANSPARENT) from tray or widget menu. Rust is the single source of truth for this state.",
+          "type": "string",
+          "const": "allow-toggle-passthrough",
+          "markdownDescription": "Allow toggling mouse passthrough (WS_EX_TRANSPARENT) from tray or widget menu. Rust is the single source of truth for this state."
+        },
+        {
           "description": "Default core plugins set.\n#### This default permission set includes:\n\n- `core:path:default`\n- `core:event:default`\n- `core:window:default`\n- `core:webview:default`\n- `core:app:default`\n- `core:image:default`\n- `core:resources:default`\n- `core:menu:default`\n- `core:tray:default`",
           "type": "string",
           "const": "core:default",

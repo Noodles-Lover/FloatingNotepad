@@ -95,6 +95,17 @@ body {
   opacity: 1;
 }
 
+/* 穿透态：挂件常驻屏内但只显示 idle 半掩图，不探出 hover 图（即便 class 带 revealed）。 */
+.widget-wrap.passthrough .widget-img-idle {
+  opacity: var(--idle-opacity, 0.85);
+}
+.widget-wrap.passthrough .widget-img-hover {
+  opacity: 0;
+}
+.widget-wrap.passthrough .widget-img-single {
+  opacity: var(--idle-opacity, 0.7);
+}
+
 /* ---------- 滑动模式（单张 widget.png，用 CSS 滑出半掩） ---------- */
 /* 滑动模式不挂 solid，因此走 .widget-wrap.hidden 的半截滑出；单图始终显示，隐藏态用 idleOpacity。 */
 .widget-img-single {

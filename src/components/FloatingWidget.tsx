@@ -21,6 +21,12 @@ interface Props {
   idleOpacity: number;
   /** 当前选用的皮肤（决定渲染滑动模式还是变化模式）。 */
   skin: Skin;
+  /** 是否处于穿透模式：开启时拦截点击/拖动，仅右键仍可弹出菜单。 */
+  passthrough: boolean;
+  /** 在挂件上右键时回调（坐标由浏览器事件提供，App 负责弹原生菜单）。 */
+  onContextMenu: (e: React.MouseEvent) => void;
+  /** 鼠标真正离开挂件时回调（用于可靠收起，避免 proximity 漏采样导致 hover 卡住）。 */
+  onLeave: () => void;
 }
 
 /** 判定为“拖动”的最小位移（像素），小于此值视为点击。 */
@@ -42,6 +48,9 @@ export default function FloatingWidget({
   widgetSize,
   idleOpacity,
   skin,
+  passthrough,
+  onContextMenu,
+  onLeave,
 }: Props) {
   // 记录鼠标按下的起点，用于区分“点击”与“拖动”。
   const downPosRef = useRef<{ x: number; y: number } | null>(null);
@@ -52,6 +61,8 @@ export default function FloatingWidget({
 
   /** 鼠标按下：暂不启动 OS 拖动，先挂一个 mousemove 监听，等待越过阈值。 */
   const handleMouseDown = (e: React.MouseEvent) => {
+    // 穿透模式：不拖动、不打开面板，仅右键可用。
+    if (passthrough) return;
     downPosRef.current = { x: e.clientX, y: e.clientY };
     movedRef.current = false;
 
@@ -79,6 +90,8 @@ export default function FloatingWidget({
 
   /** 鼠标点击：移除临时监听；若本次是拖动则忽略，否则视为点击并打开面板。 */
   const handleClick = (e: React.MouseEvent) => {
+    // 穿透模式：点击不打开面板。
+    if (passthrough) return;
     const onMove = moveRef.current;
     if (onMove) {
       document.removeEventListener("mousemove", onMove);
@@ -97,6 +110,7 @@ export default function FloatingWidget({
     "widget-wrap",
     revealed ? "revealed" : "hidden",
     dragging ? "dragging" : "",
+    passthrough ? "passthrough" : "",
     `dock-${edge}`,
     // 变化模式（idle/hover 两张）：整颗停靠、不滑出（滑动模式则用 CSS 滑出半掩）。
     skin.mode === "transform" ? "solid" : "",
@@ -115,7 +129,16 @@ export default function FloatingWidget({
       }}
       onMouseDown={handleMouseDown}
       onClick={handleClick}
-      title="点击记一笔 · 拖动可贴边"
+      onMouseLeave={() => {
+        if (passthrough) return;
+        onLeave();
+      }}
+      onContextMenu={(e) => {
+        if (passthrough) return;
+        e.preventDefault();
+        onContextMenu(e);
+      }}
+      title={passthrough ? "" : "点击记一笔 · 拖动可贴边 · 右键打开菜单"}
     >
       {skin.mode === "slide" ? (
         /* 滑动模式：单张 widget.png，整颗挂件；隐藏态由 CSS 滑出半掩。 */

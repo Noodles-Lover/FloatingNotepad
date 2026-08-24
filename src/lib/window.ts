@@ -61,9 +61,9 @@ export class WindowController {
   }
 
   /** 设置悬浮挂件尺寸（逻辑像素），并立即按新尺寸重新停靠。 */
-  async setWidgetSize(size: number, interactive: boolean): Promise<void> {
+  async setWidgetSize(size: number): Promise<void> {
     this.widgetSize = size;
-    await this.placeWidget(this.dockEdge, interactive);
+    await this.placeWidget(this.dockEdge);
   }
 
   /**
@@ -89,14 +89,13 @@ export class WindowController {
     return new LogicalPosition(x, y);
   }
 
-  /** 把挂件放到指定边的停靠位。interactive 控制是否穿透鼠标（隐藏态穿透、展示态不穿透）。 */
-  async placeWidget(edge: Edge, interactive: boolean): Promise<void> {
+  /** 把挂件放到指定边的停靠位（仅位置/尺寸，不涉及鼠标穿透）。 */
+  async placeWidget(edge: Edge): Promise<void> {
     this.dockEdge = edge;
     // 先移动再缩放：setSize 以窗口左上角为锚点，若先缩后移，窗口会瞬间收缩到旧（面板）位置的
     // 左上角再跳到挂件位，视觉上出现“闪到面板角落再回正”的闪烁。先定位到挂件位再缩即可消除。
     await this.win.setPosition(this.widgetPosFor(edge));
     await this.win.setSize(new LogicalSize(this.widgetSize, this.widgetSize));
-    await this.win.setIgnoreCursorEvents(!interactive);
   }
 
   /** 当前贴附的边。 */
@@ -114,14 +113,14 @@ export class WindowController {
     return this.dockY;
   }
 
-  /** 隐藏态：停靠、鼠标穿透、并由 CSS 滑出半截。 */
+  /** 隐藏态：停靠并由 CSS 滑出半截；保持可交互以便接收右键菜单与点击。 */
   async dockHidden(): Promise<void> {
-    await this.placeWidget(this.dockEdge, false);
+    await this.placeWidget(this.dockEdge);
   }
 
   /** 展示态：停靠、完全在屏内、可点击。 */
   async showWidget(): Promise<void> {
-    await this.placeWidget(this.dockEdge, true);
+    await this.placeWidget(this.dockEdge);
   }
 
   /** 完全隐藏整个应用窗口（托盘“隐藏挂件”用）。 */
@@ -129,10 +128,24 @@ export class WindowController {
     await this.win.hide();
   }
 
+  /** 强制把窗口激活到前台，确保从穿透态切回后 Windows 上鼠标输入确实恢复。 */
+  async focus(): Promise<void> {
+    try {
+      await this.win.setFocus();
+    } catch (e) {
+      console.error("[focus] 失败:", e);
+    }
+  }
+
   /** 显示整个应用窗口并回到展示态（托盘“显示挂件”用）。 */
   async showApp(): Promise<void> {
     await this.win.show();
     await this.showWidget();
+  }
+
+  /** 仅显示窗口（不重排位置、不改交互态）。穿透态下用于让挂件常驻可见。 */
+  async showOnly(): Promise<void> {
+    await this.win.show();
   }
 
   /**

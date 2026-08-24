@@ -15,6 +15,7 @@
     "core:window:allow-set-focus",
     "core:event:allow-listen",
     "core:event:allow-emit",
+    "core:menu:default",
     "allow-start-mouse-watch",
     "allow-load-tabs",
     "allow-save-tabs",
@@ -24,6 +25,7 @@
     "allow-set-active-category",
     "allow-list-skins",
     "allow-show-main",
-    "allow-hide-main"
+    "allow-hide-main",
+    "allow-toggle-passthrough"
   ]
 }

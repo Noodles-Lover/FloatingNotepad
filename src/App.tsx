@@ -1,6 +1,8 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { invoke } from "@tauri-apps/api/core";
+import { getCurrentWindow } from "@tauri-apps/api/window";
 import { listen, type UnlistenFn } from "@tauri-apps/api/event";
+import { Menu, MenuItem, CheckMenuItem } from "@tauri-apps/api/menu";
 import { WindowController, type Edge } from "./lib/window";
 import { NoteWindow } from "./lib/noteWindow";
 import { loadState, saveTabs, setActiveTab, loadCategories, saveCategories, setActiveCategory } from "./lib/db";
@@ -56,6 +58,8 @@ export default function App() {
   const displayTodosRef = useRef<Todo[]>([]); // 最新展示顺序（供 effect 读取，避免依赖循环）
   const sortTimerRef = useRef<number | null>(null); // 800ms 重排定时器
   const [config, setConfig] = useState<AppConfig>(DEFAULT_CONFIG); // 用户配置（挂件大小/窗口/自动关闭）
+  const [passthrough, setPassthroughState] = useState<boolean>(false); // 穿透模式
+  const passthroughRef = useRef(false); // 最新穿透态，供 proximity / 点击早退读取
   const [skins, setSkins] = useState<Skin[]>([]); // 可用皮肤清单（运行时从 skin 目录自动读取）
   const [skinName, setSkinName] = useState<string>(() => loadSkinName()); // 当前选用皮肤名（永久保存）
   const [skin, setSkin] = useState<Skin | null>(null); // 当前选用皮肤对象（解析 skinName 后得到）
@@ -164,10 +168,14 @@ export default function App() {
       // 面板已展开（或设置面板打开）时，禁止把整窗 resize 成挂件尺寸，否则面板会瞬间缩小/被卸载；
       // 挂件尺寸留到收起后由 showWidget/dockHidden 自然应用。
       const panelActive = modeRef.current === "expanded" || modalOpenRef.current;
-      if (panelActive) return;
-      // 用当前交互态重排挂件尺寸（展开时保持可交互，否则隐藏态穿透）。
-      const interactive = modeRef.current !== "hidden" || draggingRef.current;
-      windowCtl.setWidgetSize(cfg.widgetSize, interactive).catch((e) => console.error("[setWidgetSize] 失败:", e));
+      if (panelActive) {
+        // 面板打开时禁止把整窗 resize 成挂件尺寸（否则面板被卸载）。
+        windowCtl.syncWidgetSize(cfg.widgetSize);
+        return;
+      }
+      // 鼠标穿透（WS_EX_TRANSPARENT）由 Rust 的 toggle_passthrough 单独控制，
+      // 这里只负责尺寸重排，不在 resize 时切换交互性。
+      windowCtl.setWidgetSize(cfg.widgetSize).catch((e) => console.error("[setWidgetSize] 失败:", e));
     },
     [noteWin, windowCtl],
   );
@@ -182,6 +190,58 @@ export default function App() {
     [applyConfigToCtl],
   );
 
+  /** 请求切换穿透模式：Rust 是状态的唯一真相源。这里只发出切换意图
+   * （invoke toggle_passthrough），实际状态由 Rust 广播的 passthrough-state 事件
+   * 驱动前端显示，托盘与右键菜单保持一致。 */
+  const setPassthrough = useCallback(
+    (on: boolean) => {
+      if (on === passthroughRef.current) return;
+      // 进入穿透态时先只显示挂件（无内容面板、不检测鼠标）；其余交给 Rust 处理 WS_EX_TRANSPARENT。
+      if (on) {
+        setMode("hidden");
+        appHiddenRef.current = false;
+        windowCtl.showOnly().catch((e) => console.error("[showOnly] 失败:", e));
+      }
+      invoke("toggle_passthrough").catch((e) => console.error("[passthrough] invoke 失败:", e));
+    },
+    [windowCtl],
+  );
+
+  /** 在挂件上右键：弹出原生菜单（隐藏 / 开关穿透）。 */
+  const openContextMenu = useCallback(async () => {
+    const hideItem = await MenuItem.new({
+      text: "隐藏挂件",
+      action: () => {
+        appHiddenRef.current = true;
+        setMode("hidden");
+        windowCtl.hideApp().catch((e) => console.error("[hideApp] 失败:", e));
+      },
+    });
+    const passItem = await CheckMenuItem.new({
+      text: "穿透模式",
+      checked: passthroughRef.current,
+      action: () => {
+        // 请求 Rust 切换；状态由 passthrough-state 广播同步（挂件在穿透态无法接收右键，属正常）。
+        setPassthrough(!passthroughRef.current);
+      },
+    });
+    const quitItem = await MenuItem.new({
+      text: "退出",
+      action: () => {
+        // 关闭主窗口即退出应用（与系统托盘「退出」行为一致）。
+        getCurrentWindow().close().catch((e) => console.error("[退出] 关闭窗口失败:", e));
+      },
+    });
+    const menu = await Menu.new({ items: [hideItem, passItem, quitItem] });
+    await menu.popup();
+  }, [windowCtl, setPassthrough]);
+
+  /** 鼠标离开挂件即收起（穿透态/拖拽中除外）。 */
+  const onWidgetLeave = useCallback(() => {
+    if (passthroughRef.current || draggingRef.current) return;
+    if (modeRef.current === "revealed") beginClose();
+  }, [beginClose]);
+
   // 皮肤/设置面板打开时：清掉正在进行的收起计时，避免面板刚打开就被自动收起。
   useEffect(() => {
     if (skinOpen || settingsOpen) clearTimers();
@@ -194,8 +254,12 @@ export default function App() {
     loadConfig()
       .then((cfg) => {
         if (!alive) return;
-        setConfig(cfg);
-        applyConfigToCtl(cfg);
+        // 启动即非穿透，穿透只作为用户主动开启的临时态。
+        const safe = { ...cfg, passthrough: false };
+        setConfig(safe);
+        setPassthroughState(false);
+        passthroughRef.current = false;
+        applyConfigToCtl(safe);
       })
       .catch((e) => console.error("[loadConfig] 失败:", e));
     return () => {
@@ -246,9 +310,11 @@ export default function App() {
     // 系统托盘菜单（显示/隐藏挂件）通过事件驱动，这里监听并切换窗口形态。
     let unlistenShow: UnlistenFn | null = null;
     let unlistenHide: UnlistenFn | null = null;
+    let unlistenTogglePt: UnlistenFn | null = null;
     listen("show-widget", () => {
+      // 显示挂件后回到 idle 待命态（半掩、不 hover），由 proximity 检测鼠标靠近才 reveal。
       appHiddenRef.current = false;
-      setMode("revealed");
+      setMode("hidden");
       windowCtl.showApp();
     }).then((fn) => {
       unlistenShow = fn;
@@ -259,6 +325,13 @@ export default function App() {
       windowCtl.hideApp();
     }).then((fn) => {
       unlistenHide = fn;
+    });
+    // 穿透状态由 Rust 统一维护并广播；前端只同步显示，不自己计算真相。
+    listen<boolean>("passthrough-state", (ev) => {
+      passthroughRef.current = ev.payload;
+      setPassthroughState(ev.payload);
+    }).then((fn) => {
+      unlistenTogglePt = fn;
     });
     loadState()
       .then((state) => {
@@ -309,6 +382,8 @@ export default function App() {
         if (modalOpenRef.current) return;
         // 刚收起后的冷却期内，禁止 proximity 把球重新弹出。
         if (Date.now() < suppressUntil.current) return;
+        // 穿透模式：不检测鼠标位置，不自动收起也不弹出。
+        if (passthroughRef.current) return;
         const isInside = await inside(x, y);
         if (modeRef.current === "hidden") {
           if (isInside) {
@@ -339,11 +414,14 @@ export default function App() {
       clearTimers();
       unlistenShow?.();
       unlistenHide?.();
+      unlistenTogglePt?.();
     };
   }, [windowCtl, beginClose, noteWin]);
 
   /** 打开笔记面板。 */
   const openPanel = useCallback(() => {
+    // 穿透模式：点击不打开面板。
+    if (passthroughRef.current) return;
     clearTimers();
     setClosing(false);
     setMode("expanded");
@@ -707,7 +785,7 @@ export default function App() {
         />
       ) : (
         <FloatingWidget
-          revealed={mode === "revealed" || dragging}
+          revealed={mode === "revealed" || dragging || passthrough}
           dragging={dragging}
           edge={edge}
           windowCtl={windowCtl}
@@ -716,6 +794,9 @@ export default function App() {
           widgetSize={config.widgetSize}
           idleOpacity={config.idleOpacity}
           skin={skin ?? { name: "default", mode: "slide", widget: "/skin/default/widget.png" }}
+          passthrough={passthrough}
+          onContextMenu={openContextMenu}
+          onLeave={onWidgetLeave}
         />
       )}
 

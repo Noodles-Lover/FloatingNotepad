@@ -56,3 +56,8 @@ commands.allow = ["show_main"]
 identifier = "allow-hide-main"
 description = "Allow hiding the main floating window from Rust/tray."
 commands.allow = ["hide_main"]
+
+[[permission]]
+identifier = "allow-toggle-passthrough"
+description = "Allow toggling mouse passthrough (WS_EX_TRANSPARENT) from tray or widget menu. Rust is the single source of truth for this state."
+commands.allow = ["toggle_passthrough"]
