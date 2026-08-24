@@ -31,15 +31,27 @@ export type Skin = SlideSkin | TransformSkin;
 /** 默认皮肤名（缺少或无效时回落）。 */
 export const DEFAULT_SKIN_NAME = "default";
 
+/** 内置 default 皮肤对象（缺少任何皮肤或解析失败时的兜底）。 */
+export function defaultSkin(): Skin {
+  return {
+    name: DEFAULT_SKIN_NAME,
+    mode: "slide",
+    widget: `/skin/${DEFAULT_SKIN_NAME}/widget.png`,
+  };
+}
+
 /**
  * 探测某个素材 URL 是否存在且为图片。
  * 注意：dev 服务器（Vite）对不存在的 .png 可能回退返回 index.html（200 + text/html），
  * 故仅看 r.ok 不够，必须额外校验 content-type 以跳过 HTML 兜底，避免误判文件存在。
  */
-function exists(url: string): Promise<boolean> {
-  return fetch(url, { method: "HEAD", cache: "no-store" })
-    .then((r) => r.ok && (r.headers.get("content-type") || "").startsWith("image/"))
-    .catch(() => false);
+async function exists(url: string): Promise<boolean> {
+  try {
+    const r = await fetch(url, { method: "HEAD", cache: "no-store" });
+    return r.ok && (r.headers.get("content-type") || "").startsWith("image/");
+  } catch {
+    return false;
+  }
 }
 
 /**
@@ -72,25 +84,14 @@ export async function loadSkins(): Promise<Skin[]> {
   }
 
   if (skins.length === 0) {
-    skins.push({
-      name: DEFAULT_SKIN_NAME,
-      mode: "slide",
-      widget: `/skin/${DEFAULT_SKIN_NAME}/widget.png`,
-    });
+    skins.push(defaultSkin());
   }
   return skins;
 }
 
 /** 按名取皮肤；找不到时回落到列表第一项（或内置 default）。 */
 export function resolveSkin(skins: Skin[], name: string): Skin {
-  return (
-    skins.find((s) => s.name === name) ??
-    skins[0] ?? {
-      name: DEFAULT_SKIN_NAME,
-      mode: "slide",
-      widget: `/skin/${DEFAULT_SKIN_NAME}/widget.png`,
-    }
-  );
+  return skins.find((s) => s.name === name) ?? skins[0] ?? defaultSkin();
 }
 
 /** 皮肤选择的 localStorage key（独立于 config，永久保存）。 */

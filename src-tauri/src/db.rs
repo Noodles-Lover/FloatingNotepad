@@ -1,5 +1,5 @@
 use std::sync::{Mutex, OnceLock};
-use rusqlite::Connection;
+use rusqlite::{Connection, Transaction};
 use serde::{Deserialize, Serialize};
 use tauri::Manager;
 
@@ -225,24 +225,34 @@ pub struct TabInput {
     pub content: String,
 }
 
-pub fn save_tabs(tabs: Vec<TabInput>) {
-    // 保护：禁止用空列表清空整个标签页库（避免启动竞态或误覆盖）。
-    if tabs.is_empty() {
+/// 全量替换表中的实体：先 DELETE 再按 position 重新 INSERT（同一事务内完成）。
+/// 空列表直接跳过（保护：禁止清空整个表，避免启动竞态或误覆盖）。
+fn replace_all<T>(
+    conn: &mut Connection,
+    table: &str,
+    rows: &[T],
+    insert: impl Fn(&mut Transaction<'_>, usize, &T) -> rusqlite::Result<()>,
+) {
+    if rows.is_empty() {
         return;
     }
-    let mut conn = db().lock().unwrap();
-    let tx = conn.transaction().expect("begin tx failed");
-    tx.execute("DELETE FROM tabs", []).ok();
+    let mut tx = conn.transaction().expect("begin tx failed");
+    tx.execute(&format!("DELETE FROM {table}"), []).ok();
+    for (pos, row) in rows.iter().enumerate() {
+        insert(&mut tx, pos, row).expect("insert failed");
+    }
+    tx.commit().expect("commit tx failed");
+}
 
-    for (pos, t) in tabs.iter().enumerate() {
+pub fn save_tabs(tabs: Vec<TabInput>) {
+    replace_all(&mut db().lock().unwrap(), "tabs", &tabs, |tx, pos, t| {
         tx.execute(
             "INSERT INTO tabs (id, title, content, position) VALUES (?1, ?2, ?3, ?4)
              ON CONFLICT(id) DO UPDATE SET title=excluded.title, content=excluded.content, position=excluded.position",
             rusqlite::params![t.id, t.title, t.content, pos as i64],
         )
-        .expect("save tab failed");
-    }
-    tx.commit().expect("commit tx failed");
+        .map(|_| ())
+    });
 }
 
 pub fn set_active_tab(tab_id: i64) {
@@ -303,23 +313,14 @@ pub fn load_categories() -> CategoryState {
 }
 
 pub fn save_categories(categories: Vec<CategoryInput>) {
-    // 保护：禁止用空列表清空整个分类库（避免启动竞态或误覆盖）。
-    if categories.is_empty() {
-        return;
-    }
-    let mut conn = db().lock().unwrap();
-    let tx = conn.transaction().expect("begin tx failed");
-    tx.execute("DELETE FROM categories", []).ok();
-
-    for (pos, c) in categories.iter().enumerate() {
+    replace_all(&mut db().lock().unwrap(), "categories", &categories, |tx, pos, c| {
         tx.execute(
             "INSERT INTO categories (id, title, todos, position) VALUES (?1, ?2, ?3, ?4)
              ON CONFLICT(id) DO UPDATE SET title=excluded.title, todos=excluded.todos, position=excluded.position",
             rusqlite::params![c.id, c.title, c.todos, pos as i64],
         )
-        .expect("save category failed");
-    }
-    tx.commit().expect("commit tx failed");
+        .map(|_| ())
+    });
 }
 
 pub fn set_active_category(category_id: i64) {

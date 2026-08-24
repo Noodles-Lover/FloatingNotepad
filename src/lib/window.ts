@@ -1,5 +1,6 @@
-import { getCurrentWindow, currentMonitor } from "@tauri-apps/api/window";
+import { getCurrentWindow } from "@tauri-apps/api/window";
 import { LogicalPosition, LogicalSize } from "@tauri-apps/api/dpi";
+import { readMonitorScreen } from "./screen";
 
 /** 贴附的边：只在左右两边之间切换。 */
 export type Edge = "left" | "right";
@@ -49,15 +50,8 @@ export class WindowController {
    * 必须用 currentMonitor() 获取当前窗口所在显示器的真实尺寸。
    */
   async refreshScreen(): Promise<void> {
-    try {
-      const mon = await currentMonitor();
-      if (mon) {
-        const size = mon.size.toLogical(mon.scaleFactor);
-        this.screen = { w: size.width, h: size.height };
-      }
-    } catch (e) {
-      console.error("[refreshScreen] 失败，沿用 window.screen:", e);
-    }
+    const size = await readMonitorScreen();
+    if (size) this.screen = size;
   }
 
   /** 设置悬浮挂件尺寸（逻辑像素），并立即按新尺寸重新停靠。 */
@@ -126,15 +120,6 @@ export class WindowController {
   /** 完全隐藏整个应用窗口（托盘“隐藏挂件”用）。 */
   async hideApp(): Promise<void> {
     await this.win.hide();
-  }
-
-  /** 强制把窗口激活到前台，确保从穿透态切回后 Windows 上鼠标输入确实恢复。 */
-  async focus(): Promise<void> {
-    try {
-      await this.win.setFocus();
-    } catch (e) {
-      console.error("[focus] 失败:", e);
-    }
   }
 
   /** 显示整个应用窗口并回到展示态（托盘“显示挂件”用）。 */

@@ -1,6 +1,7 @@
-import { getCurrentWindow, currentMonitor } from "@tauri-apps/api/window";
+import { getCurrentWindow } from "@tauri-apps/api/window";
 import { LogicalPosition, LogicalSize } from "@tauri-apps/api/dpi";
 import { WindowController, type Edge, type Rect } from "./window";
+import { readMonitorScreen } from "./screen";
 import type { AppConfig } from "./config";
 
 /** 展开后面板与屏幕边界保留的最小间距。 */
@@ -42,15 +43,8 @@ export class NoteWindow {
 
   /** 用 Tauri 真实显示器尺寸刷新内部 screen（逻辑像素），避免窗口被放到屏幕外。 */
   async refreshScreen(): Promise<void> {
-    try {
-      const mon = await currentMonitor();
-      if (mon) {
-        const size = mon.size.toLogical(mon.scaleFactor);
-        this.screen = { w: size.width, h: size.height };
-      }
-    } catch (e) {
-      console.error("[NoteWindow.refreshScreen] 失败:", e);
-    }
+    const size = await readMonitorScreen();
+    if (size) this.screen = size;
   }
 
   /**

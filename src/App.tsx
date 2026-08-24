@@ -8,7 +8,8 @@ import { NoteWindow } from "./lib/noteWindow";
 import { loadState, saveTabs, setActiveTab, loadCategories, saveCategories, setActiveCategory } from "./lib/db";
 import { ProximitySensor } from "./lib/proximity";
 import { loadConfig, saveConfig, DEFAULT_CONFIG, type AppConfig } from "./lib/config";
-import { loadSkins, resolveSkin, loadSkinName, saveSkinName, type Skin } from "./lib/skins";
+import { loadSkins, resolveSkin, loadSkinName, saveSkinName, defaultSkin, type Skin } from "./lib/skins";
+import { useEntityList, type EntityListApi } from "./lib/useEntityList";
 import type { Category, Tab, Todo } from "./types";
 import FloatingWidget from "./components/FloatingWidget";
 import NotePanel from "./components/NotePanel";
@@ -30,7 +31,7 @@ function newTab(seq: number): Tab {
   return { id: Date.now() + seq, title: `浮笺 ${seq}`, note: "" };
 }
 
-/** 新建一个空白待办分类（默认名为“主要”之外的新增分类）。 */
+/** 新建一个空白待办分类。 */
 function newCategory(seq: number): Category {
   return { id: Date.now() + seq, title: `分类 ${seq}`, todos: [] };
 }
@@ -49,10 +50,6 @@ export default function App() {
   const [closing, setClosing] = useState(false); // 是否正在播放收起动画
   const [edge, setEdge] = useState<Edge>("right"); // 悬浮挂件当前贴附的边
   const [dragging, setDragging] = useState(false); // 悬浮挂件是否正在被拖动
-  const [tabs, setTabs] = useState<Tab[]>([]); // 全部速记标签页
-  const [activeTabId, setActiveTabId] = useState<number>(0); // 当前激活的标签页 id
-  const [categories, setCategories] = useState<Category[]>([]); // 全部待办分类
-  const [activeCategoryId, setActiveCategoryId] = useState<number>(0); // 当前激活的分类 id
   // 待办展示顺序（节流排序后的结果，避免连点优先级时列表跳动）。
   const [displayTodos, setDisplayTodos] = useState<Todo[]>([]);
   const displayTodosRef = useRef<Todo[]>([]); // 最新展示顺序（供 effect 读取，避免依赖循环）
@@ -83,16 +80,10 @@ export default function App() {
   configRef.current = config;
   const appHiddenRef = useRef(false); // 托盘“隐藏挂件”后整窗隐藏，期间 proximity 不响应
   const modalOpenRef = useRef(false); // 皮肤/设置面板打开时，暂停 proximity 的收起与弹出
-  const tabsRef = useRef<Tab[]>(tabs); // 最新标签页，供防抖保存读取
-  tabsRef.current = tabs;
-  const activeRef = useRef<number>(activeTabId); // 最新激活 id，供防抖保存读取
-  activeRef.current = activeTabId;
-  const loadedRef = useRef(false); // 标签页是否已从后端加载完成（防止启动期空数据覆盖）
-  const catsRef = useRef<Category[]>(categories); // 最新分类，供防抖保存读取
-  catsRef.current = categories;
-  const activeCatRef = useRef<number>(activeCategoryId); // 最新激活分类 id
-  activeCatRef.current = activeCategoryId;
-  const loadedCatRef = useRef(false); // 分类是否已从后端加载完成
+  // 标签页/分类的状态管理收敛到 useEntityList；此处的 ref 供 scheduleSave 在不产生
+  // 循环依赖的前提下读取最新列表（hook 的 listRef/loadedRef 均为稳定引用）。
+  const tabsApiRef = useRef<EntityListApi<Tab> | null>(null);
+  const catsApiRef = useRef<EntityListApi<Category> | null>(null);
 
   modeRef.current = mode;
   modalOpenRef.current = skinOpen || settingsOpen;
@@ -106,8 +97,49 @@ export default function App() {
   if (!noteWinRef.current) noteWinRef.current = new NoteWindow(windowCtl, config);
   const noteWin = noteWinRef.current;
 
+  // ---- 防抖落库：任何文本/任务改动都会触发，SAVE_DEBOUNCE 内只存一次。tabs 与分类分别守卫。
+  // @param immediate 传 true 时立即落库（用于删除等结构性变更，避免 HMR/防抖竞态导致复原）。
+  const scheduleSave = useCallback((immediate = false) => {
+    if (saveTimer.current) window.clearTimeout(saveTimer.current);
+    const flush = () => {
+      const t = tabsApiRef.current;
+      const c = catsApiRef.current;
+      if (t?.loadedRef.current) {
+        saveTabs(t.listRef.current).catch((e) => console.error("[save] 失败:", e));
+      }
+      if (c?.loadedRef.current) {
+        saveCategories(c.listRef.current).catch((e) => console.error("[saveCat] 失败:", e));
+      }
+    };
+    if (immediate) flush();
+    else saveTimer.current = window.setTimeout(flush, SAVE_DEBOUNCE);
+  }, []);
+
+  // ---- 标签页 / 待办分类：同一套状态管理，差异只在于数据形状与持久化目标 ----
+  const tabsApi = useEntityList<Tab>({
+    create: newTab,
+    hasContent: (t) => t.note.trim().length > 0,
+    persist: (list) => saveTabs(list).catch((e) => console.error("[save] 失败:", e)),
+    schedulePersist: () => scheduleSave(),
+    persistActive: (id) => setActiveTab(id).catch((e) => console.error("[setActiveTab] 失败:", e)),
+    onConfirmDelete: (id) => setPendingDelete({ kind: "tab", id }),
+  });
+  tabsApiRef.current = tabsApi;
+
+  const catsApi = useEntityList<Category>({
+    create: newCategory,
+    hasContent: (c) => c.todos.length > 0,
+    persist: (list) => saveCategories(list).catch((e) => console.error("[saveCat] 失败:", e)),
+    schedulePersist: () => scheduleSave(),
+    persistActive: (id) =>
+      setActiveCategory(id).catch((e) => console.error("[setActiveCategory] 失败:", e)),
+    onConfirmDelete: (id) => setPendingDelete({ kind: "category", id }),
+  });
+  catsApiRef.current = catsApi;
+
   // ---- 当前激活的标签页（派生）----
-  const activeTab: Tab | undefined = tabs.find((t) => t.id === activeTabId) ?? tabs[0];
+  const activeTab: Tab | undefined =
+    tabsApi.list.find((t) => t.id === tabsApi.activeId) ?? tabsApi.list[0];
 
   // ---- 定时器管理 ----
   const clearTimers = () => {
@@ -120,22 +152,6 @@ export default function App() {
       closeTimer.current = null;
     }
   };
-
-  /** 防抖落库：任何文本/任务改动都会触发，SAVE_DEBOUNCE 内只存一次。tabs 与分类分别守卫。
-   * @param immediate 传 true 时立即落库（用于删除等结构性变更，避免 HMR/防抖竞态导致复原）。 */
-  const scheduleSave = useCallback((immediate = false) => {
-    if (saveTimer.current) window.clearTimeout(saveTimer.current);
-    const flush = () => {
-      if (loadedRef.current) {
-        saveTabs(tabsRef.current).catch((e) => console.error("[save] 失败:", e));
-      }
-      if (loadedCatRef.current) {
-        saveCategories(catsRef.current).catch((e) => console.error("[saveCat] 失败:", e));
-      }
-    };
-    if (immediate) flush();
-    else saveTimer.current = window.setTimeout(flush, SAVE_DEBOUNCE);
-  }, []);
 
   /** 真正执行“收起”：切回隐藏态并让窗口回到球隐藏态。窗口动作统一交给 NoteWindow。 */
   const doClose = useCallback(() => {
@@ -168,11 +184,7 @@ export default function App() {
       // 面板已展开（或设置面板打开）时，禁止把整窗 resize 成挂件尺寸，否则面板会瞬间缩小/被卸载；
       // 挂件尺寸留到收起后由 showWidget/dockHidden 自然应用。
       const panelActive = modeRef.current === "expanded" || modalOpenRef.current;
-      if (panelActive) {
-        // 面板打开时禁止把整窗 resize 成挂件尺寸（否则面板被卸载）。
-        windowCtl.syncWidgetSize(cfg.widgetSize);
-        return;
-      }
+      if (panelActive) return;
       // 鼠标穿透（WS_EX_TRANSPARENT）由 Rust 的 toggle_passthrough 单独控制，
       // 这里只负责尺寸重排，不在 resize 时切换交互性。
       windowCtl.setWidgetSize(cfg.widgetSize).catch((e) => console.error("[setWidgetSize] 失败:", e));
@@ -335,27 +347,21 @@ export default function App() {
     });
     loadState()
       .then((state) => {
-        loadedRef.current = true;
-        if (state.tabs.length === 0) return;
-        setTabs(state.tabs);
-        setActiveTabId(state.activeTabId);
-        // 主动存回一次，确保数据库中的 position / active_tab_id 与前端一致。
-        scheduleSave();
+        tabsApiRef.current?.load(state.tabs, state.activeTabId);
+        // 有数据才主动存回一次，确保数据库中的 position / active_tab_id 与前端一致。
+        if (state.tabs.length > 0) scheduleSave();
       })
       .catch((e) => {
-        loadedRef.current = true;
+        tabsApiRef.current?.markLoaded();
         console.error("[load] 失败:", e);
       });
 
     loadCategories()
       .then((state) => {
-        loadedCatRef.current = true;
-        if (state.categories.length === 0) return;
-        setCategories(state.categories);
-        setActiveCategoryId(state.activeCategoryId);
+        catsApiRef.current?.load(state.categories, state.activeCategoryId);
       })
       .catch((e) => {
-        loadedCatRef.current = true;
+        catsApiRef.current?.markLoaded();
         console.error("[loadCategories] 失败:", e);
       });
 
@@ -448,249 +454,69 @@ export default function App() {
     [skins, windowCtl],
   );
 
-  // ---- 标签页操作 ----
-  const switchTab = useCallback((id: number) => {
-    setActiveTabId(id);
-    setActiveTab(id).catch((e) => console.error("[setActiveTab] 失败:", e));
-  }, []);
-
-  const addTab = useCallback(() => {
-    const tab = newTab(tabsRef.current.length + 1);
-    setActiveTabId(tab.id);
-    setActiveTab(tab.id).catch(() => {});
-    activeRef.current = tab.id;
-    const next = [...tabsRef.current, tab];
-    tabsRef.current = next;
-    setTabs(next);
-    saveTabs(next).catch((e) => console.error("[save] 新建失败:", e));
-  }, [scheduleSave]);
-
-  const renameTab = useCallback(
-    (id: number, title: string) => {
-      setTabs((prev) => prev.map((t) => (t.id === id ? { ...t, title } : t)));
-      scheduleSave();
-    },
-    [scheduleSave],
-  );
-
-  // ---- 待办分类操作（与标签页平行）----
-  const switchCategory = useCallback((id: number) => {
-    setActiveCategoryId(id);
-    setActiveCategory(id).catch((e) => console.error("[setActiveCategory] 失败:", e));
-  }, []);
-
-  const addCategory = useCallback(() => {
-    const cat = newCategory(catsRef.current.length + 1);
-    setActiveCategoryId(cat.id);
-    setActiveCategory(cat.id).catch(() => {});
-    activeCatRef.current = cat.id;
-    const next = [...catsRef.current, cat];
-    catsRef.current = next;
-    setCategories(next);
-    saveCategories(next).catch((e) => console.error("[saveCat] 新建失败:", e));
-  }, [scheduleSave]);
-
-  const renameCategory = useCallback(
-    (id: number, title: string) => {
-      setCategories((prev) => prev.map((c) => (c.id === id ? { ...c, title } : c)));
-      scheduleSave();
-    },
-    [scheduleSave],
-  );
-
-  /** 重排标签页顺序：把 fromId 移动到 toId 之前（toId 为 null 时放到末尾）。立即落库。 */
-  const reorderTabs = useCallback(
-    (fromId: number, toId: number | null) => {
-      const prev = tabsRef.current;
-      const fromIdx = prev.findIndex((t) => t.id === fromId);
-      if (fromIdx === -1) return;
-      const moved = prev[fromIdx];
-      const rest = prev.filter((t) => t.id !== fromId);
-      const insertAt = toId === null ? rest.length : rest.findIndex((t) => t.id === toId);
-      const at = insertAt === -1 ? rest.length : insertAt;
-      const next = [...rest.slice(0, at), moved, ...rest.slice(at)];
-      tabsRef.current = next;
-      setTabs(next);
-      saveTabs(next).catch((e) => console.error("[save] 重排失败:", e));
-    },
-    [scheduleSave],
-  );
-
-  /** 重排待办分类顺序：与标签页同理。立即落库。 */
-  const reorderCategories = useCallback(
-    (fromId: number, toId: number | null) => {
-      const prev = catsRef.current;
-      const fromIdx = prev.findIndex((c) => c.id === fromId);
-      if (fromIdx === -1) return;
-      const moved = prev[fromIdx];
-      const rest = prev.filter((c) => c.id !== fromId);
-      const insertAt = toId === null ? rest.length : rest.findIndex((c) => c.id === toId);
-      const at = insertAt === -1 ? rest.length : insertAt;
-      const next = [...rest.slice(0, at), moved, ...rest.slice(at)];
-      catsRef.current = next;
-      setCategories(next);
-      saveCategories(next).catch((e) => console.error("[saveCat] 重排失败:", e));
-    },
-    [scheduleSave],
-  );
-
-  /** 真正执行标签页删除：保底至少保留 1 个；若删的是激活项则切到相邻项。立即落库。 */
-  const commitDeleteTab = useCallback(
-    (id: number) => {
-      const prev = tabsRef.current;
-      if (prev.length <= 1) return; // 至少保留一个
-      const idx = prev.findIndex((t) => t.id === id);
-      if (idx === -1) return;
-      const next = prev.filter((t) => t.id !== id);
-      if (activeRef.current === id) {
-        const fallback = next[Math.max(0, idx - 1)];
-        setActiveTabId(fallback.id);
-        setActiveTab(fallback.id).catch(() => {});
-        activeRef.current = fallback.id;
-      }
-      tabsRef.current = next;
-      setTabs(next);
-      // 结构性变更：直接用最新列表落库，不依赖 ref 时序/防抖，确保删除立即持久化
-      saveTabs(next).catch((e) => console.error("[save] 删除失败:", e));
-    },
-    [scheduleSave],
-  );
-
-  /** 真正执行分类删除：保底至少保留 1 个；若删的是激活项则切到相邻项。立即落库。 */
-  const commitDeleteCategory = useCallback(
-    (id: number) => {
-      const prev = catsRef.current;
-      if (prev.length <= 1) return; // 至少保留一个分类
-      const idx = prev.findIndex((c) => c.id === id);
-      if (idx === -1) return;
-      const next = prev.filter((c) => c.id !== id);
-      if (activeCatRef.current === id) {
-        const fallback = next[Math.max(0, idx - 1)];
-        setActiveCategoryId(fallback.id);
-        setActiveCategory(fallback.id).catch(() => {});
-        activeCatRef.current = fallback.id;
-      }
-      catsRef.current = next;
-      setCategories(next);
-      saveCategories(next).catch((e) => console.error("[saveCat] 删除失败:", e));
-    },
-    [scheduleSave],
-  );
-
-  /** 删除标签页（带确认）：有内容则先弹确认框，否则直接删除。 */
-  const requestDeleteTab = useCallback(
-    (id: number) => {
-      const tab = tabsRef.current.find((t) => t.id === id);
-      if (tab && tab.note.trim()) setPendingDelete({ kind: "tab", id });
-      else commitDeleteTab(id);
-    },
-    [commitDeleteTab],
-  );
-
-  /** 删除分类（带确认）：有待办则先弹确认框，否则直接删除。 */
-  const requestDeleteCategory = useCallback(
-    (id: number) => {
-      const cat = catsRef.current.find((c) => c.id === id);
-      if (cat && cat.todos.length > 0) setPendingDelete({ kind: "category", id });
-      else commitDeleteCategory(id);
-    },
-    [commitDeleteCategory],
-  );
-
   /** 确认弹窗“确定”：执行真正删除并关闭弹窗。 */
   const confirmDelete = useCallback(() => {
     if (!pendingDelete) return;
-    if (pendingDelete.kind === "tab") commitDeleteTab(pendingDelete.id);
-    else commitDeleteCategory(pendingDelete.id);
+    const api = pendingDelete.kind === "tab" ? tabsApiRef.current : catsApiRef.current;
+    api?.commitDelete(pendingDelete.id);
     setPendingDelete(null);
-  }, [pendingDelete, commitDeleteTab, commitDeleteCategory]);
+  }, [pendingDelete]);
 
   // ---- 当前标签页的编辑（自动保存）----
-  const updateActive = useCallback(
-    (patch: Partial<Tab>) => {
-      setTabs((prev) =>
-        prev.map((t) => (t.id === activeRef.current ? { ...t, ...patch } : t)),
-      );
-      scheduleSave();
-    },
-    [scheduleSave],
-  );
+  const onContentChange = useCallback((content: string) => {
+    tabsApiRef.current?.updateActive({ note: content });
+  }, []);
 
-  // ---- 当前分类的编辑（自动保存）----
-  const updateActiveCategory = useCallback(
-    (patch: Partial<Category>) => {
-      setCategories((prev) =>
-        prev.map((c) => (c.id === activeCatRef.current ? { ...c, ...patch } : c)),
-      );
-      scheduleSave();
-    },
-    [scheduleSave],
-  );
-
-  const onContentChange = useCallback(
-    (content: string) => {
-      updateActive({ note: content });
-    },
-    [updateActive],
-  );
+  // ---- 当前分类的待办编辑（自动保存）----
+  /** 基于当前激活分类更新 todos：读取最新列表引用，避免 state 异步导致读到旧数据。 */
+  const mutateTodos = useCallback((mutate: (todos: Todo[]) => Todo[]) => {
+    const ctl = catsApiRef.current;
+    if (!ctl) return;
+    const cur = ctl.listRef.current.find((c) => c.id === ctl.activeIdRef.current);
+    ctl.updateActive({ todos: mutate(cur?.todos ?? []) });
+  }, []);
 
   const onAddTodo = useCallback(
     (text: string) => {
       const todo: Todo = { id: crypto.randomUUID(), text, done: false, priority: 5, note: "" };
-      const cur = catsRef.current.find((c) => c.id === activeCatRef.current);
-      const todos = [...(cur?.todos ?? []), todo];
-      updateActiveCategory({ todos });
+      mutateTodos((ts) => [...ts, todo]);
     },
-    [updateActiveCategory],
+    [mutateTodos],
   );
 
   const onToggleTodo = useCallback(
     (id: string) => {
-      const cur = catsRef.current.find((c) => c.id === activeCatRef.current);
-      const todos = (cur?.todos ?? []).map((t) =>
-        t.id === id ? { ...t, done: !t.done } : t,
-      );
-      updateActiveCategory({ todos });
+      mutateTodos((ts) => ts.map((t) => (t.id === id ? { ...t, done: !t.done } : t)));
     },
-    [updateActiveCategory],
+    [mutateTodos],
   );
 
   const onEditTodo = useCallback(
     (id: string, text: string) => {
-      const cur = catsRef.current.find((c) => c.id === activeCatRef.current);
-      const todos = (cur?.todos ?? []).map((t) => (t.id === id ? { ...t, text } : t));
-      updateActiveCategory({ todos });
+      mutateTodos((ts) => ts.map((t) => (t.id === id ? { ...t, text } : t)));
     },
-    [updateActiveCategory],
+    [mutateTodos],
   );
 
   const onPriorityTodo = useCallback(
     (id: string, priority: number) => {
-      const cur = catsRef.current.find((c) => c.id === activeCatRef.current);
-      const todos = (cur?.todos ?? []).map((t) =>
-        t.id === id ? { ...t, priority } : t,
-      );
-      updateActiveCategory({ todos });
+      mutateTodos((ts) => ts.map((t) => (t.id === id ? { ...t, priority } : t)));
     },
-    [updateActiveCategory],
+    [mutateTodos],
   );
 
   const onEditTodoNote = useCallback(
     (id: string, note: string) => {
-      const cur = catsRef.current.find((c) => c.id === activeCatRef.current);
-      const todos = (cur?.todos ?? []).map((t) => (t.id === id ? { ...t, note } : t));
-      updateActiveCategory({ todos });
+      mutateTodos((ts) => ts.map((t) => (t.id === id ? { ...t, note } : t)));
     },
-    [updateActiveCategory],
+    [mutateTodos],
   );
 
   const onDeleteTodo = useCallback(
     (id: string) => {
-      const cur = catsRef.current.find((c) => c.id === activeCatRef.current);
-      const todos = (cur?.todos ?? []).filter((t) => t.id !== id);
-      updateActiveCategory({ todos });
+      mutateTodos((ts) => ts.filter((t) => t.id !== id));
     },
-    [updateActiveCategory],
+    [mutateTodos],
   );
 
   /** 切换面板固定状态并持久化。 */
@@ -700,7 +526,7 @@ export default function App() {
 
   // 渲染时按优先级降序排列（高优先级在前），不修改底层存储顺序。
   const activeCategory: Category | undefined =
-    categories.find((c) => c.id === activeCategoryId) ?? categories[0];
+    catsApi.list.find((c) => c.id === catsApi.activeId) ?? catsApi.list[0];
   const liveTodos = activeCategory?.todos ?? [];
 
   // 节流排序：底层 todos 变化（优先级/完成态/增删）时，先保持当前显示顺序（不打乱），
@@ -754,8 +580,8 @@ export default function App() {
         <NotePanel
           note={activeTab?.note ?? ""}
           todos={displayTodos}
-          tabs={tabs}
-          activeTabId={activeTabId}
+          tabs={tabsApi.list}
+          activeTabId={tabsApi.activeId}
           onContentChange={onContentChange}
           onAddTodo={onAddTodo}
           onToggleTodo={onToggleTodo}
@@ -763,20 +589,20 @@ export default function App() {
           onPriorityTodo={onPriorityTodo}
           onEditTodoNote={onEditTodoNote}
           onDeleteTodo={onDeleteTodo}
-          categories={categories}
-          activeCategoryId={activeCategoryId}
-          onSwitchCategory={switchCategory}
-          onAddCategory={addCategory}
-          onRenameCategory={renameCategory}
-          onDeleteCategory={requestDeleteCategory}
-          onReorderCategory={reorderCategories}
+          categories={catsApi.list}
+          activeCategoryId={catsApi.activeId}
+          onSwitchCategory={catsApi.switchTo}
+          onAddCategory={catsApi.add}
+          onRenameCategory={catsApi.rename}
+          onDeleteCategory={catsApi.requestDelete}
+          onReorderCategory={catsApi.reorder}
           pinned={config.pinned}
           onTogglePin={onTogglePin}
-          onSwitchTab={switchTab}
-          onAddTab={addTab}
-          onRenameTab={renameTab}
-          onDeleteTab={requestDeleteTab}
-          onReorderTab={reorderTabs}
+          onSwitchTab={tabsApi.switchTo}
+          onAddTab={tabsApi.add}
+          onRenameTab={tabsApi.rename}
+          onDeleteTab={tabsApi.requestDelete}
+          onReorderTab={tabsApi.reorder}
           onClose={() => beginClose(true)}
           closing={closing}
           edge={edge}
@@ -793,7 +619,7 @@ export default function App() {
           onDraggingChange={onDraggingChange}
           widgetSize={config.widgetSize}
           idleOpacity={config.idleOpacity}
-          skin={skin ?? { name: "default", mode: "slide", widget: "/skin/default/widget.png" }}
+          skin={skin ?? defaultSkin()}
           passthrough={passthrough}
           onContextMenu={openContextMenu}
           onLeave={onWidgetLeave}

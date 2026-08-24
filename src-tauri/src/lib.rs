@@ -9,7 +9,7 @@ use raw_window_handle::{HasWindowHandle, RawWindowHandle};
 use serde::Serialize;
 use tauri::menu::{CheckMenuItem, Menu, MenuItem};
 use tauri::tray::TrayIconBuilder;
-use tauri::{AppHandle, Emitter, Listener, Manager, State, WebviewWindow};
+use tauri::{AppHandle, Emitter, Manager, State, WebviewWindow};
 
 use windows::Win32::Foundation::HWND;
 use windows::Win32::UI::Input::KeyboardAndMouse::EnableWindow;
@@ -222,16 +222,19 @@ impl PassthroughState {
 /// -> 同步系统托盘勾选。托盘菜单与挂件右键菜单统一走这里。
 fn do_toggle_passthrough(
     app: &AppHandle,
-    window: &WebviewWindow,
+    window: Option<&WebviewWindow>,
     tray_item: &Option<CheckMenuItem<tauri::Wry>>,
 ) -> Result<(), String> {
-    // 取主窗口 HWND；拿不到（如窗口未就绪）则只翻转状态，不操作样式。
-    let hwnd = match main_hwnd(window) {
-        Ok(h) => Some(h),
-        Err(e) => {
-            eprintln!("[passthrough] 取 HWND 失败，仅切换状态: {e}");
-            None
-        }
+    // 取主窗口 HWND；窗口未就绪或取句柄失败时只翻转状态，不操作样式。
+    let hwnd = match window {
+        Some(w) => match main_hwnd(w) {
+            Ok(h) => Some(h),
+            Err(e) => {
+                eprintln!("[passthrough] 取 HWND 失败，仅切换状态: {e}");
+                None
+            }
+        },
+        None => None,
     };
     let new_on = match &hwnd {
         Some(h) => {
@@ -276,7 +279,7 @@ fn toggle_passthrough(
 ) -> Result<(), String> {
     // 穿透状态与样式切换完全在 Rust 完成；托盘勾选项由托管引用同步。
     let item = tray_ref.inner().0.lock().ok().and_then(|g| g.clone());
-    do_toggle_passthrough(&app, &window, &item)
+    do_toggle_passthrough(&app, Some(&window), &item)
 }
 
 /// 把托盘穿透菜单项的引用托管起来，供切换命令同步勾选。
@@ -319,7 +322,7 @@ pub fn run() {
                     }
                     "toggle_passthrough" => {
                         // 直接执行切换（穿透逻辑在 Rust，托盘与右键统一走此入口）。
-                        // 取主窗口用于 Win32 样式操作；缺省穿透项由托管引用提供。
+                        // 主窗口未就绪时传 None，do_toggle_passthrough 会退化为仅翻转状态。
                         let win = app.get_webview_window("main");
                         let item = app
                             .state::<TrayPassthroughRef>()
@@ -328,18 +331,8 @@ pub fn run() {
                             .lock()
                             .ok()
                             .and_then(|g| g.clone());
-                        if let Some(w) = win {
-                            if let Err(e) = do_toggle_passthrough(app, &w, &item) {
-                                eprintln!("[passthrough] 切换失败: {e}");
-                            }
-                        } else {
-                            // 窗口未就绪：仅翻转状态并广播，待窗口就绪后样式由后续切换补全。
-                            let next = !PassthroughState::read_current(app);
-                            PassthroughState::write_current(app, next);
-                            let _ = app.emit("passthrough-state", next);
-                            if let Some(i) = item {
-                                let _ = i.set_checked(next);
-                            }
+                        if let Err(e) = do_toggle_passthrough(app, win.as_ref(), &item) {
+                            eprintln!("[passthrough] 切换失败: {e}");
                         }
                     }
                     "quit" => {
@@ -348,32 +341,6 @@ pub fn run() {
                     _ => {}
                 })
                 .build(app)?;
-
-            // 挂件右键菜单的穿透切换：前端 emit 此事件，由 Rust 统一执行切换。
-            let app_handle = app.handle().clone();
-            app.listen("request-toggle-passthrough", move |_| {
-                let app = app_handle.clone();
-                let win = app.get_webview_window("main");
-                let item = app
-                    .state::<TrayPassthroughRef>()
-                    .inner()
-                    .0
-                    .lock()
-                    .ok()
-                    .and_then(|g| g.clone());
-                if let Some(w) = win {
-                    if let Err(e) = do_toggle_passthrough(&app, &w, &item) {
-                        eprintln!("[passthrough] 切换失败: {e}");
-                    }
-                } else {
-                    let next = !PassthroughState::read_current(&app);
-                    PassthroughState::write_current(&app, next);
-                    let _ = app.emit("passthrough-state", next);
-                    if let Some(i) = item {
-                        let _ = i.set_checked(next);
-                    }
-                }
-            });
 
             Ok(())
         })

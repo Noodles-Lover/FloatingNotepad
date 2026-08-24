@@ -21,7 +21,7 @@ interface Props {
   idleOpacity: number;
   /** 当前选用的皮肤（决定渲染滑动模式还是变化模式）。 */
   skin: Skin;
-  /** 是否处于穿透模式：开启时拦截点击/拖动，仅右键仍可弹出菜单。 */
+  /** 是否处于穿透模式：开启时拦截所有鼠标交互（点击/拖动/右键），挂件仅作静态展示。 */
   passthrough: boolean;
   /** 在挂件上右键时回调（坐标由浏览器事件提供，App 负责弹原生菜单）。 */
   onContextMenu: (e: React.MouseEvent) => void;
@@ -61,7 +61,7 @@ export default function FloatingWidget({
 
   /** 鼠标按下：暂不启动 OS 拖动，先挂一个 mousemove 监听，等待越过阈值。 */
   const handleMouseDown = (e: React.MouseEvent) => {
-    // 穿透模式：不拖动、不打开面板，仅右键可用。
+    // 穿透模式：拦截所有鼠标交互（点击/拖动/右键均不响应）。
     if (passthrough) return;
     downPosRef.current = { x: e.clientX, y: e.clientY };
     movedRef.current = false;
