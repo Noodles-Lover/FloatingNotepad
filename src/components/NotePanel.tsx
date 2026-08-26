@@ -32,8 +32,18 @@ interface Props {
   onClose: () => void;
   closing: boolean;
   edge: Edge; // 当前贴附的边，决定面板动画从哪侧飘出
+  idleOpacity: number; // 挂件闲置不透明度：面板开合动画的起始/结束不透明度
   onOpenSkin: () => void; // 打开皮肤选择面板
   onOpenSettings: () => void; // 打开设置面板
+}
+
+/** 回形针图标（品牌装饰）。 */
+function PaperclipIcon() {
+  return (
+    <svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+      <path d="m21.44 11.05-9.19 9.19a6 6 0 0 1-8.49-8.49l8.57-8.57A4 4 0 1 1 18 8.84l-8.59 8.57a2 2 0 0 1-2.83-2.83l8.49-8.48" />
+    </svg>
+  );
 }
 
 /** 图钉图标（lucide 风格的内联 SVG，避免引入额外依赖）。 */
@@ -106,10 +116,13 @@ export default function NotePanel({
   onClose,
   closing,
   edge,
+  idleOpacity,
   onOpenSkin,
   onOpenSettings,
 }: Props) {
   const taRef = useRef<HTMLTextAreaElement>(null);
+  // 打开面板时取一次当前时间（日期印章 + 时钟），后台驻留期间不刷新。
+  const [sealTime] = useState(() => new Date());
   // 新增任务的输入框（本地态，回车或点“添加”后清空并上抛）。
   const [newText, setNewText] = useState("");
   // 当前正在编辑备注的任务 id 集合（点击任务行切换展开备注输入框）。
@@ -147,9 +160,27 @@ export default function NotePanel({
   };
 
   return (
-    <div className={`panel dock-${edge} ${closing ? "closing" : ""}`}>
+    <div
+      className={`panel-box dock-${edge} ${closing ? "closing" : ""}`}
+      style={{ ["--idle-opacity" as string]: `${idleOpacity}` }}
+    >
+      {/* 撕纸边缘：比面板纸大一圈的深色底，沿手撕轮廓露出一圈厚度边 */}
+      <div className="panel-edge" aria-hidden="true" />
+      <div className="panel">
       <div className="panel-head">
-        <span>浮笺</span>
+        <span className="brand">
+          <PaperclipIcon />
+          <span>浮笺</span>
+          <span className="date-seal">
+            {sealTime.getFullYear()}.
+            {String(sealTime.getMonth() + 1).padStart(2, "0")}.
+            {String(sealTime.getDate()).padStart(2, "0")}
+          </span>
+          <span className="time-seal">
+            {String(sealTime.getHours()).padStart(2, "0")}:
+            {String(sealTime.getMinutes()).padStart(2, "0")}
+          </span>
+        </span>
         <div className="head-actions">
           <button
             className={`icon-btn pin-btn ${pinned ? "active" : ""}`}
@@ -181,6 +212,7 @@ export default function NotePanel({
         onReorder={onReorderTab}
         addTitle="新增标签页"
         defaultTitle="浮笺"
+        title="速记"
       />
 
       <textarea
@@ -202,9 +234,9 @@ export default function NotePanel({
         onReorder={onReorderCategory}
         addTitle="新增分类"
         defaultTitle="分类"
+        title="待办"
       />
 
-      <div className="todo-head">待办</div>
       <div className="todo-list">
         {todos.map((t) => {
           const color = priorityColor(t.priority);
@@ -311,6 +343,7 @@ export default function NotePanel({
           {hoverNote.text}
         </div>
       )}
+      </div>
     </div>
   );
 }

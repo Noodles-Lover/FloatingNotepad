@@ -23,6 +23,8 @@ interface Props {
   addTitle?: string;
   /** 重命名输入框失焦/回车时若为空使用的默认名（仅用于 UI 兜底展示） */
   defaultTitle?: string;
+  /** 可选板块标题（如“速记”“待办”），渲染在标签栏最左侧，用于声明板块归属。 */
+  title?: string;
 }
 
 /**
@@ -40,6 +42,7 @@ export function TabBar({
   onReorder,
   addTitle = "新增",
   defaultTitle = "未命名",
+  title,
 }: Props) {
   const [editingId, setEditingId] = useState<number | null>(null);
   const [editTitle, setEditTitle] = useState("");
@@ -129,6 +132,7 @@ export function TabBar({
         if (dragStart.current) finishDrag();
       }}
     >
+      {title && <span className="tab-bar-title">{title}</span>}
       {items.map((item) => (
         <div
           key={item.id}
@@ -170,7 +174,17 @@ export function TabBar({
                   onDelete(item.id);
                 }}
               >
-                ×
+                <svg
+                  viewBox="0 0 12 12"
+                  width="10"
+                  height="10"
+                  stroke="currentColor"
+                  strokeWidth="2"
+                  strokeLinecap="round"
+                  aria-hidden="true"
+                >
+                  <path d="M2 2l8 8M10 2l-8 8" />
+                </svg>
               </span>
             </>
           )}

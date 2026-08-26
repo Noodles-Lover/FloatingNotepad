@@ -8,7 +8,15 @@ import { NoteWindow } from "./lib/noteWindow";
 import { loadState, saveTabs, setActiveTab, loadCategories, saveCategories, setActiveCategory } from "./lib/db";
 import { ProximitySensor } from "./lib/proximity";
 import { loadConfig, saveConfig, DEFAULT_CONFIG, type AppConfig } from "./lib/config";
-import { loadSkins, resolveSkin, loadSkinName, saveSkinName, defaultSkin, type Skin } from "./lib/skins";
+import {
+  loadSkins,
+  resolveSkin,
+  loadSkinName,
+  saveSkinName,
+  defaultSkin,
+  DEFAULT_SKIN_NAME,
+  type Skin,
+} from "./lib/skins";
 import { useEntityList, type EntityListApi } from "./lib/useEntityList";
 import type { Category, Tab, Todo } from "./types";
 import FloatingWidget from "./components/FloatingWidget";
@@ -58,7 +66,20 @@ export default function App() {
   const [passthrough, setPassthroughState] = useState<boolean>(false); // 穿透模式
   const passthroughRef = useRef(false); // 最新穿透态，供 proximity / 点击早退读取
   const [skins, setSkins] = useState<Skin[]>([]); // 可用皮肤清单（运行时从 skin 目录自动读取）
-  const [skinName, setSkinName] = useState<string>(() => loadSkinName()); // 当前选用皮肤名（永久保存）
+  // 当前选用皮肤名（永久保存）。
+  // 一次性迁移：早前测试把默认皮肤切成了卡片皮肤（cat），用户要求恢复铅笔。
+  // 仅迁移一次（sessionStorage 标记），之后用户自选皮肤仍会永久保留。
+  const [skinName, setSkinName] = useState<string>(() => {
+    if (!sessionStorage.getItem("skin-migrated-v1")) {
+      sessionStorage.setItem("skin-migrated-v1", "1");
+      const saved = loadSkinName();
+      if (saved !== DEFAULT_SKIN_NAME) {
+        saveSkinName(DEFAULT_SKIN_NAME);
+        return DEFAULT_SKIN_NAME;
+      }
+    }
+    return loadSkinName();
+  });
   const [skin, setSkin] = useState<Skin | null>(null); // 当前选用皮肤对象（解析 skinName 后得到）
   const [skinOpen, setSkinOpen] = useState(false); // 皮肤面板是否打开
   const [settingsOpen, setSettingsOpen] = useState(false); // 设置面板是否打开
@@ -606,6 +627,7 @@ export default function App() {
           onClose={() => beginClose(true)}
           closing={closing}
           edge={edge}
+          idleOpacity={config.idleOpacity}
           onOpenSkin={() => setSkinOpen(true)}
           onOpenSettings={() => setSettingsOpen(true)}
         />

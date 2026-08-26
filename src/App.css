@@ -10,16 +10,80 @@ body,
   width: 100%;
 }
 
+:root {
+  /* 纸与墨 */
+  --paper: #fffdf5;
+  --paper-2: #fef8e4;
+  --paper-3: #f7edc8;
+  --paper-dark: #ede4c8;
+  --ink: #3d3229;
+  --ink-soft: #7a6638;
+  --ink-faint: #a99663;
+  --border: #e8d9a8;
+  --border-soft: rgba(168, 145, 90, 0.28);
+
+  /* 强调色 */
+  --cinnabar: #c45c48;
+  --cinnabar-dark: #a94333;
+  --jade: #5a8f4e;
+  --jade-dark: #45723b;
+  --gold: #d8a93c;
+
+  /* 一叠便签的纸色（按 5 色轮换） */
+  --slip-1: #f7e7b4; /* 便签黄 */
+  --slip-2: #f6d5cf; /* 便签粉 */
+  --slip-3: #dce9c9; /* 便签绿 */
+  --slip-4: #d2e2ec; /* 便签蓝 */
+  --slip-5: #f6ddb7; /* 便签橙 */
+
+  /* 字体：保持系统默认，不引入手写体 */
+  --font-ui: system-ui, -apple-system, "Segoe UI", Roboto, "PingFang SC",
+    "Microsoft YaHei", sans-serif;
+
+  /* 手撕纸轮廓：四边带不规则的微小锯齿，模拟从本子上撕下的纸 */
+  --torn: polygon(
+    1.2% 1.8%, 4.1% 0.6%, 7.6% 2.1%, 11.3% 0.8%, 15.2% 2.2%, 19.6% 0.9%,
+    24.3% 2%, 29.1% 0.7%, 34.2% 1.9%, 39% 1%, 44.1% 2.1%, 49.2% 0.8%,
+    54.3% 1.9%, 59.4% 1%, 64.5% 2%, 69.7% 0.9%, 74.8% 2.1%, 80% 0.7%,
+    85.1% 1.9%, 90.2% 1%, 95% 2.1%, 98.8% 1.2%,
+    99.7% 5.1%, 98.5% 9.4%, 99.8% 13.8%, 98.7% 18.4%, 99.6% 23%,
+    98.8% 27.8%, 99.7% 32.5%, 98.6% 37.4%, 99.5% 42.2%, 98.8% 47.1%,
+    99.6% 52%, 98.7% 57%, 99.5% 62%, 98.6% 67.1%, 99.4% 72.2%,
+    98.7% 77.4%, 99.6% 82.6%, 98.5% 87.8%, 99.4% 93%, 98.4% 97.4%,
+    95.2% 99.3%, 91% 98.6%, 86.7% 99.4%, 82.4% 98.7%, 78% 99.5%,
+    73.6% 98.6%, 69.2% 99.4%, 64.8% 98.7%, 60.4% 99.5%, 56% 98.6%,
+    51.6% 99.4%, 47.2% 98.7%, 42.8% 99.5%, 38.4% 98.6%, 34% 99.4%,
+    29.6% 98.7%, 25.2% 99.5%, 20.8% 98.6%, 16.4% 99.4%, 12% 98.7%,
+    7.7% 99.5%, 3.7% 98.8%,
+    0.6% 96.6%, 1.4% 92%, 0.4% 87.5%, 1.3% 82.9%, 0.5% 78.3%, 1.4% 73.6%,
+    0.4% 68.9%, 1.3% 64.2%, 0.5% 59.5%, 1.4% 54.8%, 0.4% 50.1%, 1.3% 45.4%,
+    0.5% 40.7%, 1.4% 36%, 0.4% 31.3%, 1.3% 26.6%, 0.5% 21.9%, 1.4% 17.2%,
+    0.4% 12.5%, 1.3% 7.8%, 0.5% 3.9%
+  );
+
+  --shadow-soft: 0 10px 30px rgba(80, 60, 20, 0.25);
+  --shadow-lift: 0 16px 48px rgba(80, 60, 20, 0.32);
+}
+
 body {
   background: transparent;
-  font-family: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
-  color: #e6f1fb;
+  font-family: var(--font-ui);
+  color: var(--ink);
   overflow: hidden;
 }
 
 .app {
   width: 100%;
   height: 100%;
+}
+
+/* 纸张纹理：SVG 噪点 + 淡淡污渍，铺在面板背景上 */
+.paper-texture {
+  background-color: var(--paper);
+  background-image:
+    url("data:image/svg+xml,%3Csvg viewBox='0 0 200 200' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='noise'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.65' numOctaves='3' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23noise)' opacity='0.06'/%3E%3C/svg%3E"),
+    radial-gradient(circle at 12% 18%, rgba(168, 145, 90, 0.06) 0, transparent 22%),
+    radial-gradient(circle at 88% 82%, rgba(168, 145, 90, 0.05) 0, transparent 28%);
 }
 
 /* ---------- Floating widget ---------- */
@@ -34,7 +98,6 @@ body {
   transition: transform 160ms ease-out;
 }
 
-/* Hidden: slid half off the docked edge so only a sliver peeks in. */
 .widget-wrap.hidden.dock-right {
   transform: translateX(calc(var(--widget-size, 56px) / 2));
 }
@@ -43,13 +106,11 @@ body {
   transform: translateX(calc(var(--widget-size, 56px) / -2));
 }
 
-/* Dragging or revealed: fully on screen. */
 .widget-wrap.revealed,
 .widget-wrap.dragging {
   transform: translateX(0);
 }
 
-/* ---------- 滑动素材模式（idle + hover 两张） ---------- */
 .widget-img {
   position: absolute;
   inset: 0;
@@ -66,18 +127,15 @@ body {
   transition: opacity 180ms ease-out, transform 180ms ease-out;
 }
 
-/* 默认图（按右侧构图）：贴左侧时整体水平翻转，让内容贴左；贴右侧不翻转、框靠右对齐。 */
 .widget-wrap.flipped .widget-img {
   transform: scaleX(-1);
 }
 
-/* 变化模式（idle/hover 两张）下：隐藏态整颗停靠，不做 CSS 滑出。 */
 .widget-wrap.solid.hidden.dock-right,
 .widget-wrap.solid.hidden.dock-left {
   transform: translateX(0);
 }
 
-/* 默认图：隐藏态可见（不透明度由配置 idleOpacity 控制），hover 时淡出。 */
 .widget-img-idle {
   opacity: var(--idle-opacity, 0.85);
 }
@@ -86,7 +144,6 @@ body {
   opacity: 0;
 }
 
-/* hover 探出图：默认隐藏，revealed/hover 时淡入，不播放位移动画。 */
 .widget-img-hover {
   opacity: 0;
 }
@@ -95,19 +152,18 @@ body {
   opacity: 1;
 }
 
-/* 穿透态：挂件常驻屏内但只显示 idle 半掩图，不探出 hover 图（即便 class 带 revealed）。 */
 .widget-wrap.passthrough .widget-img-idle {
   opacity: var(--idle-opacity, 0.85);
 }
+
 .widget-wrap.passthrough .widget-img-hover {
   opacity: 0;
 }
+
 .widget-wrap.passthrough .widget-img-single {
   opacity: var(--idle-opacity, 0.7);
 }
 
-/* ---------- 滑动模式（单张 widget.png，用 CSS 滑出半掩） ---------- */
-/* 滑动模式不挂 solid，因此走 .widget-wrap.hidden 的半截滑出；单图始终显示，隐藏态用 idleOpacity。 */
 .widget-img-single {
   opacity: var(--idle-opacity, 0.7);
 }
@@ -121,45 +177,87 @@ body {
   transform: scaleX(-1);
 }
 
-/* ---------- 速记标签页 ---------- */
+/* ---------- 标签栏：一叠彩色便签 ----------
+   每条标签是一张纸条；未激活时只露出一条彩边（叠在下面），
+   激活的那张“抽纸”展开变宽，抬到最上面。 */
 .tab-bar {
   display: flex;
-  align-items: stretch;
-  gap: 4px;
+  align-items: flex-end;
+  gap: 6px;
   overflow-x: auto;
-  /* 顶部留白，给浮在标签左上角的删除角标让出空间，避免被裁切 */
-  padding-top: 8px;
-  padding-bottom: 2px;
-  /* 左侧留白，给拖拽插入指示（左侧阴影）让出空间，避免被裁切 */
-  padding-left: 6px;
+  padding: 10px 10px 0;
+  min-height: 42px;
+  user-select: none;
+  -webkit-user-select: none;
+  /* 隐藏横向滚动条（切换标签时不再闪现），滚动能力保留 */
+  scrollbar-width: none; /* Firefox */
+}
+
+/* 板块标题（速记/待办）：竖排小签条，声明板块归属 */
+.tab-bar-title {
+  flex: 0 0 auto;
+  align-self: stretch;
+  writing-mode: vertical-rl;
+  font-size: 12px;
+  font-weight: 700;
+  letter-spacing: 3px;
+  color: var(--ink-faint);
+  padding: 8px 2px 6px;
+  margin-right: 2px;
   user-select: none;
   -webkit-user-select: none;
 }
 
 .tab-bar::-webkit-scrollbar {
-  height: 5px;
+  display: none; /* Chrome/Edge */
 }
 
 .tab {
   position: relative;
-  flex: 0 0 auto;
-  max-width: 130px;
+  flex: 0 0 auto; /* 宽度跟随标题文本 */
+  width: auto;
+  min-width: 24px; /* 极短标题也保有一块可点击区域 */
+  max-width: 76px; /* 标题超长时的上限，超出省略 */
+  height: 34px;
   display: flex;
   align-items: center;
-  background: #f3e9c8;
-  border: 1px solid #e3d3a0;
-  border-bottom: none;
-  border-radius: 8px 8px 0 0;
-  /* 删除按钮绝对定位在右上角，不占内部宽度，故 padding 恢复正常 */
-  padding: 4px 10px;
+  justify-content: center;
+  gap: 4px;
+  padding: 0 6px;
+  border-radius: 3px 8px 4px 7px; /* 手工裁剪的圆角 */
   font-size: 13px;
-  color: #8a7338;
+  color: var(--ink-soft);
   cursor: pointer;
   white-space: nowrap;
-  overflow: visible;
-  cursor: grab;
+  overflow: visible; /* 让删除按钮（中心落在右上角）可以溢出便签，标题省略由 .tab-title 自己保证 */
   touch-action: none;
-  transition: background 140ms ease, color 140ms ease;
+  cursor: grab;
+  box-shadow: 0 2px 4px rgba(80, 60, 20, 0.15);
+  transition:
+    flex-basis 220ms cubic-bezier(0.34, 1.3, 0.64, 1),
+    width 220ms cubic-bezier(0.34, 1.3, 0.64, 1),
+    transform 220ms cubic-bezier(0.34, 1.3, 0.64, 1),
+    background 180ms ease,
+    color 180ms ease,
+    box-shadow 220ms ease;
+  font-family: var(--font-ui);
+}
+
+/* 五色纸轮流 */
+.tab:nth-child(5n + 1) {
+  background: var(--slip-1);
+}
+.tab:nth-child(5n + 2) {
+  background: var(--slip-2);
+}
+.tab:nth-child(5n + 3) {
+  background: var(--slip-3);
+}
+.tab:nth-child(5n + 4) {
+  background: var(--slip-4);
+}
+.tab:nth-child(5n + 5) {
+  background: var(--slip-5);
 }
 
 .tab.dragging {
@@ -167,122 +265,153 @@ body {
 }
 
 .tab:hover {
-  background: #efe0b4;
+  filter: brightness(1.04);
 }
 
+/* 激活的便签：像从一叠书签中抽出一截——高度更高、底部对齐、纸色 + 朱砂线。
+   不整体飘起，保持与标签栏底部连续。 */
 .tab.active {
-  background: #fffdf5;
-  color: #5b4a2a;
+  flex: 0 0 auto; /* 同样跟随文本宽度，不横向撑开 */
+  width: auto;
+  height: 46px;
+  min-width: 24px;
+  max-width: 76px;
+  background: var(--paper);
+  color: var(--ink);
   font-weight: 700;
-  box-shadow: 0 -2px 0 #d8a93c inset;
+  transform: none;
+  box-shadow: 0 7px 14px rgba(80, 60, 20, 0.24);
+  z-index: 1;
+  border-bottom: 2px solid var(--cinnabar);
 }
 
-/* 拖拽态：被拖动的项半透明，悬停目标显示插入提示竖线 */
 .tab.dragging {
   opacity: 0.45;
 }
 
 .tab.drag-over {
-  box-shadow: -3px 0 0 #d8a93c;
+  box-shadow: -3px 0 0 var(--cinnabar);
 }
 
 .tab.drag-over.tab.active {
-  box-shadow: -3px 0 0 #d8a93c, 0 -2px 0 #d8a93c inset;
+  box-shadow:
+    -3px 0 0 var(--cinnabar),
+    0 7px 14px rgba(80, 60, 20, 0.24);
 }
 
-/* 拖到末尾（“+”左侧）时的插入提示 */
 .tab-add.drag-over-end {
-  box-shadow: -3px 0 0 #d8a93c;
+  box-shadow: -3px 0 0 var(--cinnabar);
 }
 
 .tab-title {
+  /* 横排标题，超长省略 */
+  font-size: 12px;
+  max-width: 100%;
   overflow: hidden;
   text-overflow: ellipsis;
+  white-space: nowrap;
   pointer-events: none;
 }
 
 .tab-rename {
-  width: 110px;
-  border: 1px solid #d8bd6e;
-  border-radius: 5px;
-  background: #fffdf5;
-  color: #5b4a2a;
+  width: 100px;
+  border: 1px solid var(--gold);
+  border-radius: 4px;
+  background: var(--paper);
+  color: var(--ink);
   font-size: 13px;
   padding: 1px 5px;
+  font-family: var(--font-ui);
 }
 
+/* 新增：像「再添一张纸」的圆形贴纸按钮 */
 .tab-add {
   flex: 0 0 auto;
-  width: 28px;
-  height: 28px;
+  width: 30px;
+  height: 30px;
   display: flex;
   align-items: center;
   justify-content: center;
-  background: rgba(168, 145, 90, 0.15);
-  border: 1px solid #d8bd6e;
-  color: #6b5526;
+  background: rgba(255, 253, 245, 0.5);
+  border: 1.5px dashed var(--border);
+  color: var(--ink-soft);
   font-size: 18px;
   line-height: 1;
-  border-radius: 8px;
+  border-radius: 50%;
   cursor: pointer;
-  transition: background 140ms ease, transform 140ms ease;
+  transition:
+    background 160ms ease,
+    transform 160ms ease,
+    border-style 160ms ease;
 }
 
 .tab-add:hover {
-  background: rgba(168, 145, 90, 0.3);
+  background: var(--paper);
+  border-style: solid;
+  border-color: var(--gold);
 }
 
 .tab-add:active {
   transform: scale(0.92);
 }
 
-/* 删除按钮：浮在标签页右上角外侧的浅色小 ×，hover 标签时显示，不占内部宽度 */
+/* 删除按钮：红色小叉，固定在便签右上角内（不超出便签，避免被 overflow 裁掉）。
+   平时半透明，悬停便签/按钮时变清晰 —— 一眼能看出是删除。 */
 .tab-del {
   position: absolute;
-  top: -6px;
-  right: -6px;
-  width: 15px;
-  height: 15px;
-  display: none;
+  /* 负偏移使按钮中心正好落在便签右上角 */
+  top: -7px;
+  right: -7px;
+  width: 14px;
+  height: 14px;
+  display: inline-flex;
   align-items: center;
   justify-content: center;
   border-radius: 50%;
-  background: rgba(255, 137, 129, 0.5);
-  color: transparent;
-  font-size: 13px;
-  line-height: 1;
-  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.18);
+  background: rgba(196, 92, 72, 0.85);
+  color: var(--paper);
+  box-shadow: 0 1px 3px rgba(80, 60, 20, 0.18);
   cursor: pointer;
-  transition: background 140ms ease, color 140ms ease;
+  opacity: 0;
+  transition: opacity 160ms ease, background 160ms ease, transform 160ms ease;
 }
 
 .tab:hover .tab-del {
-  display: inline-flex;
-  color: #c0392b;
+  opacity: 0.55;
 }
 
 .tab-del:hover {
-  background: rgba(226, 72, 61, 0.32);
-  color: #a23b30;
+  opacity: 1;
+  background: var(--cinnabar);
+  transform: scale(1.08);
 }
 
-/* ---------- 头部图标按钮（图钉 / 皮肤 / 设置） ---------- */
+.tab-del svg {
+  display: block;
+}
+
+/* ---------- 头部图标按钮 ---------- */
 .icon-btn {
   width: 26px;
   height: 26px;
   display: flex;
   align-items: center;
   justify-content: center;
-  border: 1px solid var(--border, rgba(168, 145, 90, 0.3));
+  border: 1px solid var(--border);
   border-radius: 7px;
-  background: rgba(168, 145, 90, 0.14);
-  color: #6b5526;
+  background: rgba(255, 253, 245, 0.6);
+  color: var(--ink-soft);
   cursor: pointer;
-  transition: background 140ms ease, transform 140ms ease;
+  transition:
+    background 160ms ease,
+    transform 160ms ease,
+    border-color 160ms ease;
+  font-family: var(--font-ui);
 }
 
 .icon-btn:hover {
-  background: rgba(168, 145, 90, 0.28);
+  background: var(--paper);
+  border-color: var(--gold);
 }
 
 .icon-btn:active {
@@ -290,93 +419,136 @@ body {
 }
 
 .icon-btn.active {
-  background: rgba(120, 200, 120, 0.3);
-  border-color: rgba(120, 200, 120, 0.6);
-  color: #1f7a3f;
+  background: rgba(90, 143, 78, 0.18);
+  border-color: var(--jade);
+  color: var(--jade-dark);
 }
 
-/* ---------- Note panel (light-yellow notebook) ---------- */
-.panel {
+/* ---------- Note panel：一张被撕下的便签纸 ---------- */
+/* 面板外壳：承载开合动画与撕纸边缘。动画放在外壳上，面板与边缘一起滑入/滑出，
+   收起时一起消失，不会原地残留。 */
+.panel-box {
+  position: relative;
   width: 100%;
   height: 100%;
-  background: #fff8e1;
-  border: 1px solid #e8d9a8;
-  box-shadow: 0 12px 40px rgba(120, 90, 20, 0.35);
-  border-radius: 14px;
-  display: flex;
-  flex-direction: column;
-  padding: 12px;
-  gap: 8px;
-  color: #5b4a2a;
-  user-select: none;
-  -webkit-user-select: none;
-  animation: panel-in 200ms ease-out;
-  overflow: hidden;
+  animation: panel-in 260ms cubic-bezier(0.22, 1, 0.36, 1);
 }
-
-.panel.closing {
-  animation: panel-out 220ms ease-in forwards;
-}
-
-/* 右贴：从右侧（挂件所在侧）向左飘出，缩放锚点在右。 */
-.panel.dock-right {
+.panel-box.dock-right {
   transform-origin: right center;
 }
-
-/* 左贴：从左向右飘出，方向与右贴镜像反转。 */
-.panel.dock-left {
+.panel-box.dock-left {
+  animation: panel-in-left 260ms cubic-bezier(0.22, 1, 0.36, 1);
   transform-origin: left center;
 }
+.panel-box.closing {
+  animation: panel-out 240ms cubic-bezier(0.6, 0, 0.7, 0.4) forwards;
+}
+.panel-box.dock-left.closing {
+  animation: panel-out-left 240ms cubic-bezier(0.6, 0, 0.7, 0.4) forwards;
+}
 
+/* 撕纸边缘：比面板纸大一圈的深色底，沿手撕轮廓露出一条厚度边/边界线 */
+.panel-edge {
+  position: absolute;
+  inset: -2px;
+  clip-path: var(--torn);
+  background: rgba(120, 90, 40, 0.42);
+  pointer-events: none;
+}
+
+.panel {
+  position: relative;
+  width: 100%;
+  height: 100%;
+  display: flex;
+  flex-direction: column;
+  padding: 16px 16px 14px;
+  gap: 8px;
+  background: var(--paper-2);
+  color: var(--ink);
+  user-select: none;
+  -webkit-user-select: none;
+  overflow: hidden;
+  clip-path: var(--torn);
+  /* 撕纸轮廓投影：沿锯齿边缘向四周均匀扩散，无外框描边。
+     阴影挂在面板本身上，收起动画（滑出 + 渐隐）会带着它一起消失，不会原地残留。 */
+  filter:
+    drop-shadow(0 0 18px rgba(60, 45, 15, 0.3))
+    drop-shadow(0 0 5px rgba(60, 45, 15, 0.12));
+  transition: filter 200ms ease;
+}
+
+/* 顶部“折痕”：便签纸顶部常有一道因翻折留下的浅痕 */
+.panel::after {
+  content: "";
+  position: absolute;
+  left: 2%;
+  right: 2%;
+  top: 0;
+  height: 5px;
+  pointer-events: none;
+  background: linear-gradient(
+    rgba(150, 130, 80, 0.12),
+    rgba(150, 130, 80, 0.05) 60%,
+    transparent
+  );
+}
+
+.panel::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  background-image:
+    url("data:image/svg+xml,%3Csvg viewBox='0 0 200 200' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='noise'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.65' numOctaves='3' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23noise)' opacity='0.05'/%3E%3C/svg%3E"),
+    radial-gradient(circle at 10% 15%, rgba(168, 145, 90, 0.07) 0, transparent 24%),
+    radial-gradient(circle at 92% 88%, rgba(168, 145, 90, 0.05) 0, transparent 28%);
+  z-index: -1;
+}
+
+/* 面板开合：从挂件方向单纯左右滑入/滑出，无旋转缩放。
+   收起结束时 opacity 到 0，避免在挂件位置留下半透明残影导致闪一下。 */
 @keyframes panel-in {
-  from {
-    opacity: 0;
-    transform: translateX(18px) scale(0.96);
+  0% {
+    opacity: var(--idle-opacity, 0.7);
+    transform: translateX(26px);
   }
-  to {
+  100% {
     opacity: 1;
-    transform: translateX(0) scale(1);
+    transform: translateX(0);
   }
 }
 
 @keyframes panel-out {
   from {
     opacity: 1;
-    transform: translateX(0) scale(1);
+    transform: translateX(0);
   }
   to {
     opacity: 0;
-    transform: translateX(18px) scale(0.96);
+    transform: translateX(26px);
   }
-}
-
-/* 左贴时动画方向反转：从左侧（-18px）飘入。 */
-.panel.dock-left {
-  animation: panel-in-left 200ms ease-out;
-}
-.panel.dock-left.closing {
-  animation: panel-out-left 220ms ease-in forwards;
 }
 
 @keyframes panel-in-left {
-  from {
-    opacity: 0;
-    transform: translateX(-18px) scale(0.96);
+  0% {
+    opacity: var(--idle-opacity, 0.7);
+    transform: translateX(-26px);
   }
-  to {
+  100% {
     opacity: 1;
-    transform: translateX(0) scale(1);
+    transform: translateX(0);
   }
 }
 
 @keyframes panel-out-left {
   from {
     opacity: 1;
-    transform: translateX(0) scale(1);
+    transform: translateX(0);
   }
   to {
     opacity: 0;
-    transform: translateX(-18px) scale(0.96);
+    transform: translateX(-26px);
   }
 }
 
@@ -384,8 +556,55 @@ body {
   display: flex;
   justify-content: space-between;
   align-items: center;
+  padding-top: 4px;
+}
+
+/* 品牌：回形针 + 笺名 + 日期印章 */
+.brand {
+  display: flex;
+  align-items: center;
+  gap: 7px;
   font-weight: 700;
-  color: #6b5526;
+  font-size: 15px;
+  color: var(--ink);
+  letter-spacing: 2px;
+}
+
+.brand svg {
+  color: var(--ink-soft);
+}
+
+/* 日期印章：像盖在便签上的红色日期戳 */
+.date-seal {
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--cinnabar);
+  border: 1.5px solid rgba(196, 92, 72, 0.55);
+  border-radius: 4px;
+  padding: 1px 6px;
+  letter-spacing: 1px;
+  transform: rotate(-2deg);
+  opacity: 0.92;
+  background: rgba(196, 92, 72, 0.06);
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+
+/* 时间印章：紧挨日期印章的独立元素 */
+.time-seal {
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--cinnabar);
+  border: 1.5px solid rgba(196, 92, 72, 0.55);
+  border-radius: 4px;
+  padding: 1px 6px;
+  letter-spacing: 1px;
+  transform: rotate(1deg);
+  opacity: 0.92;
+  background: rgba(196, 92, 72, 0.06);
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+  margin-left: 6px;
 }
 
 .x {
@@ -394,20 +613,23 @@ body {
   display: flex;
   align-items: center;
   justify-content: center;
-  background: rgba(168, 145, 90, 0.15);
-  border: 1px solid rgba(168, 145, 90, 0.35);
-  color: #6b5526;
+  background: rgba(255, 253, 245, 0.55);
+  border: 1px solid var(--border);
+  color: var(--ink-soft);
   font-size: 18px;
   line-height: 1;
   border-radius: 50%;
   cursor: pointer;
-  transition: background 140ms ease, transform 140ms ease;
+  transition:
+    background 160ms ease,
+    transform 160ms ease,
+    color 160ms ease;
 }
 
 .x:hover {
-  background: rgba(192, 88, 75, 0.18);
-  border-color: rgba(192, 88, 75, 0.5);
-  color: #c0584b;
+  background: rgba(196, 92, 72, 0.12);
+  border-color: rgba(196, 92, 72, 0.45);
+  color: var(--cinnabar);
 }
 
 .x:active {
@@ -415,43 +637,46 @@ body {
 }
 
 .title {
-  background: #fffdf5;
-  border: 1px solid #e3d3a0;
-  color: #5b4a2a;
+  background: rgba(255, 253, 245, 0.85);
+  border: 1px solid var(--border);
+  color: var(--ink);
   border-radius: 8px;
   padding: 8px;
   font-size: 14px;
   user-select: text;
   -webkit-user-select: text;
+  font-family: var(--font-ui);
 }
 
-/* ---------- 速记标签页 ---------- */
+.title::placeholder {
+  color: var(--ink-faint);
+}
+
+/* ---------- 速记内容区：点线纸 ---------- */
 .content {
   height: 150px;
   resize: none;
-  background: #fffdf5;
-  background-image: linear-gradient(#f1e6bf 1px, transparent 1px);
-  background-size: 100% 1.5em;
-  border: 1px solid #e3d3a0;
-  color: #5b4a2a;
+  background: rgba(255, 253, 245, 0.9);
+  /* 点线纸：每行由小点组成的虚线，间距更大 */
+  background-image: radial-gradient(circle at 2px 50%, #e3d4a6 1px, transparent 1.4px);
+  background-size: 6px 1.5em;
+  background-position: 0 1.4em;
+  border: 1px solid var(--border);
+  color: var(--ink);
   border-radius: 8px;
   padding: 10px;
   font-size: 14px;
   line-height: 1.5em;
   user-select: text;
   -webkit-user-select: text;
+  font-family: var(--font-ui);
 }
 
 .content::placeholder {
-  color: #c2b079;
+  color: var(--ink-faint);
 }
 
-.todo-head {
-  font-size: 13px;
-  font-weight: 700;
-  color: #6b5526;
-}
-
+/* ---------- Todo 区 ---------- */
 .todo-list {
   flex: 1;
   overflow: auto;
@@ -464,10 +689,23 @@ body {
   display: flex;
   flex-direction: column;
   gap: 4px;
-  background: #fffdf5;
-  border: 1px solid #efe4c2;
+  background: rgba(255, 253, 245, 0.85);
+  border: 1px solid rgba(232, 217, 168, 0.7);
   border-radius: 8px;
   padding: 4px 6px;
+  /* 新贴上的任务：轻轻“贴上” */
+  animation: stick-in 260ms cubic-bezier(0.3, 1.5, 0.5, 1);
+}
+
+@keyframes stick-in {
+  from {
+    opacity: 0;
+    transform: translateY(-6px) scale(0.97) rotate(-0.8deg);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
 }
 
 .todo-main {
@@ -477,11 +715,50 @@ body {
   gap: 6px;
 }
 
+/* 完成的任务：一支红笔划过整行 */
+.todo.done .todo-main::after {
+  content: "";
+  position: absolute;
+  left: 26px;
+  right: 22px;
+  top: 50%;
+  height: 2px;
+  background: var(--cinnabar);
+  border-radius: 2px;
+  opacity: 0.65;
+  transform: scaleX(0);
+  transform-origin: left center;
+  animation: strike 200ms cubic-bezier(0.6, 0, 0.3, 1) forwards;
+}
+
+@keyframes strike {
+  to {
+    transform: scaleX(1);
+  }
+}
+
+/* 手写风格复选框 */
 .todo input[type="checkbox"] {
   flex: 0 0 auto;
-  width: 16px;
-  height: 16px;
+  width: 18px;
+  height: 18px;
+  margin: 0;
+  appearance: none;
+  -webkit-appearance: none;
+  border: 2px solid var(--ink-faint);
+  border-radius: 4px;
+  background: var(--paper);
   cursor: pointer;
+  transition: background 140ms ease, border-color 140ms ease;
+}
+
+.todo input[type="checkbox"]:checked {
+  background: var(--ink);
+  border-color: var(--ink);
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 14 14'%3E%3Cpath d='M3 7.5l2.5 2.5L11 4' fill='none' stroke='%23fffdf5' stroke-width='2.2' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E");
+  background-size: 85%;
+  background-position: center;
+  background-repeat: no-repeat;
 }
 
 /* 备注按钮 */
@@ -492,9 +769,9 @@ body {
   display: flex;
   align-items: center;
   justify-content: center;
-  background: rgba(120, 100, 50, 0.1);
-  border: 1px solid rgba(120, 100, 50, 0.28);
-  color: #8a7338;
+  background: rgba(168, 145, 90, 0.1);
+  border: 1px solid rgba(168, 145, 90, 0.28);
+  color: var(--ink-soft);
   font-size: 13px;
   line-height: 1;
   border-radius: 5px;
@@ -504,34 +781,35 @@ body {
 }
 
 .todo-note-btn:hover {
-  background: rgba(120, 100, 50, 0.22);
+  background: rgba(168, 145, 90, 0.22);
 }
 
 .todo-note-btn.has {
-  background: rgba(47, 185, 140, 0.16);
-  border-color: rgba(47, 185, 140, 0.45);
-  color: #169a72;
+  background: rgba(90, 143, 78, 0.16);
+  border-color: rgba(90, 143, 78, 0.45);
+  color: var(--jade-dark);
 }
 
-/* hover 任务时显示的备注气泡（fixed 定位，脱离列表裁切） */
+/* 备注气泡：一张小纸条 */
 .todo-note-pop {
   position: fixed;
   transform: translateX(-50%) translateY(-100%);
   max-width: 240px;
-  background: #3a2f17;
-  color: #fdf6e3;
+  background: #fffbe8;
+  color: var(--ink);
   font-size: 12px;
   line-height: 1.4;
   padding: 6px 9px;
-  border-radius: 7px;
-  box-shadow: 0 6px 18px rgba(0, 0, 0, 0.35);
+  border: 1px solid var(--border);
+  border-radius: 3px 8px 5px 7px;
+  box-shadow: 0 8px 20px rgba(60, 45, 20, 0.25);
   white-space: pre-wrap;
   word-break: break-word;
   z-index: 50;
   pointer-events: none;
+  font-family: var(--font-ui);
 }
 
-/* 小三角 */
 .todo-note-pop::after {
   content: "";
   position: absolute;
@@ -539,27 +817,27 @@ body {
   left: 50%;
   transform: translateX(-50%);
   border: 5px solid transparent;
-  border-top-color: #3a2f17;
+  border-top-color: #fffbe8;
 }
 
-/* 展开编辑的备注输入框 */
 .todo-note-input {
   width: 100%;
   resize: vertical;
   min-height: 38px;
-  background: #fffdf5;
-  border: 1px solid #e3d3a0;
-  color: #5b4a2a;
+  background: rgba(255, 253, 245, 0.9);
+  border: 1px solid var(--border);
+  color: var(--ink);
   border-radius: 7px;
   padding: 6px 8px;
   font-size: 12px;
   line-height: 1.4;
   user-select: text;
   -webkit-user-select: text;
+  font-family: var(--font-ui);
 }
 
 .todo-note-input:focus {
-  outline: 1px solid #d8bd6e;
+  outline: 1px solid var(--gold);
 }
 
 .todo-text {
@@ -567,21 +845,22 @@ body {
   min-width: 0;
   border: none;
   background: transparent;
-  color: #5b4a2a;
+  color: var(--ink);
   font-size: 13px;
   padding: 2px 4px;
   user-select: text;
   -webkit-user-select: text;
+  font-family: var(--font-ui);
 }
 
 .todo-text:focus {
-  outline: 1px solid #d8bd6e;
+  outline: 1px solid var(--gold);
   border-radius: 4px;
+  background: rgba(255, 253, 245, 0.6);
 }
 
 .todo.done .todo-text {
-  text-decoration: line-through;
-  color: #a8915a;
+  color: var(--ink-faint);
 }
 
 .todo-del {
@@ -591,19 +870,19 @@ body {
   display: flex;
   align-items: center;
   justify-content: center;
-  background: rgba(192, 88, 75, 0.12);
-  border: 1px solid rgba(192, 88, 75, 0.3);
-  color: #c0584b;
+  background: rgba(196, 92, 72, 0.1);
+  border: 1px solid rgba(196, 92, 72, 0.3);
+  color: var(--cinnabar);
   font-size: 16px;
   line-height: 1;
   border-radius: 50%;
   cursor: pointer;
-  transition: background 140ms ease, transform 140ms ease;
+  transition: background 160ms ease, transform 160ms ease;
 }
 
 .todo-del:hover {
-  background: rgba(192, 88, 75, 0.28);
-  color: #a23b30;
+  background: rgba(196, 92, 72, 0.22);
+  color: var(--cinnabar-dark);
 }
 
 .todo-del:active {
@@ -618,29 +897,35 @@ body {
 .todo-input {
   flex: 1;
   min-width: 0;
-  background: #fffdf5;
-  border: 1px solid #e3d3a0;
-  color: #5b4a2a;
+  background: rgba(255, 253, 245, 0.9);
+  border: 1px solid var(--border);
+  color: var(--ink);
   border-radius: 8px;
   padding: 6px 8px;
   font-size: 13px;
   user-select: text;
   -webkit-user-select: text;
+  font-family: var(--font-ui);
+}
+
+.todo-input::placeholder {
+  color: var(--ink-faint);
 }
 
 .todo-add-btn {
-  background: linear-gradient(#f6e6a8, #efd98a);
-  border: 1px solid #d8bd6e;
-  color: #6b5526;
+  background: var(--paper-3);
+  border: 1px solid var(--border);
+  color: var(--ink-soft);
   border-radius: 8px;
   padding: 4px 14px;
   font-weight: 600;
   cursor: pointer;
-  transition: filter 140ms ease, transform 140ms ease;
+  transition: background 160ms ease, transform 160ms ease;
+  font-family: var(--font-ui);
 }
 
 .todo-add-btn:hover {
-  filter: brightness(1.04);
+  background: var(--paper-dark);
 }
 
 .todo-add-btn:active {
@@ -661,9 +946,9 @@ body {
   display: flex;
   align-items: center;
   justify-content: center;
-  background: #fbf3d8;
-  border: 1px solid #e3d3a0;
-  color: #6b5526;
+  background: var(--paper-2);
+  border: 1px solid var(--border);
+  color: var(--ink-soft);
   font-size: 13px;
   line-height: 1;
   border-radius: 5px;
@@ -673,7 +958,7 @@ body {
 }
 
 .prio-step:hover:not(:disabled) {
-  background: #f3e6b8;
+  background: var(--paper-dark);
 }
 
 .prio-step:disabled {
@@ -692,7 +977,7 @@ body {
   width: 46px;
   height: 6px;
   border-radius: 4px;
-  background: rgba(0, 0, 0, 0.08);
+  background: rgba(61, 50, 41, 0.1);
   overflow: hidden;
   display: inline-flex;
 }
@@ -703,7 +988,7 @@ body {
   transition: width 160ms ease, background 160ms ease;
 }
 
-/* ---------- Panel head actions（皮肤按钮等） ---------- */
+/* ---------- Panel head actions ---------- */
 .head-actions {
   display: flex;
   align-items: center;
@@ -715,34 +1000,38 @@ body {
   padding: 0 12px;
   display: flex;
   align-items: center;
-  background: rgba(168, 145, 90, 0.15);
-  border: 1px solid rgba(168, 145, 90, 0.35);
-  color: #6b5526;
+  background: rgba(255, 253, 245, 0.6);
+  border: 1px solid var(--border);
+  color: var(--ink-soft);
   font-size: 13px;
   font-weight: 600;
   border-radius: 13px;
   cursor: pointer;
-  transition: background 140ms ease, transform 140ms ease;
+  transition:
+    background 160ms ease,
+    transform 160ms ease,
+    border-color 160ms ease;
+  font-family: var(--font-ui);
 }
 
 .skin-btn:hover {
-  background: rgba(168, 145, 90, 0.28);
+  background: var(--paper);
+  border-color: var(--gold);
 }
 
 .skin-btn:active {
   transform: scale(0.95);
 }
 
-/* 固定按钮：默认与皮肤按钮一致，激活态高亮表示已固定 */
 .pin-btn {
-  color: #6b5526;
+  color: var(--ink-soft);
   font-size: 13px;
   cursor: pointer;
-  transition: background 140ms ease, transform 140ms ease;
+  transition: background 160ms ease, transform 160ms ease;
 }
 
 .pin-btn:hover {
-  background: rgba(168, 145, 90, 0.28);
+  background: rgba(168, 145, 90, 0.2);
 }
 
 .pin-btn:active {
@@ -750,12 +1039,12 @@ body {
 }
 
 .pin-btn.active {
-  background: rgba(120, 200, 120, 0.3);
-  border-color: rgba(120, 200, 120, 0.6);
-  color: #1f7a3f;
+  background: rgba(90, 143, 78, 0.2);
+  border-color: var(--jade);
+  color: var(--jade-dark);
 }
 
-/* ---------- Skin panel（皮肤选择覆盖层） ---------- */
+/* ---------- Skin / Settings panel（覆盖层）：同样是一张纸 ---------- */
 .skin-overlay {
   position: fixed;
   inset: 0;
@@ -763,30 +1052,40 @@ body {
   display: flex;
   align-items: center;
   justify-content: center;
-  background: rgba(40, 32, 16, 0.42);
+  background: rgba(50, 40, 20, 0.42);
   animation: skin-fade 140ms ease-out;
+  backdrop-filter: blur(2px);
 }
 
 .skin-panel {
+  position: relative;
   width: min(420px, 86vw);
   max-height: 80vh;
   display: flex;
   flex-direction: column;
-  background: #fff8e1;
-  border: 1px solid #e8d9a8;
-  box-shadow: 0 16px 48px rgba(120, 90, 20, 0.4);
-  border-radius: 14px;
-  overflow: hidden;
+  background: var(--paper-2);
+  clip-path: var(--torn);
+  filter: drop-shadow(0 14px 28px rgba(60, 45, 20, 0.32));
+}
+
+.skin-panel::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  background-image:
+    url("data:image/svg+xml,%3Csvg viewBox='0 0 200 200' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='noise'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.65' numOctaves='3' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23noise)' opacity='0.05'/%3E%3C/svg%3E");
+  z-index: -1;
 }
 
 .skin-head {
   display: flex;
   justify-content: space-between;
   align-items: center;
-  padding: 12px 14px;
+  padding: 16px 20px;
   font-weight: 700;
-  color: #6b5526;
-  border-bottom: 1px solid #efe4c2;
+  color: var(--ink-soft);
+  border-bottom: 1px dashed var(--border);
 }
 
 .skin-x {
@@ -795,19 +1094,23 @@ body {
   display: flex;
   align-items: center;
   justify-content: center;
-  background: rgba(168, 145, 90, 0.15);
-  border: 1px solid rgba(168, 145, 90, 0.35);
-  color: #6b5526;
+  background: rgba(255, 253, 245, 0.6);
+  border: 1px solid var(--border);
+  color: var(--ink-soft);
   font-size: 18px;
   line-height: 1;
   border-radius: 50%;
   cursor: pointer;
-  transition: background 140ms ease, transform 140ms ease;
+  transition:
+    background 160ms ease,
+    transform 160ms ease,
+    color 160ms ease;
 }
 
 .skin-x:hover {
-  background: rgba(192, 88, 75, 0.18);
-  color: #c0584b;
+  background: rgba(196, 92, 72, 0.12);
+  border-color: rgba(196, 92, 72, 0.45);
+  color: var(--cinnabar);
 }
 
 .skin-x:active {
@@ -815,14 +1118,13 @@ body {
 }
 
 .skin-body {
-  padding: 12px 14px;
+  padding: 16px 20px;
   overflow: auto;
   display: flex;
   flex-direction: column;
   gap: 16px;
 }
 
-/* ---- 设置面板里的滑块行 ---- */
 .set-row {
   display: flex;
   flex-direction: column;
@@ -834,65 +1136,77 @@ body {
   justify-content: space-between;
   align-items: baseline;
   font-size: 13px;
-  color: #6b5a2e;
+  color: var(--ink-soft);
 }
 
 .set-val {
   font-weight: 700;
-  color: #3c5320;
+  color: var(--cinnabar);
   font-variant-numeric: tabular-nums;
 }
 
 .set-row input[type="range"] {
   width: 100%;
-  accent-color: #97b35a;
+  accent-color: var(--cinnabar);
   cursor: pointer;
 }
 
 .skin-group-title {
   font-size: 13px;
   font-weight: 700;
-  color: #8a7338;
+  color: var(--ink-soft);
   margin-bottom: 8px;
+  font-family: var(--font-ui);
 }
 
 .skin-empty {
   font-size: 12px;
-  color: #b3a273;
+  color: var(--ink-faint);
 }
 
-/* ---- 删除确认弹窗 ---- */
+/* ---------- 删除确认弹窗 ---------- */
 .confirm-mask {
   position: fixed;
   inset: 0;
-  background: rgba(60, 50, 25, 0.28);
+  background: rgba(50, 40, 20, 0.35);
   display: flex;
   align-items: center;
   justify-content: center;
   z-index: 999;
+  backdrop-filter: blur(2px);
 }
 
 .confirm-box {
+  position: relative;
   width: 280px;
-  background: #fffdf5;
-  border: 1px solid #e3d3a0;
-  border-radius: 12px;
-  box-shadow: 0 12px 32px rgba(40, 30, 10, 0.28);
-  padding: 18px 18px 14px;
-  font-family: inherit;
+  background: var(--paper);
+  clip-path: var(--torn);
+  filter: drop-shadow(0 14px 28px rgba(60, 45, 20, 0.32));
+  padding: 26px 22px 20px;
+  font-family: var(--font-ui);
+}
+
+.confirm-box::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  background-image:
+    url("data:image/svg+xml,%3Csvg viewBox='0 0 200 200' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='noise'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.65' numOctaves='3' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23noise)' opacity='0.05'/%3E%3C/svg%3E");
+  z-index: -1;
 }
 
 .confirm-title {
   font-size: 15px;
   font-weight: 700;
-  color: #5b4a2a;
+  color: var(--ink);
   margin-bottom: 8px;
 }
 
 .confirm-msg {
   font-size: 13px;
   line-height: 1.5;
-  color: #7a6638;
+  color: var(--ink-soft);
 }
 
 .confirm-actions {
@@ -903,32 +1217,32 @@ body {
 }
 
 .confirm-btn {
-  border: 1px solid #e3d3a0;
+  border: 1px solid var(--border);
   border-radius: 8px;
   padding: 6px 16px;
   font-size: 13px;
   cursor: pointer;
-  font-family: inherit;
-  transition: background 140ms ease, transform 140ms ease;
+  font-family: var(--font-ui);
+  transition: background 160ms ease, transform 160ms ease;
 }
 
 .confirm-btn.cancel {
-  background: #f3ecd6;
-  color: #6b5526;
+  background: var(--paper-3);
+  color: var(--ink-soft);
 }
 
 .confirm-btn.cancel:hover {
-  background: #ece2c4;
+  background: var(--paper-dark);
 }
 
 .confirm-btn.ok {
-  background: rgba(226, 72, 61, 0.9);
-  border-color: rgba(226, 72, 61, 0.9);
-  color: #fff;
+  background: var(--cinnabar);
+  border-color: var(--cinnabar);
+  color: var(--paper);
 }
 
 .confirm-btn.ok:hover {
-  background: #c0392b;
+  background: var(--cinnabar-dark);
 }
 
 .confirm-btn:active {
@@ -947,21 +1261,24 @@ body {
   align-items: center;
   gap: 6px;
   padding: 8px 6px;
-  background: #fffdf5;
-  border: 2px solid #efe4c2;
+  background: rgba(255, 253, 245, 0.8);
+  border: 2px solid rgba(232, 217, 168, 0.7);
   border-radius: 10px;
   cursor: pointer;
-  transition: border-color 140ms ease, transform 140ms ease, box-shadow 140ms ease;
+  transition:
+    border-color 160ms ease,
+    transform 160ms ease,
+    box-shadow 160ms ease;
 }
 
 .skin-card:hover {
   transform: translateY(-2px);
-  box-shadow: 0 6px 16px rgba(120, 90, 20, 0.18);
+  box-shadow: 0 6px 16px rgba(80, 60, 20, 0.14);
 }
 
 .skin-card.active {
-  border-color: #d8a93c;
-  box-shadow: 0 0 0 2px rgba(216, 169, 60, 0.35);
+  border-color: var(--cinnabar);
+  box-shadow: 0 0 0 2px rgba(196, 92, 72, 0.28);
 }
 
 .skin-thumb {
@@ -972,7 +1289,7 @@ body {
   justify-content: center;
   overflow: hidden;
   border-radius: 8px;
-  background: #f3e9c8;
+  background: var(--paper-3);
 }
 
 .skin-thumb img {
@@ -984,7 +1301,7 @@ body {
 
 .skin-name {
   font-size: 12px;
-  color: #5b4a2a;
+  color: var(--ink);
   text-align: center;
   line-height: 1.2;
 }
@@ -997,4 +1314,3 @@ body {
     opacity: 1;
   }
 }
-

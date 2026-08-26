@@ -1,6 +1,6 @@
 {
   "$schema": "https://schema.tauri.app/config/2",
-  "productName": "FloatingNotepad",
+  "productName": "浮笺",
   "version": "0.1.0",
   "identifier": "com.floatpad.app",
   "build": {
@@ -12,7 +12,7 @@
   "app": {
     "windows": [
       {
-        "title": "FloatingNotepad",
+        "title": "浮笺",
         "width": 56,
         "height": 56,
         "decorations": false,
