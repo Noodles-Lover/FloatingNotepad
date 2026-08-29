@@ -61,9 +61,10 @@ export function TabBar({
     setEditTitle(item.title);
   };
 
-  const commitRename = () => {
+  const commitRename = (el: HTMLInputElement) => {
+    // 直接读输入框 DOM 值：中文输入法组合结束后 DOM 才是完整中文，state 可能滞后。
     if (editingId !== null) {
-      onRename(editingId, editTitle.trim() || defaultTitle);
+      onRename(editingId, el.value.trim() || defaultTitle);
     }
     setEditingId(null);
   };
@@ -154,11 +155,11 @@ export function TabBar({
             <input
               className="tab-rename"
               autoFocus
-              value={editTitle}
+              defaultValue={editTitle}
               onChange={(e) => setEditTitle(e.target.value)}
-              onBlur={commitRename}
+              onBlur={(e) => commitRename(e.currentTarget)}
               onKeyDown={(e) => {
-                if (e.key === "Enter") commitRename();
+                if (e.key === "Enter") commitRename(e.currentTarget);
                 if (e.key === "Escape") setEditingId(null);
               }}
               onClick={(e) => e.stopPropagation()}

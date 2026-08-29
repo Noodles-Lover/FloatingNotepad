@@ -121,10 +121,9 @@ export default function NotePanel({
   onOpenSettings,
 }: Props) {
   const taRef = useRef<HTMLTextAreaElement>(null);
+  const todoInputRef = useRef<HTMLInputElement>(null);
   // 打开面板时取一次当前时间（日期印章 + 时钟），后台驻留期间不刷新。
   const [sealTime] = useState(() => new Date());
-  // 新增任务的输入框（本地态，回车或点“添加”后清空并上抛）。
-  const [newText, setNewText] = useState("");
   // 当前正在编辑备注的任务 id 集合（点击任务行切换展开备注输入框）。
   const [editingNotes, setEditingNotes] = useState<Set<string>>(new Set());
   // 备注气泡：脱离 todo-list 的 overflow 裁切，用 fixed 定位在任务行上方。
@@ -143,11 +142,12 @@ export default function NotePanel({
     return () => window.removeEventListener("keydown", onKey);
   }, []);
 
-  const commitTodo = () => {
-    const text = newText.trim();
+  const commitTodo = (el: HTMLInputElement) => {
+    // 直接读输入框 DOM 值：中文输入法组合结束后 DOM 才是完整中文，state 可能滞后。
+    const text = el.value.trim();
     if (!text) return;
     onAddTodo(text);
-    setNewText("");
+    el.value = "";
   };
 
   const toggleNote = (id: string) => {
@@ -175,6 +175,9 @@ export default function NotePanel({
             {sealTime.getFullYear()}.
             {String(sealTime.getMonth() + 1).padStart(2, "0")}.
             {String(sealTime.getDate()).padStart(2, "0")}
+          </span>
+          <span className="week-seal">
+            周{["日", "一", "二", "三", "四", "五", "六"][sealTime.getDay()]}
           </span>
           <span className="time-seal">
             {String(sealTime.getHours()).padStart(2, "0")}:
@@ -216,9 +219,10 @@ export default function NotePanel({
       />
 
       <textarea
+        key={activeTabId}
         ref={taRef}
         className="content"
-        value={note}
+        defaultValue={note}
         placeholder="写点什么…"
         onChange={(e) => onContentChange(e.target.value)}
       />
@@ -257,7 +261,7 @@ export default function NotePanel({
                 />
                 <input
                   className="todo-text"
-                  value={t.text}
+                  defaultValue={t.text}
                   onChange={(e) => onEditTodo(t.id, e.target.value)}
                 />
                 <button
@@ -305,7 +309,7 @@ export default function NotePanel({
               {editing && (
                 <textarea
                   className="todo-note-input"
-                  value={t.note}
+                  defaultValue={t.note}
                   placeholder="备注…"
                   autoFocus
                   onChange={(e) => onEditTodoNote(t.id, e.target.value)}
@@ -318,15 +322,20 @@ export default function NotePanel({
 
       <div className="todo-add">
         <input
+          ref={todoInputRef}
           className="todo-input"
-          value={newText}
+          defaultValue=""
           placeholder="添加任务…"
-          onChange={(e) => setNewText(e.target.value)}
           onKeyDown={(e) => {
-            if (e.key === "Enter") commitTodo();
+            if (e.key === "Enter") commitTodo(e.currentTarget);
           }}
         />
-        <button className="todo-add-btn" onClick={commitTodo}>
+        <button
+          className="todo-add-btn"
+          onClick={() => {
+            if (todoInputRef.current) commitTodo(todoInputRef.current);
+          }}
+        >
           添加
         </button>
       </div>

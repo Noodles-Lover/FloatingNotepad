@@ -269,10 +269,23 @@ export default function App() {
     await menu.popup();
   }, [windowCtl, setPassthrough]);
 
-  /** 鼠标离开挂件即收起（穿透态/拖拽中除外）。 */
+  /** 鼠标离开挂件即收起（穿透态/拖拽中除外）。
+   *  竞态说明：鼠标快速掠过挂件时，mouseleave 可能先于 cursor-move 的
+   *  reveal 生效（modeRef 仍是 hidden），按当前 mode 判断会漏收、之后卡在 hover。
+   *  因此这里同时做两件事：
+   *  1) 压一个短冷却（200ms），抑制迟到的“挂件内采样”把挂件重新 reveal；
+   *  2) 延迟一帧复核 mode，若 reveal 已生效则立即收起。 */
   const onWidgetLeave = useCallback(() => {
     if (passthroughRef.current || draggingRef.current) return;
-    if (modeRef.current === "revealed") beginClose();
+    suppressUntil.current = Math.max(suppressUntil.current, Date.now() + 200);
+    if (modeRef.current === "revealed") {
+      beginClose();
+      return;
+    }
+    window.setTimeout(() => {
+      if (passthroughRef.current || draggingRef.current) return;
+      if (modeRef.current === "revealed") beginClose();
+    }, 0);
   }, [beginClose]);
 
   // 皮肤/设置面板打开时：清掉正在进行的收起计时，避免面板刚打开就被自动收起。
@@ -360,9 +373,28 @@ export default function App() {
       unlistenHide = fn;
     });
     // 穿透状态由 Rust 统一维护并广播；前端只同步显示，不自己计算真相。
+    // 但穿透切换会冻结/恢复鼠标采样与 DOM 事件（穿透期间 proximity 暂停、mouseleave
+    // 被拦截），因此进入/退出时必须顺带把挂件形态归位到明确的待命态：
+    // 否则 mode 会停留在穿透前的旧值（如 revealed），退出后鼠标已不在挂件上、
+    // 又没有新的离开事件去收起它，就会永久卡在 hover。
     listen<boolean>("passthrough-state", (ev) => {
-      passthroughRef.current = ev.payload;
-      setPassthroughState(ev.payload);
+      const on = ev.payload;
+      passthroughRef.current = on;
+      setPassthroughState(on);
+      appHiddenRef.current = false;
+      clearTimers();
+      setClosing(false);
+      if (on) {
+        // 进入穿透：与挂件右键菜单路径一致 —— 只保留挂件展示态，mode 归位 hidden。
+        // 面板（expanded）打开时保持原样，不打断用户正在编辑的内容。
+        if (modeRef.current !== "expanded") setMode("hidden");
+        windowCtl.showOnly().catch((e) => console.error("[passthrough] showOnly 失败:", e));
+      } else if (modeRef.current !== "expanded") {
+        // 退出穿透：回到 idle 半掩待命态，由 proximity 重新采样鼠标位置决定是否 reveal。
+        // 若鼠标此刻真的在挂件上，下一次 cursor-move（≤100ms）会立即把它再次 reveal。
+        setMode("hidden");
+        windowCtl.showApp().catch((e) => console.error("[passthrough] showApp 失败:", e));
+      }
     }).then((fn) => {
       unlistenTogglePt = fn;
     });
@@ -393,8 +425,10 @@ export default function App() {
         modeRef.current === "expanded"
           ? await noteWin.bounds()
           : await windowCtl.boundsForMode(modeRef.current);
-      // 碰撞箱外扩：鼠标在面板真实范围外 panelMargin 像素内仍视为“在内”，避免边缘误关闭。
-      const m = configRef.current.panelMargin;
+      // 碰撞箱外扩：仅面板需要（鼠标在面板边缘外仍视为“在内”，避免误关闭）。
+      // 挂件不能外扩——否则会在挂件周围形成“幽灵区”：鼠标离开挂件后停在那圈里
+      // 仍判定为内部（且 mouseleave 不触发），导致 hover 卡住收不回去。
+      const m = modeRef.current === "expanded" ? configRef.current.panelMargin : 0;
       return x >= b.left - m && x <= b.right + m && y >= b.top - m && y <= b.bottom + m;
     };
 
