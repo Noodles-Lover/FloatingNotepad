@@ -177,6 +177,12 @@
       "description": "Permission identifier",
       "oneOf": [
         {
+          "description": "Allow hiding the passthrough unlock lock window.",
+          "type": "string",
+          "const": "allow-hide-lock-window",
+          "markdownDescription": "Allow hiding the passthrough unlock lock window."
+        },
+        {
           "description": "Allow hiding the main floating window from Rust/tray.",
           "type": "string",
           "const": "allow-hide-main",
@@ -201,6 +207,12 @@
           "markdownDescription": "Allow loading all scratch tabs and the active tab id from the local SQLite database."
         },
         {
+          "description": "Allow quitting the app from the widget context menu, sharing the tray's exit path.",
+          "type": "string",
+          "const": "allow-quit-app",
+          "markdownDescription": "Allow quitting the app from the widget context menu, sharing the tray's exit path."
+        },
+        {
           "description": "Allow saving (replace) all todo categories in the local SQLite database.",
           "type": "string",
           "const": "allow-save-categories",
@@ -223,6 +235,18 @@
           "type": "string",
           "const": "allow-set-active-tab",
           "markdownDescription": "Allow persisting the currently active scratch tab id."
+        },
+        {
+          "description": "Allow syncing the auto-collapse delay used by the passthrough unlock lock.",
+          "type": "string",
+          "const": "allow-set-lock-hide-delay",
+          "markdownDescription": "Allow syncing the auto-collapse delay used by the passthrough unlock lock."
+        },
+        {
+          "description": "Allow showing the passthrough unlock lock window at a given position.",
+          "type": "string",
+          "const": "allow-show-lock-window",
+          "markdownDescription": "Allow showing the passthrough unlock lock window at a given position."
         },
         {
           "description": "Allow showing the main floating window from Rust/tray.",

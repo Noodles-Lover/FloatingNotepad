@@ -61,3 +61,23 @@ commands.allow = ["hide_main"]
 identifier = "allow-toggle-passthrough"
 description = "Allow toggling mouse passthrough (WS_EX_TRANSPARENT) from tray or widget menu. Rust is the single source of truth for this state."
 commands.allow = ["toggle_passthrough"]
+
+[[permission]]
+identifier = "allow-show-lock-window"
+description = "Allow showing the passthrough unlock lock window at a given position."
+commands.allow = ["show_lock_window"]
+
+[[permission]]
+identifier = "allow-hide-lock-window"
+description = "Allow hiding the passthrough unlock lock window."
+commands.allow = ["hide_lock_window"]
+
+[[permission]]
+identifier = "allow-quit-app"
+description = "Allow quitting the app from the widget context menu, sharing the tray's exit path."
+commands.allow = ["quit_app"]
+
+[[permission]]
+identifier = "allow-set-lock-hide-delay"
+description = "Allow syncing the auto-collapse delay used by the passthrough unlock lock."
+commands.allow = ["set_lock_hide_delay"]

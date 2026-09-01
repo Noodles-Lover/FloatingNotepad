@@ -1,6 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { invoke } from "@tauri-apps/api/core";
-import { getCurrentWindow } from "@tauri-apps/api/window";
 import { listen, type UnlistenFn } from "@tauri-apps/api/event";
 import { Menu, MenuItem, CheckMenuItem } from "@tauri-apps/api/menu";
 import { WindowController, type Edge } from "./lib/window";
@@ -14,7 +13,6 @@ import {
   loadSkinName,
   saveSkinName,
   defaultSkin,
-  DEFAULT_SKIN_NAME,
   type Skin,
 } from "./lib/skins";
 import { useEntityList, type EntityListApi } from "./lib/useEntityList";
@@ -33,6 +31,15 @@ type Mode = "hidden" | "revealed" | "expanded";
 const CLOSE_ANIM = 220;
 /** 文本/任务改动后多久落库一次（防抖，毫秒）。 */
 const SAVE_DEBOUNCE = 400;
+
+
+
+/** 把「自动收起延时」同步给 Rust：穿透解锁锁的自动隐藏用同一节奏。 */
+function syncLockDelay(delayMs: number): void {
+  invoke("set_lock_hide_delay", { delayMs }).catch((e) =>
+    console.error("[lock] 同步收起延时失败:", e),
+  );
+}
 
 /** 新建一个空白标签页。 */
 function newTab(seq: number): Tab {
@@ -67,19 +74,8 @@ export default function App() {
   const passthroughRef = useRef(false); // 最新穿透态，供 proximity / 点击早退读取
   const [skins, setSkins] = useState<Skin[]>([]); // 可用皮肤清单（运行时从 skin 目录自动读取）
   // 当前选用皮肤名（永久保存）。
-  // 一次性迁移：早前测试把默认皮肤切成了卡片皮肤（cat），用户要求恢复铅笔。
-  // 仅迁移一次（sessionStorage 标记），之后用户自选皮肤仍会永久保留。
-  const [skinName, setSkinName] = useState<string>(() => {
-    if (!sessionStorage.getItem("skin-migrated-v1")) {
-      sessionStorage.setItem("skin-migrated-v1", "1");
-      const saved = loadSkinName();
-      if (saved !== DEFAULT_SKIN_NAME) {
-        saveSkinName(DEFAULT_SKIN_NAME);
-        return DEFAULT_SKIN_NAME;
-      }
-    }
-    return loadSkinName();
-  });
+  // 用户上次选择的皮肤（localStorage 永久保存，跨会话保留）。
+  const [skinName, setSkinName] = useState<string>(loadSkinName);
   const [skin, setSkin] = useState<Skin | null>(null); // 当前选用皮肤对象（解析 skinName 后得到）
   const [skinOpen, setSkinOpen] = useState(false); // 皮肤面板是否打开
   const [settingsOpen, setSettingsOpen] = useState(false); // 设置面板是否打开
@@ -219,6 +215,7 @@ export default function App() {
       setConfig(next);
       applyConfigToCtl(next);
       saveConfig(next);
+      syncLockDelay(next.autoCloseDelay);
     },
     [applyConfigToCtl],
   );
@@ -261,8 +258,8 @@ export default function App() {
     const quitItem = await MenuItem.new({
       text: "退出",
       action: () => {
-        // 关闭主窗口即退出应用（与系统托盘「退出」行为一致）。
-        getCurrentWindow().close().catch((e) => console.error("[退出] 关闭窗口失败:", e));
+        // 与系统托盘「退出」共用 Rust 的 quit_app，避免两端各写一套导致行为不一致。
+        invoke("quit_app").catch((e) => console.error("[退出] 失败:", e));
       },
     });
     const menu = await Menu.new({ items: [hideItem, passItem, quitItem] });
@@ -306,6 +303,7 @@ export default function App() {
         setPassthroughState(false);
         passthroughRef.current = false;
         applyConfigToCtl(safe);
+        syncLockDelay(safe.autoCloseDelay);
       })
       .catch((e) => console.error("[loadConfig] 失败:", e));
     return () => {
@@ -398,6 +396,7 @@ export default function App() {
     }).then((fn) => {
       unlistenTogglePt = fn;
     });
+
     loadState()
       .then((state) => {
         tabsApiRef.current?.load(state.tabs, state.activeTabId);
@@ -444,6 +443,8 @@ export default function App() {
         // 刚收起后的冷却期内，禁止 proximity 把球重新弹出。
         if (Date.now() < suppressUntil.current) return;
         // 穿透模式：不检测鼠标位置，不自动收起也不弹出。
+        // 解锁锁的 hover 检测由 Rust 在光标轮询中完成——穿透时主窗口被禁用，
+        // 前端事件不保证继续推进。
         if (passthroughRef.current) return;
         const isInside = await inside(x, y);
         if (modeRef.current === "hidden") {
@@ -667,7 +668,7 @@ export default function App() {
         />
       ) : (
         <FloatingWidget
-          revealed={mode === "revealed" || dragging || passthrough}
+          revealed={mode === "revealed" || dragging}
           dragging={dragging}
           edge={edge}
           windowCtl={windowCtl}

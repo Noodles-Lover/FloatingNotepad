@@ -1,8 +1,8 @@
 {
   "$schema": "../gen/schemas/desktop-schema.json",
   "identifier": "default",
-  "description": "Capability for the floating notepad main window",
-  "windows": ["main"],
+  "description": "Capability for the floating notepad main window and the passthrough lock window",
+  "windows": ["main", "widget-lock"],
   "permissions": [
     "core:default",
     "core:window:allow-set-position",
@@ -26,6 +26,10 @@
     "allow-list-skins",
     "allow-show-main",
     "allow-hide-main",
-    "allow-toggle-passthrough"
+    "allow-toggle-passthrough",
+    "allow-show-lock-window",
+    "allow-hide-lock-window",
+    "allow-set-lock-hide-delay",
+    "allow-quit-app"
   ]
 }
