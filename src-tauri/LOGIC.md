@@ -14,13 +14,15 @@
 
 ```
 托盘菜单 "toggle_passthrough" ────────┐
-                                      ├─→ do_toggle_passthrough ──→ apply_transparent + set_input_enabled
-前端 invoke("toggle_passthrough") ────┘    （挂件右键菜单项，复用同一函数）
+挂件右键 invoke("toggle_passthrough") ├─→ toggle_passthrough ──→ do_toggle_passthrough
+解锁按钮 invoke("toggle_passthrough") ┘                          ──→ apply_transparent + set_input_enabled
 ```
 
-`do_toggle_passthrough(app, window: Option<&WebviewWindow>, tray_item)` 顺序执行：
+`do_toggle_passthrough(app, tray_item)` 顺序执行：
 
-1. **取主窗口 HWND**（`main_hwnd`）：`window` 为 `None`（窗口未就绪）或取句柄失败时，只翻转状态、广播事件，跳过样式操作。
+1. **取主窗口 HWND**：**按 label `"main"` 取窗口**，再经 `main_hwnd` 取句柄；取不到时只翻转状态、广播事件，跳过样式操作。
+
+   > 目标窗口必须在函数内部解析，**不能接收调用方注入的 `WebviewWindow`**。注入的是「发起 invoke 的窗口」，锁窗口调用时就会把样式打在锁自己身上，主窗口的穿透位永远不被清除（表现为解锁后点击仍穿透）。
 2. **翻转状态并计算目标值** `next = !当前值`。
 3. **`apply_transparent`**：设置/清除窗口扩展样式位，`SetWindowPos(SWP_FRAMECHANGED)` 强制系统重算。
 4. **`set_input_enabled`**：穿透时 `EnableWindow(hwnd, FALSE)`，退出时 `TRUE`。
@@ -63,20 +65,69 @@ setup 阶段把托盘穿透菜单项 clone 存入该托管引用；切换命令 
 
 - 前端 `setPassthrough(on)` 只调 `invoke("toggle_passthrough")`，不做本地状态翻转。
 - 显示状态完全由 `listen<boolean>("passthrough-state")` 广播驱动，消除双路径状态竞态。
-- 穿透开启时前端执行 `showOnly()` + `setMode("hidden")`，挂件保持屏幕内并强制 idle 渲染（见 `src/LOGIC.md`）。
+- 穿透开启时前端执行 `showOnly()` + `setMode("hidden")`，挂件呈半掩静态展示并强制 idle 图渲染（见 `src/LOGIC.md`）。
 
 ### 命令与权限
 
-- command `toggle_passthrough(app, window, tray_ref)`：参数自动注入 `State<TrayPassthroughRef>`。
+- command `toggle_passthrough(app, tray_ref)`：`tray_ref` 为自动注入的 `State<TrayPassthroughRef>`。
 - 权限：`permissions/commands.toml` 定义 `allow-toggle-passthrough`，`capabilities/default.json` 引用。
 - 注意：Tauri v2 默认以 Rust 函数名（snake_case）注册命令，前端 `invoke` 与 `permissions` 的 allow 项必须一致。
+- 权限文件改动后**必须重新编译**才生效：`build.rs` 显式声明了 `capabilities` 与 `permissions` 为 `rerun-if-changed` 目标。一旦 build script emit 了任何 `rerun-if-changed`，Cargo 就不再默认因包内文件变化而重跑，漏掉这两行会导致新命令编译进了 exe、ACL 却仍是旧版本，invoke 被静默拒绝。
 
 ---
 
-## 2. 鼠标轮询（MouseWatcher）
+## 2. 穿透解锁锁（widget-lock 窗口）
+
+主窗口穿透时对系统整体穿透，其内部任何 DOM 都收不到鼠标事件，因此「点击解锁」必须由**自身不穿透的独立窗口**承载。
+
+### 窗口属性
+
+`ensure_lock_window()` 创建（setup 阶段预创建并常驻隐藏）：
+
+| 属性 | 值 | 原因 |
+| --- | --- | --- |
+| label | `widget-lock` | 前端 `main.tsx` 按 label 分流渲染 `LockView` |
+| URL | `index.html` | 不附加 query：`WebviewUrl::App(PathBuf)` 不支持 query string，`?` 会被编码破坏 |
+| 尺寸 | 40×40 | 与 CSS 的 `.lock-btn` 一致 |
+| `skip_taskbar` + `WS_EX_TOOLWINDOW` | — | 不出现在任务栏与 Alt-Tab |
+| `WS_EX_NOACTIVATE` | — | 点击不激活，焦点不离开当前应用 |
+| `always_on_top` | — | 保证浮在其他窗口之上 |
+
+### hover 检测
+
+检测**完全在 Rust 完成**，不依赖前端事件：
+
+- 穿透时主窗口被 `EnableWindow(hwnd, FALSE)` 禁用，其 webview 内的 JS 不保证继续推进，前端无法可靠判断鼠标位置。
+- `MouseWatcher` 每 100ms 轮询时，若处于穿透态则调用 `update_lock_hover(app, x, y)`。
+- 坐标均为物理像素：`GetWindowRect` 取主窗口矩形，`GetCursorPos` 取光标，可直接比较，无需 dpr 换算。
+
+```
+热区 = 主窗口矩形 ∪ 锁矩形
+  在内 → 显示锁（先 set_position 后 show，避免闪现在旧位置）
+  离开 → 累计时长超过 hide_delay_ms 后隐藏
+```
+
+锁位于挂件内侧：主窗口 `left <= 2` 视为贴左，锁放在其右侧，否则放左侧，垂直居中。
+
+### 状态
+
+托管 `LockState`：`visible`（是否显示中）、`left_at`（离开热区的时刻）、`hide_delay_ms`（自动隐藏延时）。
+
+- `hide_delay_ms` 默认 600，由前端 `invoke("set_lock_hide_delay")` 在配置加载与设置变更时同步为 `autoCloseDelay`。
+- `do_toggle_passthrough` 关闭穿透时统一调用 `hide_lock_now()` 并重置状态，不依赖前端。
+
+### 命令
+
+`show_lock_window` / `hide_lock_window` / `set_lock_hide_delay`，权限定义于 `permissions/commands.toml`。
+
+---
+
+## 3. 鼠标轮询（MouseWatcher）
 
 - `MouseWatcher`：托管状态（`app.manage`），内含 `AtomicBool running`，`start()` 幂等（重复调用为 no-op）。
-- 后台线程每 100ms 调 `GetCursorPos`（物理像素），`app.emit("cursor-move", {x, y})` 广播。
+- 后台线程每 100ms 调 `GetCursorPos`（物理像素）：
+  - 处于穿透态时先执行 `update_lock_hover`（见第 2 节）；
+  - 随后 `app.emit("cursor-move", {x, y})` 广播。
 - 非 Windows 平台 `current_cursor()` 返回 `None`。
 - 命令 `start_mouse_watch(app, watcher)` 供前端启动轮询。
 
@@ -84,7 +135,7 @@ setup 阶段把托盘穿透菜单项 clone 存入该托管引用；切换命令 
 
 ---
 
-## 3. 系统托盘
+## 4. 系统托盘
 
 setup 阶段构建，菜单项：
 
@@ -92,16 +143,23 @@ setup 阶段构建，菜单项：
 | --- | --- |
 | `show` | `emit("show-widget")` |
 | `hide` | `emit("hide-widget")` |
-| `toggle_passthrough` | `CheckMenuItem`，调 `do_toggle_passthrough`（主窗口未就绪时传 `None`，退化为仅翻转状态） |
-| `quit` | `app.exit(0)` |
+| `toggle_passthrough` | `CheckMenuItem`，调 `do_toggle_passthrough` |
+| `quit` | `do_quit_app` |
 
 - 托盘穿透项初始 `set_checked(false)`，并托管进 `TrayPassthroughRef`。
-- 挂件右键菜单的穿透切换由前端 `invoke("toggle_passthrough")` 触发，command 内部复用 `do_toggle_passthrough`。
-- 窗口未就绪时（`win.as_ref()` 为 `None`）`do_toggle_passthrough` 退化为仅翻转状态 + 广播 + 同步勾选，待窗口就绪后由下一次切换补全样式；该分支由函数内部统一处理，调用方不再各自实现。
+- 主窗口未就绪时 `do_toggle_passthrough` 退化为仅翻转状态 + 广播 + 同步勾选，待窗口就绪后由下一次切换补全样式；该分支由函数内部统一处理，调用方不再各自实现。
+
+### 退出（do_quit_app）
+
+托盘 `quit`、挂件右键「退出」、命令 `quit_app` 共用 `do_quit_app`（内部 `app.exit(0)`）。
+
+> 退出必须走 `do_quit_app`。若前端自行 `getCurrentWindow().close()`，一是与托盘行为不一致（关窗口而非退应用），二是依赖 `core:window:allow-close` 权限——该权限不在 `core:window:default` 内，缺省时 invoke 会被静默拒绝。
+
+**多入口功能必须收敛到单一实现**（详见开发思维规则）。本项目有三个入口共用同一函数的例子：穿透切换、退出、锁窗口显隐。
 
 ---
 
-## 4. 数据库（db.rs）
+## 5. 数据库（db.rs）
 
 - `init_db(app)`：setup 阶段建库建表，失败即 panic（存储不可用就快速失败）。
 - 表：
@@ -118,7 +176,7 @@ setup 阶段构建，菜单项：
 
 ---
 
-## 5. 皮肤发现（list_skins）
+## 6. 皮肤发现（list_skins）
 
 - 读取 `resource_dir()` 下的 `skin/` 目录，返回文件夹名列表（跳过 `.` 开头的隐藏目录，排序后返回）。
 - dev 与 prod 下 `resource_dir` 层级不同，枚举多个候选路径，取第一个真实存在的目录。

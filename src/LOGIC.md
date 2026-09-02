@@ -14,7 +14,7 @@
 | `revealed` | 挂件滑出完整可见 | 鼠标接近贴边区 / 托盘显示 |
 | `expanded` | 展开为速记面板 | 点击挂件 |
 
-`revealed` 的判定额外并入 `passthrough`：穿透开启时挂件必须保持屏幕内（不能因为 proximity 失效而消失），见第 3 节。
+窗口的渲染形态由 `main.tsx` 按 Tauri 窗口 label 分流：label 为 `widget-lock` 时渲染解锁按钮（`LockView`），否则渲染主应用 `App`。锁窗口与主应用共用同一份前端入口与样式。
 
 窗口交互形态由两个职责分离的控制器负责：
 
@@ -31,9 +31,9 @@
 
 App 端判定**始终基于 UI 当前真实 bounds**：
 
-- 挂件形态：根据挂件贴边位置与 `panelMargin`（碰撞箱外扩）判定接近。
+- 挂件形态：根据挂件贴边位置判定接近。碰撞箱外扩 `panelMargin` **只对面板生效**——挂件外扩会形成一圈「幽灵区」，鼠标停在区内既判定为内部、又不触发 DOM `mouseleave`，导致挂件收不回去。
 - 面板形态：用 `NoteWindow.bounds()` 的真实矩形判定鼠标是否仍在面板内，超时（`autoCloseDelay`）后自动收起。
-- 穿透模式：proximity 直接早退（穿透时不参与鼠标检测），保证鼠标不会因接近而触发任何行为。
+- 穿透模式：proximity 直接早退，挂件不因鼠标接近产生任何反应；解锁按钮的显隐改由 Rust 在光标轮询中判定（见第 3 节）。
 
 ---
 
@@ -41,13 +41,19 @@ App 端判定**始终基于 UI 当前真实 bounds**：
 
 前端不维护穿透状态的第二个副本，状态唯一来源是 Rust 的 `passthrough-state` 广播：
 
-- **切换入口**：`setPassthrough(on)` 只调 `invoke("toggle_passthrough")`（Rust 统一执行样式与状态）。
+- **切换入口**：`setPassthrough(on)` 只调 `invoke("toggle_passthrough")`，不做本地状态翻转（Rust 统一执行样式与状态）。托盘、挂件右键、解锁按钮三条入口共用该命令。
 - **显示同步**：`listen<boolean>("passthrough-state")` 驱动：
-  - 开启：`showOnly()` + `setMode("hidden")`，挂件保持在屏幕内，且进入 `passthrough` 渲染标记。
-  - 关闭：恢复挂件常态渲染。
-- **渲染标记**：`revealed = mode === "revealed" || dragging || passthrough`，穿透时挂件即使 `mode === "hidden"` 也保持屏幕内可见。
+  - 开启：`showOnly()` + `setMode("hidden")`，并清理定时器与收起动画态，避免半途状态残留。
+  - 关闭：`showApp()` + `setMode("hidden")`，回到半掩待命态。
 - **样式**：`FloatingWidget` 的 class 列表追加 `passthrough`，`App.css` 定义 `.widget-wrap.passthrough` 强制 idle 图、隐藏 hover 图，穿透时挂件恒为「闲置图」静态展示。
-- **右键菜单**：挂件右键菜单含「穿透模式」项，点击 `invoke("toggle_passthrough")`，command 内部复用 `do_toggle_passthrough`（与托盘共用同一函数）。另有「退出」项调 `getCurrentWindow().close()`。
+- **右键菜单**：挂件右键菜单含「穿透模式」与「退出」两项，分别 `invoke("toggle_passthrough")` 与 `invoke("quit_app")`，均与托盘共用 Rust 侧同一实现。
+
+### 穿透期间的解锁按钮
+
+主窗口穿透时对系统整体穿透，其 webview 收不到任何鼠标事件，因此解锁按钮由**独立的锁窗口**承载（`LockView`），且该窗口自身不穿透。
+
+- hover 检测与显隐**完全由 Rust 完成**（见 `src-tauri/LOGIC.md`）：穿透时主窗口被 `EnableWindow(FALSE)` 禁用，其 webview 内的 JS 不保证继续推进，前端无法可靠判断鼠标位置。
+- 前端只负责一件事：`syncLockDelay()` 在配置加载与设置变更时把 `autoCloseDelay` 同步给 Rust（`invoke("set_lock_hide_delay")`），使解锁按钮的自动隐藏与挂件收起保持同一节奏。
 
 ---
 
@@ -57,7 +63,11 @@ App 端判定**始终基于 UI 当前真实 bounds**：
 
 - `loadConfig()`：先 fetch `/config.ini`（`cache: "no-store"`）解析 INI 键值（跳过注释/空行），再合并 localStorage 覆盖，每层都过 `sanitize`（数值范围过滤，非法值丢弃）。
 - `saveConfig(cfg)`：应用内「设置」面板调整后写 localStorage（最高优先级，无需改打包文件）。
-- 配置项：`widgetSize`、`windowWidth`、`windowHeight`、`autoCloseDelay`、`idleOpacity`、`pinned`（面板固定）、`panelMargin`（碰撞箱外扩）、`passthrough`。
+- 配置项：`widgetSize`、`windowWidth`、`windowHeight`、`autoCloseDelay`、`idleOpacity`、`pinned`（面板固定）、`panelMargin`（面板碰撞箱外扩）。
+
+> `AppConfig` 另有 `passthrough` 字段，但穿透是 Rust 维护的运行时态、每次启动都为关，该字段不参与持久化与生效。
+
+**皮肤名**单独存在 `localStorage["floating-notepad.skin"]`（见第 5 节），不混在配置对象里。
 
 ---
 
