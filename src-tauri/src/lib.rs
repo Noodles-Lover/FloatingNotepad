@@ -403,10 +403,21 @@ fn hide_lock_window(app: AppHandle) -> Result<(), String> {
     hide_lock_now(&app)
 }
 
+/// 退出前留给前端把防抖编辑落库的时间（毫秒）。
+/// 文本与待办的编辑是防抖写入，直接退出会丢掉最后一次输入；这里先广播 `before-quit`
+/// 让前端立即 flush，再用固定延时兜底退出——穿透态下主窗口被 `EnableWindow(FALSE)`
+/// 禁用、其 webview 内的 JS 不保证推进，因此不能依赖前端的响应来决定是否退出。
+const QUIT_FLUSH_MS: u64 = 250;
+
 /// 退出应用。托盘菜单与挂件右键菜单必须共用这一入口——若前端自行 close()
 /// 主窗口，既与托盘的退出行为不一致，又依赖前端权限，容易出现「右键退出无效」。
 fn do_quit_app(app: &AppHandle) {
-    app.exit(0);
+    let _ = app.emit("before-quit", ());
+    let app = app.clone();
+    thread::spawn(move || {
+        thread::sleep(Duration::from_millis(QUIT_FLUSH_MS));
+        app.exit(0);
+    });
 }
 
 #[tauri::command]

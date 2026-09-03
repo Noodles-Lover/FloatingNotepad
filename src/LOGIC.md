@@ -65,7 +65,7 @@ App 端判定**始终基于 UI 当前真实 bounds**：
 - `saveConfig(cfg)`：应用内「设置」面板调整后写 localStorage（最高优先级，无需改打包文件）。
 - 配置项：`widgetSize`、`windowWidth`、`windowHeight`、`autoCloseDelay`、`idleOpacity`、`pinned`（面板固定）、`panelMargin`（面板碰撞箱外扩）。
 
-> `AppConfig` 另有 `passthrough` 字段，但穿透是 Rust 维护的运行时态、每次启动都为关，该字段不参与持久化与生效。
+> 穿透状态是 Rust 维护的运行时态，由 `passthrough-state` 广播驱动，前端只同步显示、不自行持久化（见第 3 节）。
 
 **皮肤名**单独存在 `localStorage["floating-notepad.skin"]`（见第 5 节），不混在配置对象里。
 
@@ -93,5 +93,7 @@ App 端判定**始终基于 UI 当前真实 bounds**：
 - `setActiveCategory(id)`：持久化当前激活分类。
 
 App 内所有增删改都收敛到这几个封装，后端命令为纯数据读写，前端负责交互与渲染。
+
+**退出前落库**：Rust 的退出流程会先广播 `before-quit`（见 `src-tauri/LOGIC.md`「退出」），前端监听后立即 `scheduleSave(true)`，把防抖中的文本/待办编辑写入。结构性变更（新增 / 删除 / 重排 / 切换激活）本就是立即持久化，不受防抖影响。
 
 **状态管理**：标签页与分类共用同一套「带激活项的持久化列表」管理模式，由 `src/lib/useEntityList.ts` 的 `useEntityList` hook 统一提供（列表 + 激活项 + refs + CRUD：新增 / 切换 / 重命名 / 重排 / 删除确认 / 编辑激活项）。App 只注入差异点（数据形状、默认名、删除确认条件、持久化目标）；`src/lib/list.ts` 提供纯函数 `reorderById`（重排核心逻辑）。待办编辑基于当前激活分类经 `mutateTodos(mutator)` 统一走「读取最新引用 → 更新 todos → 防抖保存」，不再按操作各写一份模板。

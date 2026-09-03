@@ -22,9 +22,6 @@ export interface AppConfig {
   /** 碰撞箱外扩（逻辑像素）：鼠标在笔记面板真实范围外该距离内仍视为“在内”，
    *  不会触发自动收起。默认 5px，调大可避免面板边缘附近误关闭。 */
   panelMargin: number;
-  /** 穿透模式：开启后挂件拦截所有鼠标交互（点击/拖动/右键），
-   *  仅保留视觉效果，用于全屏游戏等场景。 */
-  passthrough: boolean;
 }
 
 export const DEFAULT_CONFIG: AppConfig = {
@@ -35,7 +32,6 @@ export const DEFAULT_CONFIG: AppConfig = {
   idleOpacity: 0.7,
   pinned: false,
   panelMargin: 15,
-  passthrough: false,
 };
 
 const LS_KEY = "floating-notepad.config";
@@ -73,7 +69,6 @@ export async function loadConfig(): Promise<AppConfig> {
       if (kv.idleOpacity) parsed.idleOpacity = Number(kv.idleOpacity);
       if (kv.pinned) parsed.pinned = kv.pinned === "true";
       if (kv.panelMargin) parsed.panelMargin = Number(kv.panelMargin);
-      if (kv.passthrough) parsed.passthrough = kv.passthrough === "true";
       base = { ...base, ...sanitize(parsed) };
     }
   } catch {
@@ -110,7 +105,6 @@ function sanitize(part: Partial<AppConfig>): Partial<AppConfig> {
   if (typeof part.pinned === "boolean") out.pinned = part.pinned;
   if (typeof part.panelMargin === "number" && part.panelMargin >= 0 && part.panelMargin <= 100)
     out.panelMargin = Math.round(part.panelMargin);
-  if (typeof part.passthrough === "boolean") out.passthrough = part.passthrough;
   return out;
 }
 

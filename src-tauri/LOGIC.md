@@ -72,7 +72,7 @@ setup 阶段把托盘穿透菜单项 clone 存入该托管引用；切换命令 
 - command `toggle_passthrough(app, tray_ref)`：`tray_ref` 为自动注入的 `State<TrayPassthroughRef>`。
 - 权限：`permissions/commands.toml` 定义 `allow-toggle-passthrough`，`capabilities/default.json` 引用。
 - 注意：Tauri v2 默认以 Rust 函数名（snake_case）注册命令，前端 `invoke` 与 `permissions` 的 allow 项必须一致。
-- 权限文件改动后**必须重新编译**才生效：`build.rs` 显式声明了 `capabilities` 与 `permissions` 为 `rerun-if-changed` 目标。一旦 build script emit 了任何 `rerun-if-changed`，Cargo 就不再默认因包内文件变化而重跑，漏掉这两行会导致新命令编译进了 exe、ACL 却仍是旧版本，invoke 被静默拒绝。
+- 权限文件改动后必须重新编译才生效：ACL 由 `tauri-build` 在编译期生成（默认扫描 `./capabilities/**/*` 与 `./permissions/**/*`）。`tauri-build` 自身会 emit `rerun-if-changed=capabilities` 与 `rerun-if-changed=permissions`，故这两个目录变化时 build script 会重跑。若改用 `AppSettings::capabilities_path_pattern` / `permissions_path_pattern` 自定义路径，则需自行 emit 对应的 `rerun-if-changed`，否则会出现「新命令编译进了 exe、ACL 却是旧版本，invoke 被静默拒绝」。
 
 ---
 
@@ -151,7 +151,14 @@ setup 阶段构建，菜单项：
 
 ### 退出（do_quit_app）
 
-托盘 `quit`、挂件右键「退出」、命令 `quit_app` 共用 `do_quit_app`（内部 `app.exit(0)`）。
+托盘 `quit`、挂件右键「退出」、命令 `quit_app` 共用 `do_quit_app`。
+
+退出的收尾流程：
+
+1. **`app.emit("before-quit")`**：前端监听后执行 `scheduleSave(true)`，把防抖中的文本/待办编辑立即落库（结构性变更本就是立即保存，这里补的是防抖项）。
+2. **延时 `QUIT_FLUSH_MS`（250ms）后 `app.exit(0)`**：兜底强制退出。
+
+> 延时是固定的，不等待前端响应：穿透态下主窗口被 `EnableWindow(FALSE)` 禁用，其 webview 内的 JS 不保证推进，前端可能收不到 `before-quit`。250ms 对本地 SQLite 写入有充足余量。
 
 > 退出必须走 `do_quit_app`。若前端自行 `getCurrentWindow().close()`，一是与托盘行为不一致（关窗口而非退应用），二是依赖 `core:window:allow-close` 权限——该权限不在 `core:window:default` 内，缺省时 invoke 会被静默拒绝。
 

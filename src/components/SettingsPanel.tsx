@@ -69,8 +69,8 @@ export default function SettingsPanel({ config, onChange, onClose }: Props) {
           <Slider
             label="挂件尺寸"
             value={config.widgetSize}
-            min={30}
-            max={300}
+            min={24}
+            max={200}
             step={1}
             unit="px"
             onChange={(v) => set({ widgetSize: v })}

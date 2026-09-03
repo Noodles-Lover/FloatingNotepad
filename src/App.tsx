@@ -297,13 +297,12 @@ export default function App() {
     loadConfig()
       .then((cfg) => {
         if (!alive) return;
-        // 启动即非穿透，穿透只作为用户主动开启的临时态。
-        const safe = { ...cfg, passthrough: false };
-        setConfig(safe);
+        setConfig(cfg);
+        // 穿透是 Rust 维护的运行时态，启动恒为关（见 lib.rs 的 PassthroughState）。
         setPassthroughState(false);
         passthroughRef.current = false;
-        applyConfigToCtl(safe);
-        syncLockDelay(safe.autoCloseDelay);
+        applyConfigToCtl(cfg);
+        syncLockDelay(cfg.autoCloseDelay);
       })
       .catch((e) => console.error("[loadConfig] 失败:", e));
     return () => {
@@ -352,50 +351,63 @@ export default function App() {
     });
 
     // 系统托盘菜单（显示/隐藏挂件）通过事件驱动，这里监听并切换窗口形态。
-    let unlistenShow: UnlistenFn | null = null;
-    let unlistenHide: UnlistenFn | null = null;
-    let unlistenTogglePt: UnlistenFn | null = null;
-    listen("show-widget", () => {
-      // 显示挂件后回到 idle 待命态（半掩、不 hover），由 proximity 检测鼠标靠近才 reveal。
-      appHiddenRef.current = false;
-      setMode("hidden");
-      windowCtl.showApp();
-    }).then((fn) => {
-      unlistenShow = fn;
-    });
-    listen("hide-widget", () => {
-      appHiddenRef.current = true;
-      setMode("hidden");
-      windowCtl.hideApp();
-    }).then((fn) => {
-      unlistenHide = fn;
-    });
+    // listen 返回的是 Promise：cleanup 同步执行时它可能尚未 resolve，若只在 cleanup 里
+    // 解绑「已保存的变量」，StrictMode 的 mount→unmount→mount 会让第一次注册的 listener
+    // 永久泄漏（cleanup 时变量仍是 null）。故用 cancelled 标记——延迟 resolve 的 unlisten
+    // 发现所属 effect 已销毁时立即自行解绑。
+    let cancelled = false;
+    const unlisteners: UnlistenFn[] = [];
+    const bind = (p: Promise<UnlistenFn>) => {
+      p.then((fn) => {
+        if (cancelled) fn();
+        else unlisteners.push(fn);
+      }).catch((e) => console.error("[listen] 注册失败:", e));
+    };
+
+    bind(
+      listen("show-widget", () => {
+        // 显示挂件后回到 idle 待命态（半掩、不 hover），由 proximity 检测鼠标靠近才 reveal。
+        appHiddenRef.current = false;
+        setMode("hidden");
+        windowCtl.showApp();
+      }),
+    );
+    bind(
+      listen("hide-widget", () => {
+        appHiddenRef.current = true;
+        setMode("hidden");
+        windowCtl.hideApp();
+      }),
+    );
     // 穿透状态由 Rust 统一维护并广播；前端只同步显示，不自己计算真相。
     // 但穿透切换会冻结/恢复鼠标采样与 DOM 事件（穿透期间 proximity 暂停、mouseleave
     // 被拦截），因此进入/退出时必须顺带把挂件形态归位到明确的待命态：
     // 否则 mode 会停留在穿透前的旧值（如 revealed），退出后鼠标已不在挂件上、
     // 又没有新的离开事件去收起它，就会永久卡在 hover。
-    listen<boolean>("passthrough-state", (ev) => {
-      const on = ev.payload;
-      passthroughRef.current = on;
-      setPassthroughState(on);
-      appHiddenRef.current = false;
-      clearTimers();
-      setClosing(false);
-      if (on) {
-        // 进入穿透：与挂件右键菜单路径一致 —— 只保留挂件展示态，mode 归位 hidden。
-        // 面板（expanded）打开时保持原样，不打断用户正在编辑的内容。
-        if (modeRef.current !== "expanded") setMode("hidden");
-        windowCtl.showOnly().catch((e) => console.error("[passthrough] showOnly 失败:", e));
-      } else if (modeRef.current !== "expanded") {
-        // 退出穿透：回到 idle 半掩待命态，由 proximity 重新采样鼠标位置决定是否 reveal。
-        // 若鼠标此刻真的在挂件上，下一次 cursor-move（≤100ms）会立即把它再次 reveal。
-        setMode("hidden");
-        windowCtl.showApp().catch((e) => console.error("[passthrough] showApp 失败:", e));
-      }
-    }).then((fn) => {
-      unlistenTogglePt = fn;
-    });
+    bind(
+      listen<boolean>("passthrough-state", (ev) => {
+        const on = ev.payload;
+        passthroughRef.current = on;
+        setPassthroughState(on);
+        appHiddenRef.current = false;
+        clearTimers();
+        setClosing(false);
+        if (on) {
+          // 进入穿透：与挂件右键菜单路径一致 —— 只保留挂件展示态，mode 归位 hidden。
+          // 面板（expanded）打开时保持原样，不打断用户正在编辑的内容。
+          if (modeRef.current !== "expanded") setMode("hidden");
+          windowCtl.showOnly().catch((e) => console.error("[passthrough] showOnly 失败:", e));
+        } else if (modeRef.current !== "expanded") {
+          // 退出穿透：回到 idle 半掩待命态，由 proximity 重新采样鼠标位置决定是否 reveal。
+          // 若鼠标此刻真的在挂件上，下一次 cursor-move（≤100ms）会立即把它再次 reveal。
+          setMode("hidden");
+          windowCtl.showApp().catch((e) => console.error("[passthrough] showApp 失败:", e));
+        }
+      }),
+    );
+    // 退出前 Rust 会广播 before-quit（见 src-tauri/LOGIC.md「退出」）：
+    // 此时把防抖中的文本/待办编辑立即落库，避免丢掉最后一次输入。
+    bind(listen("before-quit", () => scheduleSave(true)));
 
     loadState()
       .then((state) => {
@@ -472,13 +484,12 @@ export default function App() {
       .catch((e) => console.error("[sensor.start] 失败:", e));
 
     return () => {
+      cancelled = true;
+      unlisteners.forEach((fn) => fn());
       sensor.stop();
       clearTimers();
-      unlistenShow?.();
-      unlistenHide?.();
-      unlistenTogglePt?.();
     };
-  }, [windowCtl, beginClose, noteWin]);
+  }, [windowCtl, beginClose, noteWin, scheduleSave]);
 
   /** 打开笔记面板。 */
   const openPanel = useCallback(() => {
