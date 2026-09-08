@@ -37,3 +37,9 @@ tauri-dev-err.log
 public/skin/*
 !public/skin/README.txt
 !public/skin/default/
+
+# Local-only dev & release notes
+docs/DEV_GUIDE.md
+
+# Signing keys (private keys must never be committed)
+*.key
