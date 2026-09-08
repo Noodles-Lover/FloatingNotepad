@@ -23,6 +23,16 @@
 
 `WindowController` 与 `NoteWindow` 的 `refreshScreen()` 共用 `src/lib/screen.ts` 的 `readMonitorScreen()`（读 `currentMonitor()` 的真实尺寸转逻辑像素）覆盖内部 `screen`，避免窗口被放到屏幕外——多显示器/热插拔场景由这层保证。
 
+### 停靠位置持久化
+
+拖动松手后 `snapWidgetToNearestEdge()` 会 `saveDock(edge, y)`，把贴附的边与垂直中心 Y 写入 `localStorage["floating-notepad.dock"]`，下次启动从同一处出现；未记录过时回落到屏幕垂直中央（`loadDock()` 返回 `null`）。
+
+位置与皮肤名一样**独立于 `AppConfig`**——它由拖动产生，属于运行时状态而非设置项，拖动时不需要走配置的 `sanitize`。
+
+`refreshScreen()` 拿到真实显示器尺寸后会 `clampY(dockY)`：换显示器或改分辨率后，旧坐标可能落在屏幕外，夹回可见范围。启动时也因此**必须先 `refreshScreen()` 再 `showWidget()`**，否则会用 `window.screen` 的兜底尺寸定位。
+
+`App` 的 `edge` state 在 `refreshScreen()` 完成后从 `windowCtl.currentEdge()` 同步——挂件的翻转与面板展开方向都依赖它，不同步会出现「窗口贴左、样式按右」的错位。
+
 ---
 
 ## 2. 鼠标感应（ProximitySensor）
@@ -59,10 +69,11 @@ App 端判定**始终基于 UI 当前真实 bounds**：
 
 ## 4. 配置（config.ts）
 
-优先级：**localStorage 用户覆盖 > public/config.ini 出厂默认 > 代码内 `DEFAULT_CONFIG`**。
+优先级：**localStorage 用户覆盖 > 代码内 `DEFAULT_CONFIG` 出厂默认**。
 
-- `loadConfig()`：先 fetch `/config.ini`（`cache: "no-store"`）解析 INI 键值（跳过注释/空行），再合并 localStorage 覆盖，每层都过 `sanitize`（数值范围过滤，非法值丢弃）。
-- `saveConfig(cfg)`：应用内「设置」面板调整后写 localStorage（最高优先级，无需改打包文件）。
+- `loadConfig()`：同步读取。以 `DEFAULT_CONFIG` 为底，合并 localStorage 里的用户覆盖，覆盖前过 `sanitize`（数值范围过滤，非法值丢弃）。
+- `saveConfig(cfg)`：应用内「设置」面板调整后写 localStorage。
+- 出厂默认值集中在 `DEFAULT_CONFIG`。
 - 配置项：`widgetSize`、`windowWidth`、`windowHeight`、`autoCloseDelay`、`idleOpacity`、`pinned`（面板固定）、`panelMargin`（面板碰撞箱外扩）。
 
 > 穿透状态是 Rust 维护的运行时态，由 `passthrough-state` 广播驱动，前端只同步显示、不自行持久化（见第 3 节）。

@@ -19,39 +19,49 @@
 
 ---
 
-## 快速开始
+## 下载安装
 
-### 环境要求
+### 获取安装包
 
-- **Node.js** ≥ 18
-- **Rust** 工具链（stable）：<https://rustup.rs>
-- **Visual Studio 2022 Build Tools**：需勾选「使用 C++ 的桌面开发」工作负载
-- **WebView2 运行时**：Win11 一般自带，没有则从微软官网安装
+从 Releases 下载最新的 `FloatingNotepad_x.x.x_x64-setup.exe`：
 
-### 运行
+<https://github.com/Noodles-Lover/FloatingNotepad/releases>
 
-```powershell
-npm install
-npm run tauri:dev
+### 安装
+
+1. 双击运行安装包
+2. 若出现「Windows 已保护你的电脑」，点击**更多信息 → 仍要运行**
+   （应用未做商业代码签名，此为系统对未知发布者的常规提示）
+3. 按向导完成安装。默认安装到当前用户目录（`%LOCALAPPDATA%\FloatingNotepad\`），
+   不需要管理员权限
+
+### 运行要求
+
+- Windows 10 1809+ / Windows 11
+- **WebView2 运行时**：Win11 一般自带；若启动后无任何反应，先从微软官网安装 WebView2 再重试
+
+### 数据存在哪
+
+速记与待办保存在：
+
+```
+%APPDATA%\com.floatingnotepad.app\notes.db
 ```
 
-首次会编译 Rust 侧（几分钟），之后快很多。
+**备份或迁移**：复制整个 `com.floatingnotepad.app` 文件夹即可。
+也可在设置面板点击「打开数据文件夹」直接定位到该目录。
 
-> `npm run dev` 只启动前端（Vite），没有窗口与系统托盘，仅用于调 UI。
+数据存于用户目录而非安装目录，因此**卸载应用不会删除你的速记与待办**。
 
-### 打包
+### 更新
 
-```powershell
-npm run tauri:build
-```
+方式一（推荐）：打开设置面板 → 「检查更新」，应用会自动下载安装，
+完成后点「重启应用」生效。
 
-### 换图标
+方式二：到 Releases 下载新版本安装包覆盖安装，数据不受影响。
 
-```powershell
-npx tauri icon path/to/logo.png
-```
-
----
+> 更新包使用 Tauri 自带的更新签名（自签密钥，非商业证书）验证完整性，
+> 可防止更新被篡改；它不能消除安装时的 SmartScreen 提示，两者是不同机制。
 
 ## 使用说明
 
@@ -99,9 +109,35 @@ npx tauri icon path/to/logo.png
 文件夹内既无 `widget.png` 也无 `idle.png`/`hover.png` 时会被忽略。
 名为 `default` 的皮肤为出厂默认，未选择过时自动使用。
 
-图片规格、构图建议与故障排查见 **[docs/skins.md](docs/skins.md)**。
+详细说明可见 **[public/skin/README.txt](public/skin/README.txt)**。
 
 ---
+
+## 快速开始（开发）
+
+### 环境要求
+
+- **Node.js** ≥ 18
+- **Rust** 工具链（stable）：<https://rustup.rs>
+- **Visual Studio 2022 Build Tools**：需勾选「使用 C++ 的桌面开发」工作负载
+- **WebView2 运行时**：Win11 一般自带，没有则从微软官网安装
+
+### 运行
+
+```powershell
+npm install
+npm run tauri:dev
+```
+
+首次会编译 Rust 侧（几分钟），之后快很多。
+
+> `npm run dev` 只启动前端（Vite），没有窗口与系统托盘，仅用于调 UI。
+
+### 打包
+
+```powershell
+npm run tauri:build
+```
 
 ## 文档
 
@@ -119,7 +155,6 @@ npx tauri icon path/to/logo.png
 floating-notepad/
 ├─ docs/                   # 文档
 ├─ public/
-│  ├─ config.ini           # 出厂默认配置
 │  └─ skin/                # 皮肤目录（每子目录一套）
 ├─ src/                    # React 前端
 │  ├─ main.tsx             # 入口（按窗口 label 分流渲染挂件或解锁按钮）

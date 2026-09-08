@@ -290,24 +290,16 @@ export default function App() {
     if (skinOpen || settingsOpen) clearTimers();
   }, [skinOpen, settingsOpen]);
 
-  // 加载用户配置（出厂默认 <- public/config.ini <- localStorage 覆盖），
+  // 加载用户配置（出厂默认 <- localStorage 覆盖），
   // 拿到后既要刷新 React 状态，也要立刻应用到窗口控制器（否则挂件大小/窗口尺寸不生效）。
   useEffect(() => {
-    let alive = true;
-    loadConfig()
-      .then((cfg) => {
-        if (!alive) return;
-        setConfig(cfg);
-        // 穿透是 Rust 维护的运行时态，启动恒为关（见 lib.rs 的 PassthroughState）。
-        setPassthroughState(false);
-        passthroughRef.current = false;
-        applyConfigToCtl(cfg);
-        syncLockDelay(cfg.autoCloseDelay);
-      })
-      .catch((e) => console.error("[loadConfig] 失败:", e));
-    return () => {
-      alive = false;
-    };
+    const cfg = loadConfig();
+    setConfig(cfg);
+    // 穿透是 Rust 维护的运行时态，启动恒为关（见 lib.rs 的 PassthroughState）。
+    setPassthroughState(false);
+    passthroughRef.current = false;
+    applyConfigToCtl(cfg);
+    syncLockDelay(cfg.autoCloseDelay);
   }, [applyConfigToCtl]);
 
   // 加载皮肤清单并解析当前选用皮肤；变化模式对应 solidMode=true（整颗停靠、不滑出），
@@ -343,9 +335,16 @@ export default function App() {
   useEffect(() => {
     // 先用真实显示器尺寸刷新屏幕，否则 window.screen 在 Tauri 下不可靠，
     // 会把挂件/面板定位到屏幕外（表现为“点一下挂件就消失、窗口看不见”）。
-    windowCtl.refreshScreen().catch((e) => console.error("[refreshScreen] 失败:", e));
     noteWin.refreshScreen().catch((e) => console.error("[refreshScreen] 失败:", e));
-    windowCtl.showWidget();
+    // 先拿到真实显示器尺寸再定位：refreshScreen 会把上次记录的停靠 Y 夹回可见范围，
+    // 之后同步 UI 的贴边方向（决定挂件翻转与面板展开侧），最后才显示窗口。
+    windowCtl
+      .refreshScreen()
+      .catch((e) => console.error("[refreshScreen] 失败:", e))
+      .then(() => {
+        setEdge(windowCtl.currentEdge());
+        windowCtl.showWidget();
+      });
     invoke("start_mouse_watch").catch((e) => {
       console.error("[start_mouse_watch] 调用失败:", e);
     });

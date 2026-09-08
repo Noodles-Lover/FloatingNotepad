@@ -1,4 +1,7 @@
+import { useState } from "react";
+import { invoke } from "@tauri-apps/api/core";
 import type { AppConfig } from "../lib/config";
+import { checkAndInstallUpdate, restartApp } from "../lib/updater";
 
 interface Props {
   /** 当前配置。 */
@@ -55,6 +58,22 @@ function Slider({
  */
 export default function SettingsPanel({ config, onChange, onClose }: Props) {
   const set = (patch: Partial<AppConfig>) => onChange({ ...config, ...patch });
+  /** 更新流程的进度文案；空串表示未开始。 */
+  const [updateMsg, setUpdateMsg] = useState("");
+  /** 更新已安装，需要重启才生效。 */
+  const [needRestart, setNeedRestart] = useState(false);
+
+  const openDataDir = () => {
+    invoke("open_data_dir").catch((e) =>
+      setUpdateMsg(`打开数据文件夹失败：${e}`),
+    );
+  };
+
+  const runUpdate = async () => {
+    setNeedRestart(false);
+    const outcome = await checkAndInstallUpdate(setUpdateMsg);
+    if (outcome.kind === "updated") setNeedRestart(true);
+  };
 
   return (
     <div className="skin-overlay" onClick={onClose}>
@@ -69,8 +88,8 @@ export default function SettingsPanel({ config, onChange, onClose }: Props) {
           <Slider
             label="挂件尺寸"
             value={config.widgetSize}
-            min={24}
-            max={200}
+            min={30}
+            max={300}
             step={1}
             unit="px"
             onChange={(v) => set({ widgetSize: v })}
@@ -121,6 +140,23 @@ export default function SettingsPanel({ config, onChange, onClose }: Props) {
             onChange={(v) => set({ panelMargin: v })}
           />
         </div>
+        <div className="set-actions">
+          <button className="set-btn" onClick={openDataDir} title="在数据文件夹中可备份 notes.db">
+            打开数据文件夹
+          </button>
+          <button className="set-btn" onClick={runUpdate}>
+            检查更新
+          </button>
+          {needRestart && (
+            <button
+              className="set-btn set-btn-primary"
+              onClick={() => restartApp().catch(() => undefined)}
+            >
+              重启应用
+            </button>
+          )}
+        </div>
+        {updateMsg && <div className="set-hint">{updateMsg}</div>}
       </div>
     </div>
   );

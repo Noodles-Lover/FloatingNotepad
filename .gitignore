@@ -17,6 +17,9 @@ tauri-dev-err.log
 # Temp files
 *.tmp
 
+# Signing keys (private keys must never be committed)
+*.key
+
 # Editor / OS
 .vscode/
 .idea/

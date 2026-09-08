@@ -145,6 +145,25 @@ fn set_active_category(category_id: i64) -> Result<(), String> {
     Ok(())
 }
 
+/// 在文件管理器中打开数据目录，方便用户备份或迁移速记与待办。
+/// 目录不存在时先创建——首次启动前点击也能打开到正确位置。
+#[tauri::command]
+fn open_data_dir(app: AppHandle) -> Result<(), String> {
+    let dir = app
+        .path()
+        .app_data_dir()
+        .map_err(|e| format!("无法获取数据目录: {e}"))?;
+    std::fs::create_dir_all(&dir).map_err(|e| format!("无法创建数据目录: {e}"))?;
+    #[cfg(target_os = "windows")]
+    {
+        std::process::Command::new("explorer")
+            .arg(&dir)
+            .spawn()
+            .map_err(|e| format!("无法打开文件管理器: {e}"))?;
+    }
+    Ok(())
+}
+
 /// 列出 skin/ 下的所有材质包（文件夹名即材质名）。
 /// dev：resource_dir() 指向 target/debug，实时皮肤源码在 项目根/public/skin。
 /// prod：resource_dir() 指向打包的 resources，皮肤在 resources/skin。
@@ -520,6 +539,8 @@ pub struct TrayPassthroughRef(pub Mutex<Option<CheckMenuItem<tauri::Wry>>>);
 
 pub fn run() {
     tauri::Builder::default()
+        .plugin(tauri_plugin_updater::Builder::new().build())
+        .plugin(tauri_plugin_process::init())
         .setup(|app| {
             app.manage(MouseWatcher::new());
             // 穿透状态服务：穿透模式的唯一真相源，由 Rust 维护并执行 Win32 样式切换。
@@ -590,6 +611,7 @@ pub fn run() {
             load_categories,
             save_categories,
             set_active_category,
+            open_data_dir,
             list_skins,
             toggle_passthrough,
             show_lock_window,

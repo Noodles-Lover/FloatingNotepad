@@ -43,6 +43,11 @@ description = "Allow persisting the currently active todo category id."
 commands.allow = ["set_active_category"]
 
 [[permission]]
+identifier = "allow-open-data-dir"
+description = "Allow revealing the app data directory in the file manager, for backup and migration."
+commands.allow = ["open_data_dir"]
+
+[[permission]]
 identifier = "allow-list-skins"
 description = "Allow listing the skin (material pack) folders under public/skin."
 commands.allow = ["list_skins"]

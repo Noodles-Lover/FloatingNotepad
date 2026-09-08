@@ -13,6 +13,32 @@ export interface Rect {
   bottom: number;
 }
 
+/** 挂件停靠位置的存储 key。与皮肤名一样独立于配置对象：位置由拖动产生，不是“设置项”。 */
+const DOCK_KEY = "floating-notepad.dock";
+
+/** 读取上次的停靠位置；未记录过或数据损坏时返回 null（由调用方回落到屏幕中央）。 */
+export function loadDock(): { edge: Edge; y: number } | null {
+  try {
+    const raw = localStorage.getItem(DOCK_KEY);
+    if (!raw) return null;
+    const v = JSON.parse(raw) as { edge?: unknown; y?: unknown };
+    if (v.edge !== "left" && v.edge !== "right") return null;
+    if (typeof v.y !== "number" || !Number.isFinite(v.y)) return null;
+    return { edge: v.edge, y: v.y };
+  } catch {
+    return null;
+  }
+}
+
+/** 记住挂件当前停靠位置，使下次启动从同一处出现。 */
+export function saveDock(edge: Edge, y: number): void {
+  try {
+    localStorage.setItem(DOCK_KEY, JSON.stringify({ edge, y }));
+  } catch {
+    /* 忽略：隐私模式下可能写入失败 */
+  }
+}
+
 /**
  * 窗口控制器：封装所有与 Tauri 窗口相关的操作。
  * - 挂件停靠在左或右边沿的任意垂直高度；
@@ -35,8 +61,14 @@ export class WindowController {
 
   constructor(widgetSize: number = 56) {
     this.widgetSize = widgetSize;
-    // 初始停靠在垂直正中央。
-    this.dockY = Math.round(this.screen.h / 2);
+    const saved = loadDock();
+    if (saved) {
+      this.dockEdge = saved.edge;
+      this.dockY = saved.y;
+    } else {
+      // 没有记录时初始停靠在垂直正中央。
+      this.dockY = Math.round(this.screen.h / 2);
+    }
   }
 
   /** 注册“OS 拖动结束”回调；挂件吸附到就近边后会带上最终边沿调用它。 */
@@ -51,7 +83,11 @@ export class WindowController {
    */
   async refreshScreen(): Promise<void> {
     const size = await readMonitorScreen();
-    if (size) this.screen = size;
+    if (size) {
+      this.screen = size;
+      // 换显示器或改分辨率后，上次记录的 Y 可能落到屏幕外，夹回可见范围。
+      this.dockY = this.clampY(this.dockY);
+    }
   }
 
   /** 设置悬浮挂件尺寸（逻辑像素），并立即按新尺寸重新停靠。 */
@@ -148,6 +184,8 @@ export class WindowController {
     this.dockY = this.clampY(pos.y + this.widgetSize / 2);
     this.dockEdge = edge;
     await this.win.setPosition(this.widgetPosFor(edge));
+    // 记住这次停靠，下次启动从同一处出现。
+    saveDock(this.dockEdge, this.dockY);
   }
 
   /**

@@ -680,7 +680,7 @@ body {
 
 /* ---------- 速记内容区：点线纸 ---------- */
 .content {
-  height: 150px;
+  height: 120px;
   resize: none;
   background: rgba(255, 253, 245, 0.9);
   /* 点线纸：每行由小点组成的虚线，间距更大 */
@@ -1094,6 +1094,10 @@ body {
   background: var(--paper-2);
   clip-path: var(--torn);
   filter: drop-shadow(0 14px 28px rgba(60, 45, 20, 0.32));
+  /* 纸张四边是手撕锯齿（clip-path: var(--torn)），最多会吃掉约 1.4% 的边缘。
+     这层内边距把内容与滚动条整体推离锯齿，避免被裁到；子元素的左右内边距
+     相应收窄，使内容相对位置基本不变。 */
+  padding: 14px 16px 16px;
 }
 
 .skin-panel::before {
@@ -1110,7 +1114,7 @@ body {
   display: flex;
   justify-content: space-between;
   align-items: center;
-  padding: 16px 20px;
+  padding: 14px 6px;
   font-weight: 700;
   color: var(--ink-soft);
   border-bottom: 1px dashed var(--border);
@@ -1146,7 +1150,7 @@ body {
 }
 
 .skin-body {
-  padding: 16px 20px;
+  padding: 14px 6px;
   overflow: auto;
   display: flex;
   flex-direction: column;
@@ -1177,6 +1181,69 @@ body {
   width: 100%;
   accent-color: var(--cinnabar);
   cursor: pointer;
+}
+
+/* 设置面板底部的操作按钮（数据备份、更新）。 */
+.set-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  padding: 0 6px 6px;
+}
+
+.set-btn {
+  flex: 1 1 auto;
+  min-width: 120px;
+  padding: 9px 12px;
+  font-family: var(--font-ui);
+  font-size: 13px;
+  font-weight: 600;
+  /* 面板底色是 --paper-2，按钮用更深的 --paper-3 拉开层次，
+     并以实线金边描边，避免在浅色背景上“看不见”。 */
+  color: var(--ink);
+  background: var(--paper-3);
+  border: 1.5px solid var(--gold);
+  border-radius: 3px;
+  cursor: pointer;
+  box-shadow: 0 1px 2px rgba(60, 45, 20, 0.12);
+  transition:
+    background 120ms ease,
+    border-color 120ms ease,
+    color 120ms ease;
+}
+
+.set-btn:hover {
+  background: var(--paper-dark);
+  border-color: var(--cinnabar);
+  color: var(--cinnabar);
+}
+
+.set-btn:active {
+  transform: scale(0.98);
+}
+
+/* 需要用户注意的主操作（如安装完更新后的重启）。 */
+.set-btn-primary {
+  border-style: solid;
+  border-color: var(--cinnabar);
+  background: var(--cinnabar);
+  color: var(--paper);
+  font-weight: 700;
+}
+
+.set-btn-primary:hover {
+  background: var(--cinnabar-dark);
+  border-color: var(--cinnabar-dark);
+  color: var(--paper);
+}
+
+/* 更新进度 / 失败原因等提示文案。 */
+.set-hint {
+  padding: 0 6px 6px;
+  font-size: 12px;
+  color: var(--ink-faint);
+  line-height: 1.5;
+  word-break: break-word;
 }
 
 .skin-group-title {
