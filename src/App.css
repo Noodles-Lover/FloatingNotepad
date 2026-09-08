@@ -1188,13 +1188,14 @@ body {
   display: flex;
   flex-wrap: wrap;
   gap: 8px;
+  margin-top: 10px;
   padding: 0 6px 6px;
 }
 
 .set-btn {
   flex: 1 1 auto;
   min-width: 120px;
-  padding: 9px 12px;
+  padding: 5px 12px;
   font-family: var(--font-ui);
   font-size: 13px;
   font-weight: 600;

@@ -96,7 +96,8 @@ export default function App() {
   const configRef = useRef<AppConfig>(config); // 最新配置，供 proximity 读取 autoCloseDelay
   configRef.current = config;
   const appHiddenRef = useRef(false); // 托盘“隐藏挂件”后整窗隐藏，期间 proximity 不响应
-  const modalOpenRef = useRef(false); // 皮肤/设置面板打开时，暂停 proximity 的收起与弹出
+  /** 覆盖层面板（皮肤/设置）是否打开。用于 resize 判断，见 applyConfigToCtl。 */
+  const modalOpenRef = useRef(false);
   // 标签页/分类的状态管理收敛到 useEntityList；此处的 ref 供 scheduleSave 在不产生
   // 循环依赖的前提下读取最新列表（hook 的 listRef/loadedRef 均为稳定引用）。
   const tabsApiRef = useRef<EntityListApi<Tab> | null>(null);
@@ -186,6 +187,10 @@ export default function App() {
       // 关闭后进入短暂冷却，避免鼠标恰在隐藏缝里导致刚关又立刻弹出。
       suppressUntil.current = Date.now() + 500;
       if (fromUser) userMustLeaveRef.current = true;
+      // 收起前先关闭覆盖层：皮肤/设置面板渲染在 App 级，不会随 NotePanel 卸载，
+      // 若留到窗口缩回挂件尺寸，460px 的面板会被挤进几十像素的窗口里。
+      setSkinOpen(false);
+      setSettingsOpen(false);
       setClosing(true);
       closeTimer.current = window.setTimeout(doClose, CLOSE_ANIM);
     },
@@ -285,7 +290,8 @@ export default function App() {
     }, 0);
   }, [beginClose]);
 
-  // 皮肤/设置面板打开时：清掉正在进行的收起计时，避免面板刚打开就被自动收起。
+  // 打开覆盖层面板时重置收起倒计时：让每次打开都能用满一个完整延时周期，
+  // 不会被上一次计时顺手收走。鼠标移开后仍会照常自动收起（收起时面板一并关闭）。
   useEffect(() => {
     if (skinOpen || settingsOpen) clearTimers();
   }, [skinOpen, settingsOpen]);
@@ -449,8 +455,6 @@ export default function App() {
         if (draggingRef.current) return;
         // 托盘已整窗隐藏时，忽略全局鼠标，避免又把窗口弹出。
         if (appHiddenRef.current) return;
-        // 皮肤/设置面板打开时，不自动收起也不自动弹出，保证面板稳定可操作。
-        if (modalOpenRef.current) return;
         // 刚收起后的冷却期内，禁止 proximity 把球重新弹出。
         if (Date.now() < suppressUntil.current) return;
         // 穿透模式：不检测鼠标位置，不自动收起也不弹出。

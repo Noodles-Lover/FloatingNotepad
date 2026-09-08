@@ -86,9 +86,19 @@ if (!fs.existsSync(bundleDir)) {
   process.exit(1);
 }
 
-const exe = fs.readdirSync(bundleDir).find((f) => f.endsWith(".exe"));
+const { version } = JSON.parse(
+  fs.readFileSync(path.join(root, "src-tauri", "tauri.conf.json"), "utf8"),
+);
+
+// 产物目录会累积历次构建的安装包，必须按当前版本号挑选：
+// 若只取目录里第一个 .exe，会把旧版本的文件名和它的签名写进清单，
+// 表现为「检测到了新版本，但下载 404」。
+const exe = fs
+  .readdirSync(bundleDir)
+  .find((f) => f.endsWith(".exe") && f.includes(version));
 if (!exe) {
-  console.error("[release] 未找到安装包（.exe）。");
+  console.error(`[release] 未找到版本号为 ${version} 的安装包（.exe）。`);
+  console.error("[release] 请确认构建成功，或清理 bundle 目录中的旧产物后重试。");
   process.exit(1);
 }
 
@@ -101,9 +111,6 @@ if (!fs.existsSync(sigPath)) {
   process.exit(1);
 }
 
-const { version } = JSON.parse(
-  fs.readFileSync(path.join(root, "src-tauri", "tauri.conf.json"), "utf8"),
-);
 const signature = fs.readFileSync(sigPath, "utf8").trim();
 
 const manifest = {
