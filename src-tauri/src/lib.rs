@@ -1,5 +1,7 @@
 mod db;
+mod foreground;
 mod tracker;
+mod usage;
 
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Mutex;
@@ -542,6 +544,20 @@ fn toggle_passthrough(app: AppHandle) -> Result<(), String> {
     do_toggle_passthrough(&app)
 }
 
+/// 同步「记录应用使用时间」开关（使用面板控制，前端在加载配置与改动时调用）。
+#[tauri::command]
+fn set_usage_tracking(app: AppHandle, enabled: bool) {
+    app.state::<usage::UsageState>()
+        .enabled
+        .store(enabled, Ordering::SeqCst);
+}
+
+/// 取当天的应用使用统计：会话区间（时间线）+ 各应用总时长（饼图）。
+#[tauri::command]
+fn load_usage() -> Result<db::UsageDay, String> {
+    Ok(db::load_usage(&usage::today()))
+}
+
 /// 同步「全屏自动穿透」开关（设置面板控制，前端在加载配置与改动时调用）。
 #[tauri::command]
 fn set_fullscreen_passthrough(app: AppHandle, enabled: bool) {
@@ -567,11 +583,16 @@ pub fn run() {
             app.manage(TrayPassthroughRef(Mutex::new(None)));
             // 全屏检测与自动穿透的运行时状态（开关默认关，由前端加载配置后同步）。
             app.manage(tracker::FullscreenState::new());
+            // 应用使用统计的运行时状态（开关默认关，由前端加载配置后同步）。
+            app.manage(usage::UsageState::new());
             // Create the schema up front; fail loudly if storage is unavailable.
             db::init_db(app);
 
             // 启动全屏检测轮询（内部按开关决定是否动作）。
             tracker::start(app.handle().clone());
+
+            // 启动应用使用统计轮询（内部按开关决定是否采样）。
+            usage::start(app.handle().clone());
 
             // 预创建锁窗口（隐藏常驻），首次 hover 出现时无需等待 webview 加载。
             if let Err(e) = ensure_lock_window(app.handle()) {
@@ -629,6 +650,8 @@ pub fn run() {
             list_skins,
             toggle_passthrough,
             set_fullscreen_passthrough,
+            set_usage_tracking,
+            load_usage,
             show_lock_window,
             hide_lock_window,
             set_lock_hide_delay,

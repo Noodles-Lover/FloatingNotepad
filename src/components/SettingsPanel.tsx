@@ -148,15 +148,6 @@ export default function SettingsPanel({ config, onChange, onClose }: Props) {
               onChange={(e) => set({ fullscreenPassthrough: e.target.checked })}
             />
           </label>
-          <label className="set-switch-row" title="关闭全部音效（穿透开合、面板开合）">
-            <span className="set-label">静音</span>
-            <input
-              type="checkbox"
-              className="set-switch"
-              checked={config.muted}
-              onChange={(e) => set({ muted: e.target.checked })}
-            />
-          </label>
         </div>
         <div className="set-actions">
           <button className="set-btn" onClick={openDataDir} title="在数据文件夹中可备份 notes.db">

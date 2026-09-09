@@ -176,6 +176,31 @@ pub fn init_db(app: &tauri::App) {
         .expect("mark migrated categories failed");
     }
 
+    conn.execute(
+        "CREATE TABLE IF NOT EXISTS usage_sessions (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            day TEXT NOT NULL,
+            app TEXT NOT NULL,
+            start_ms INTEGER NOT NULL,
+            end_ms INTEGER NOT NULL
+        )",
+        [],
+    )
+    .expect("create usage_sessions table failed");
+
+    conn.execute(
+        "CREATE INDEX IF NOT EXISTS idx_usage_sessions_day ON usage_sessions(day)",
+        [],
+    )
+    .expect("create usage_sessions index failed");
+
+    // 使用统计只展示当天，历史留 30 天足够；再老的清掉，避免 notes.db 无谓变大。
+    conn.execute(
+        "DELETE FROM usage_sessions WHERE day < date('now', 'localtime', '-30 days')",
+        [],
+    )
+    .ok();
+
     // 存入全局单例；若之前已初始化则忽略（理论不会）。
     let _ = DB.set(Mutex::new(conn));
 }
@@ -331,4 +356,168 @@ pub fn set_active_category(category_id: i64) {
         rusqlite::params![category_id.to_string()],
     )
     .expect("set active category failed");
+}
+
+// ---- 应用使用统计（usage.rs 采样写入，面板只读当天）----
+
+/// 一段连续使用：起止均为 Unix 毫秒，对应时间线上的一个区间。
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct UsageSession {
+    pub app: String,
+    pub start: i64,
+    pub end: i64,
+}
+
+/// 某个应用当天的累计使用时长。
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct UsageTotal {
+    pub app: String,
+    pub ms: i64,
+}
+
+/// 一天的使用数据：时间线用 sessions，饼图用 totals。
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct UsageDay {
+    pub day: String,
+    pub sessions: Vec<UsageSession>,
+    pub totals: Vec<UsageTotal>,
+}
+
+/// 开一条新会话：起止都先记为 start，之后由 touch_session 续期。
+pub fn open_session(day: &str, app: &str, start_ms: i64) -> i64 {
+    let conn = db().lock().unwrap();
+    conn.execute(
+        "INSERT INTO usage_sessions (day, app, start_ms, end_ms) VALUES (?1, ?2, ?3, ?3)",
+        rusqlite::params![day, app, start_ms],
+    )
+    .expect("insert usage session failed");
+    conn.last_insert_rowid()
+}
+
+/// 把会话的结束时间推到 end_ms：采样续期与收尾共用一个入口。
+pub fn touch_session(id: i64, end_ms: i64) {
+    let conn = db().lock().unwrap();
+    conn.execute(
+        "UPDATE usage_sessions SET end_ms = ?1 WHERE id = ?2",
+        rusqlite::params![end_ms, id],
+    )
+    .expect("update usage session failed");
+}
+
+/// 本地日期（"YYYY-MM-DD"）与「今日已过毫秒数」（秒精度）。
+/// 交给 SQLite 的 `localtime` 修饰符换算时区，省得自己处理时区与夏令时。
+pub fn local_clock() -> (String, i64) {
+    let conn = db().lock().unwrap();
+    let (day, secs): (String, i64) = conn
+        .query_row(
+            "SELECT date('now', 'localtime'),
+                    strftime('%s','now','localtime') - strftime('%s','now','localtime','start of day')",
+            [],
+            |row| Ok((row.get(0)?, row.get(1)?)),
+        )
+        .unwrap_or_default();
+    (day, secs * 1000)
+}
+
+/// 合并「夹在中间的一小段」：A → B（很短）→ A 视为一直在用 A。
+///
+/// 典型场景是误触、或系统把焦点短暂抢走（弹窗、UAC、输入法切换）——不合并的话
+/// 时间线会被切成三段，看起来像认真切过去用了另一个应用。
+/// 命中则删掉中间会话、把前一段的结束时间续到现在，返回续期后的会话 id。
+///
+/// @param current_id 刚结束的中间会话（B）；@param max_gap_ms 判定「一小段」的上限。
+pub fn merge_short_gap(
+    day: &str,
+    app: &str,
+    now_ms: i64,
+    max_gap_ms: i64,
+    current_id: i64,
+) -> Option<i64> {
+    let mut conn = db().lock().unwrap();
+
+    // 中间那段的时长：从它开始到此刻。
+    let (cur_app, cur_start): (String, i64) = conn
+        .query_row(
+            "SELECT app, start_ms FROM usage_sessions WHERE id = ?1",
+            rusqlite::params![current_id],
+            |row| Ok((row.get(0)?, row.get(1)?)),
+        )
+        .ok()?;
+    // 前后本就是同一个应用时不算「夹在中间」；超过上限说明是真的用了一会儿。
+    if cur_app == app || now_ms - cur_start > max_gap_ms {
+        return None;
+    }
+
+    // 前一段（A）：同一天里 id 更小的最近一条。
+    let (prev_id, prev_app): (i64, String) = conn
+        .query_row(
+            "SELECT id, app FROM usage_sessions WHERE day = ?1 AND id < ?2
+             ORDER BY id DESC LIMIT 1",
+            rusqlite::params![day, current_id],
+            |row| Ok((row.get(0)?, row.get(1)?)),
+        )
+        .ok()?;
+    if prev_app != app {
+        return None;
+    }
+
+    // 删掉中间段 + 续期前一段：两步要么都成，要么都不做。
+    let tx = conn.transaction().expect("begin tx failed");
+    tx.execute(
+        "DELETE FROM usage_sessions WHERE id = ?1",
+        rusqlite::params![current_id],
+    )
+    .ok()?;
+    tx.execute(
+        "UPDATE usage_sessions SET end_ms = ?1 WHERE id = ?2",
+        rusqlite::params![now_ms, prev_id],
+    )
+    .ok()?;
+    tx.commit().ok()?;
+
+    Some(prev_id)
+}
+
+/// 读某一天的使用数据：会话区间（时间线）与各应用总时长（饼图，按时长降序）。
+pub fn load_usage(day: &str) -> UsageDay {
+    let conn = db().lock().unwrap();
+
+    let sessions = conn
+        .prepare(
+            "SELECT app, start_ms, end_ms FROM usage_sessions
+             WHERE day = ?1 ORDER BY start_ms ASC",
+        )
+        .and_then(|mut stmt| {
+            stmt.query_map([day], |row| {
+                Ok(UsageSession {
+                    app: row.get(0)?,
+                    start: row.get(1)?,
+                    end: row.get(2)?,
+                })
+            })
+            .map(|rows| rows.filter_map(|r| r.ok()).collect::<Vec<_>>())
+        })
+        .unwrap_or_default();
+
+    let totals = conn
+        .prepare(
+            "SELECT app, SUM(end_ms - start_ms) FROM usage_sessions
+             WHERE day = ?1 GROUP BY app ORDER BY SUM(end_ms - start_ms) DESC",
+        )
+        .and_then(|mut stmt| {
+            stmt.query_map([day], |row| {
+                Ok(UsageTotal {
+                    app: row.get(0)?,
+                    ms: row.get(1)?,
+                })
+            })
+            .map(|rows| rows.filter_map(|r| r.ok()).collect::<Vec<_>>())
+        })
+        .unwrap_or_default();
+
+    UsageDay {
+        day: day.to_string(),
+        sessions,
+        totals,
+    }
 }

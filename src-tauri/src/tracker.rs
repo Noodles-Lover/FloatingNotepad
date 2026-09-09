@@ -119,50 +119,17 @@ fn snapshot() -> Snapshot {
 /// 三层判定：任一命中即视为全屏。
 #[cfg(target_os = "windows")]
 fn snapshot() -> Snapshot {
-    use windows::core::PWSTR;
-    use windows::Win32::Foundation::RECT;
-    use windows::Win32::Graphics::Gdi::{
-        GetMonitorInfoW, MonitorFromWindow, MONITORINFO, MONITOR_DEFAULTTONEAREST,
-    };
-    use windows::Win32::System::Threading::{
-        OpenProcess, QueryFullProcessImageNameW, PROCESS_NAME_WIN32,
-        PROCESS_QUERY_LIMITED_INFORMATION,
-    };
     use windows::Win32::UI::Shell::{QUNS_RUNNING_D3D_FULL_SCREEN, SHQueryUserNotificationState};
     use windows::Win32::UI::WindowsAndMessaging::{
-        GetDesktopWindow, GetForegroundWindow, GetShellWindow, GetWindowLongPtrW, GetWindowTextW,
-        GetWindowRect, GetWindowThreadProcessId, GWL_STYLE, WS_CAPTION, WS_MAXIMIZE,
+        GetDesktopWindow, GetForegroundWindow, GetShellWindow,
     };
 
     unsafe {
         let hwnd = GetForegroundWindow();
 
         // ── 进程与窗口标题（调试日志用）──
-        let mut pid = 0u32;
-        let _ = GetWindowThreadProcessId(hwnd, Some(&mut pid));
-
-        let mut tbuf = [0u16; 256];
-        let tlen = GetWindowTextW(hwnd, &mut tbuf);
-        let window_title = if tlen > 0 {
-            String::from_utf16_lossy(&tbuf[..tlen as usize])
-        } else {
-            String::new()
-        };
-
-        let mut process_name = String::from("(unknown)");
-        if pid != 0 {
-            if let Ok(h) = OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION, false, pid) {
-                let mut buf = [0u16; 512];
-                let mut len = buf.len() as u32;
-                if QueryFullProcessImageNameW(h, PROCESS_NAME_WIN32, PWSTR(buf.as_mut_ptr()), &mut len)
-                    .is_ok()
-                {
-                    let full = String::from_utf16_lossy(&buf[..len as usize]);
-                    process_name = full.rsplit('\\').next().unwrap_or(&full).to_string();
-                }
-                let _ = windows::Win32::Foundation::CloseHandle(h);
-            }
-        }
+        let window_title = crate::foreground::window_title(hwnd);
+        let process_name = crate::foreground::process_name(hwnd);
 
         // ── 全屏判定：第 1 层，系统级（独占 D3D 全屏，典型游戏）──
         // 部分游戏会误报 QUNS_BUSY，所以不能只依赖这一层。
@@ -179,9 +146,7 @@ fn snapshot() -> Snapshot {
         // 仅「覆盖整个显示器」还不够：任务栏自动隐藏时，最大化窗口的矩形
         // 同样铺满整个显示器，会被误判成全屏。真正的全屏应用是无边框的
         // （WS_POPUP，无 WS_CAPTION），且不带 WS_MAXIMIZE——据此把最大化窗口排除掉。
-        let style = GetWindowLongPtrW(hwnd, GWL_STYLE);
-        let has_caption = (style & (WS_CAPTION.0 as isize)) != 0;
-        let maximized = (style & (WS_MAXIMIZE.0 as isize)) != 0;
+        let (has_caption, maximized) = crate::foreground::window_style(hwnd);
         let style_note = match (has_caption, maximized) {
             (true, true) => "caption+maximized",
             (true, false) => "caption",
@@ -189,31 +154,22 @@ fn snapshot() -> Snapshot {
             (false, false) => "borderless",
         };
 
+        // 系统覆盖层（Alt+Tab 切换器、任务视图）同样无边框铺满，必须在这里排除掉：
+        // 否则一按 Alt+Tab 就被当成「进入全屏」而自动穿透。
+        // 只挡几何层——d3d 层是系统级判定，真正的独占全屏游戏不受影响。
+        let shell_overlay = crate::foreground::is_shell_overlay(hwnd);
+
         if !fullscreen
             && !hwnd.is_invalid()
             && hwnd != GetShellWindow()
             && hwnd != GetDesktopWindow()
+            && !shell_overlay
             && !has_caption
             && !maximized
+            && crate::foreground::covers_monitor(hwnd)
         {
-            let mut rect = RECT::default();
-            if GetWindowRect(hwnd, &mut rect).is_ok() {
-                let monitor = MonitorFromWindow(hwnd, MONITOR_DEFAULTTONEAREST);
-                let mut info = MONITORINFO {
-                    cbSize: std::mem::size_of::<MONITORINFO>() as u32,
-                    ..Default::default()
-                };
-                if GetMonitorInfoW(monitor, &mut info).as_bool() {
-                    if rect.left <= info.rcMonitor.left
-                        && rect.top <= info.rcMonitor.top
-                        && rect.right >= info.rcMonitor.right
-                        && rect.bottom >= info.rcMonitor.bottom
-                    {
-                        fullscreen = true;
-                        via = "geometry";
-                    }
-                }
-            }
+            fullscreen = true;
+            via = "geometry";
         }
 
         Snapshot {

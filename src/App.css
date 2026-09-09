@@ -117,7 +117,7 @@ body {
   width: 100%;
   height: 100%;
   object-fit: contain;
-  /* 原图按“右侧构图”：内容集中在图片右侧。始终让图片框右对齐，
+  /* 原图按"右侧构图"：内容集中在图片右侧。始终让图片框右对齐，
      内容即贴近框右；靠右时不翻转直接贴右，靠左时翻转(scaleX)后内容贴左。
      若用 left center，靠左翻转后会因原图左半空白而留出空隙。 */
   object-position: right center;
@@ -172,14 +172,14 @@ body {
   opacity: 1;
 }
 
-/* 贴左侧时水平翻转，让“探出”方向朝右（滑动模式单张图）。 */
+/* 贴左侧时水平翻转，让"探出"方向朝右（滑动模式单张图）。 */
 .widget-wrap.flipped .widget-img-single {
   transform: scaleX(-1);
 }
 
 /* ---------- 标签栏：一叠彩色便签 ----------
    每条标签是一张纸条；未激活时只露出一条彩边（叠在下面），
-   激活的那张“抽纸”展开变宽，抬到最上面。 */
+   激活的那张"抽纸"展开变宽，抬到最上面。 */
 .tab-bar {
   display: flex;
   align-items: flex-end;
@@ -487,7 +487,7 @@ body {
   transition: filter 200ms ease;
 }
 
-/* 顶部“折痕”：便签纸顶部常有一道因翻折留下的浅痕 */
+/* 顶部"折痕"：便签纸顶部常有一道因翻折留下的浅痕 */
 .panel::after {
   content: "";
   position: absolute;
@@ -563,6 +563,7 @@ body {
 
 .panel-head {
   display: flex;
+  flex-wrap: wrap;
   justify-content: space-between;
   align-items: center;
   padding-top: 4px;
@@ -631,6 +632,20 @@ body {
   width: 1px;
   height: 11px;
   background: var(--border);
+}
+
+/* 日期印章行：头栏（panel-head）里的换行行，占满整行、靠右对齐。
+   不单独占一个面板 flex 项——那样面板的 8px gap 会在它上下各加一条，
+   和速记区就会隔得很开。 */
+.note-seal-row {
+  flex: 0 0 100%;
+  display: flex;
+  justify-content: flex-end;
+  align-items: center;
+  gap: 7px;
+  /* 上 4px 与按钮那排隔开；下 -6px 抵消面板的 8px gap——色条自身还有 10px
+     顶部内边距，不抵的话印章和速记区之间会显得隔了很远。 */
+  margin: 6px 0 -10px;
 }
 
 .x {
@@ -721,7 +736,7 @@ body {
   border: 1px solid rgba(232, 217, 168, 0.7);
   border-radius: 8px;
   padding: 4px 6px;
-  /* 新贴上的任务：轻轻“贴上” */
+  /* 新贴上的任务：轻轻"贴上" */
   animation: stick-in 260ms cubic-bezier(0.3, 1.5, 0.5, 1);
 }
 
@@ -1260,7 +1275,7 @@ body {
   font-size: 13px;
   font-weight: 600;
   /* 面板底色是 --paper-2，按钮用更深的 --paper-3 拉开层次，
-     并以实线金边描边，避免在浅色背景上“看不见”。 */
+     并以实线金边描边，避免在浅色背景上"看不见"。 */
   color: var(--ink);
   background: var(--paper-3);
   border: 1.5px solid var(--gold);
@@ -1512,4 +1527,222 @@ body {
     opacity: 0;
     transform: scale(0.6);
   }
+}
+
+/* ---- 菴ｿ逕ｨ扈溯ｮ｡髱｢譚ｿ・・sagePanel・・--- */
+
+/* 譌ｶ髣ｴ郤ｿ髴隕∵ｨｪ蜷醍ｩｺ髣ｴ・梧ｯ皮坩閧､/隶ｾ鄂ｮ髱｢譚ｿ螳ｽ荳莠帙・*/
+.usage-panel {
+  width: min(520px, 92vw);
+}
+
+.usage-group-title {
+  margin-bottom: 6px;
+  font-size: 12px;
+  font-weight: 700;
+  color: var(--ink-faint);
+  letter-spacing: 0.04em;
+}
+
+/* 包住色条：浮层的定位基准（absolute 相对它，画在色条正上方）。 */
+.usage-tl-bar-wrap {
+  position: relative;
+}
+
+.usage-tl-bar {
+  position: relative;
+  height: 26px;
+  background: var(--paper-dark);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  overflow: hidden;
+}
+
+/* 謨ｴ轤ｹ鄂第ｼ郤ｿ・壼視蝨ｨ濶ｲ蝮嶺ｹ倶ｸ具ｼ悟宵菴懷綾蠎ｦ蜿ら・縲・*/
+.usage-tl-grid {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  width: 1px;
+  background: rgba(122, 102, 56, 0.18);
+}
+
+.usage-tl-seg {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  opacity: 0.9;
+}
+
+/* 悬停浮层：画在色条正上方、面板内部（锚点已按半宽夹进色条范围）。
+   窗口之外没有像素可用，面板的 clip-path 又会裁掉任何越界的后代，
+   所以不追求「跳出容器」，只保证完整可见。 */
+.usage-tl-tip {
+  position: absolute;
+  bottom: calc(100% + 6px);
+  transform: translateX(-50%);
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 2px;
+  padding: 4px 8px;
+  background: var(--paper);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  box-shadow: 0 4px 10px rgba(60, 45, 20, 0.16);
+  font-size: 11px;
+  color: var(--ink-soft);
+  white-space: nowrap;
+  pointer-events: none;
+  z-index: 3;
+}
+
+.usage-tip-head {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  max-width: 100%;
+}
+
+.usage-tip-dot {
+  flex: none;
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+}
+
+.usage-tip-name {
+  font-weight: 600;
+  color: var(--ink);
+  /* 名字过长时截断：浮层要整体夹在面板内，宽度必须可控。 */
+  max-width: 110px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.usage-tip-time {
+  color: var(--ink-faint);
+  font-variant-numeric: tabular-nums;
+}
+
+.usage-tip-dur {
+  margin-left: 6px;
+  color: var(--ink-soft);
+}
+
+.usage-tl-axis {
+  position: relative;
+  height: 14px;
+  margin-top: 3px;
+}
+
+.usage-tl-tick {
+  position: absolute;
+  top: 0;
+  font-size: 10px;
+  color: var(--ink-faint);
+  white-space: nowrap;
+}
+
+.usage-pie-row {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.usage-pie-wrap {
+  position: relative;
+  flex: none;
+  width: 116px;
+  height: 116px;
+}
+
+.usage-pie {
+  width: 100%;
+  height: 100%;
+}
+
+.usage-pie-track {
+  stroke: var(--paper-dark);
+}
+
+/* 蝨・ｿ・枚蟄礼畑 HTML 蜿蝨ｨ SVG 荳奇ｼ壼ｭ嶺ｽ馴囂髱｢譚ｿ荳ｻ鬚倩ｵｰ・御ｸ榊ｿ・惠 SVG 驥悟黒迢ｬ隶ｾ濶ｲ縲・*/
+.usage-pie-center {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 2px;
+  pointer-events: none;
+}
+
+.usage-pie-total {
+  font-size: 15px;
+  font-weight: 700;
+  color: var(--ink-soft);
+}
+
+.usage-pie-sub {
+  font-size: 10px;
+  color: var(--ink-faint);
+}
+
+.usage-legend {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+  max-height: 132px;
+  overflow: auto;
+}
+
+.usage-legend-row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 12px;
+  color: var(--ink-soft);
+}
+
+.usage-dot {
+  flex: none;
+  width: 9px;
+  height: 9px;
+  border-radius: 50%;
+}
+
+.usage-legend-name {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.usage-legend-time,
+.usage-legend-pct {
+  flex: none;
+  color: var(--ink-faint);
+  font-variant-numeric: tabular-nums;
+}
+
+.usage-legend-pct {
+  width: 32px;
+  text-align: right;
+}
+
+.usage-empty {
+  padding: 10px 0;
+  font-size: 12px;
+  color: var(--ink-faint);
+  text-align: center;
+}
+
+.usage-hint {
+  font-size: 11px;
+  color: var(--ink-faint);
+  line-height: 1.5;
 }

@@ -25,6 +25,8 @@ export interface AppConfig {
   fullscreenPassthrough: boolean;
   /** 静音：关闭全部音效（穿透开合、面板开合）。 */
   muted: boolean;
+  /** 记录应用使用时间：采样前台应用，数据只写本机，使用面板展示当天。 */
+  usageTracking: boolean;
 }
 
 export const DEFAULT_CONFIG: AppConfig = {
@@ -37,6 +39,7 @@ export const DEFAULT_CONFIG: AppConfig = {
   panelMargin: 15,
   fullscreenPassthrough: true,
   muted: false,
+  usageTracking: true,
 };
 
 const LS_KEY = "floating-notepad.config";
@@ -75,6 +78,7 @@ function sanitize(part: Partial<AppConfig>): Partial<AppConfig> {
   if (typeof part.fullscreenPassthrough === "boolean")
     out.fullscreenPassthrough = part.fullscreenPassthrough;
   if (typeof part.muted === "boolean") out.muted = part.muted;
+  if (typeof part.usageTracking === "boolean") out.usageTracking = part.usageTracking;
   return out;
 }
 

@@ -174,6 +174,7 @@ setup 阶段构建，菜单项：
   - `tabs`：速记标签页（title / content / position）。
   - `categories`：待办分类（title / todos JSON / position）。
   - `meta`：键值对，存激活项 id 与迁移标记。
+  - `usage_sessions`：应用使用统计（day / app / start_ms / end_ms，按 day 建索引）。启动时清理 30 天前的数据——面板只展示当天，历史留着只会让库无谓变大。
 - 一次性迁移（以 `meta` 中 `migrated_notes` / `migrated_categories` 标记防重复）：
   - `migrated_notes`：首次启动且 `tabs` 为空时，把 `notes` 单行正文迁入第一个标签页「速记」。
   - `migrated_categories`：首次启动且 `categories` 为空时，把 `notes` 单行残留的 todos 迁入默认分类「主要」。
@@ -188,3 +189,44 @@ setup 阶段构建，菜单项：
 - 读取 `resource_dir()` 下的 `skin/` 目录，返回文件夹名列表（跳过 `.` 开头的隐藏目录，排序后返回）。
 - dev 与 prod 下 `resource_dir` 层级不同，枚举多个候选路径，取第一个真实存在的目录。
 - 前端 `loadSkins()` 据此探测图片文件判定模式（见 `src/LOGIC.md`）。
+
+---
+
+## 7. 应用使用统计（usage.rs）
+
+每 10 秒采样一次前台应用，把「连续使用某个应用」记成一条会话写进 `usage_sessions`。
+
+- **会话边界**：只有前台切换、跨天、空闲（>60s 无键鼠输入）或关闭功能时才结束会话；其余时候只 `UPDATE` 结束时间续期——进程被强杀也只丢一个轮询间隔。
+- **跨天**：旧会话属于昨天时，结束时间按昨天最后一毫秒算（`day_start - 1`），不能写成「现在」，否则会把今天开头的几分钟记到昨天头上。
+- **排除自身**：浮笺只是贴在别人上面的便签，`own_process()` 比对 `current_exe()` 的文件名后把自己排除在统计外。
+- **空闲**：`foreground::idle_ms()` 读 `GetLastInputInfo`。人走开时前台应用不会变，只看前台窗口会把离席时间算成使用时间。
+- **时间基准**：本地日期由 SQLite 的 `date('now','localtime')` 提供（`db::local_clock()`），不自己处理时区与夏令时。
+- **前台读取**：`foreground.rs` 统一提供进程名 / 标题 / 空闲时长，全屏检测（`tracker.rs`）与使用统计共用一份实现，避免两套 Win32 调用各自漂移。
+- **系统覆盖层**：Alt+Tab 切换器这类系统 UI 视为「没有在用任何应用」，切换期间不计入任何应用（见第 8 节）。
+- **短间隔合并**：`A → B（≤20s）→ A` 视为一直在用 A——命中时删掉中间那条记录、把前一段的结束时间续到现在（`db::merge_short_gap`）。误触或焦点被弹窗/UAC 短暂抢走不该在时间线上留下痕迹。跨天的旧会话不参与合并（它属于昨天，接不上今天的区间）。
+- **与全屏检测的关系**：两者是**各自独立的轮询线程**（统计 10 秒、全屏 2 秒），只共用 `foreground.rs` 的窗口读取函数，不共用循环。节奏不同、开关也能独立启停，合并成一个循环会把两件事耦死。
+  > 轮询间隔同时是「会话的最小可分辨时长」：合并阈值必须大于它，否则夹在中间的会话永远达不到判定长度（现在 20s > 10s）。
+- 命令：`set_usage_tracking`（开关采样）、`load_usage`（当天的会话区间 + 各应用总时长）。
+
+---
+
+## 8. 系统覆盖层排除（is_shell_overlay）
+
+Alt+Tab 切换器、任务视图、开始菜单这类系统 UI 由 explorer 提供，**无边框且铺满显示器**，
+在几何上与「全屏应用」无法区分：一按 Alt+Tab 就会被判成进入全屏、自动开穿透。
+
+`foreground::is_shell_overlay(hwnd)` 做两级判定，全屏检测与使用统计共用：
+
+1. **类名**（`GetClassNameW`）：类名由系统定义、**不随显示语言变化**，比窗口标题稳定
+   ——标题在中文系统上是「工作切换」、英文是「Task switching」，靠标题排除换个语言就失效。
+   命中名单见 `SHELL_OVERLAY_CLASSES`；另有 `Shell_` 前缀一律视为外壳 UI。
+2. **兜底**：不同 Windows 版本的切换器类名会变（实测 Win11 为 `XamlExplorerHostIslandWindow`，
+   Win10 为 `TaskSwitcherWnd`，任务视图为 `MultitaskingViewFrame`），但都归 explorer；
+   而资源管理器窗口一定带标题栏——所以「explorer 出的无边框铺满窗口」只可能是系统 UI。
+   实测中平板模式遮罩 `TabletModeCoverWindow` 正是靠这条拦下的。
+
+两个使用点：
+
+- **全屏检测**：排除只作用于几何层。d3d 层是系统级判定（`SHQueryUserNotificationState`），
+  独占全屏的真游戏不受影响。
+- **使用统计**：覆盖层期间返回「无前台应用」，会话暂停，切换的那段时间不计入任何应用。
