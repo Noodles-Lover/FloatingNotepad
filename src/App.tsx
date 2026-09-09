@@ -6,6 +6,7 @@ import { WindowController, type Edge } from "./lib/window";
 import { NoteWindow } from "./lib/noteWindow";
 import { loadState, saveTabs, setActiveTab, loadCategories, saveCategories, setActiveCategory } from "./lib/db";
 import { ProximitySensor } from "./lib/proximity";
+import { playSound, setMuted } from "./lib/sounds";
 import { loadConfig, saveConfig, DEFAULT_CONFIG, type AppConfig } from "./lib/config";
 import {
   loadSkins,
@@ -38,6 +39,13 @@ const SAVE_DEBOUNCE = 400;
 function syncLockDelay(delayMs: number): void {
   invoke("set_lock_hide_delay", { delayMs }).catch((e) =>
     console.error("[lock] 同步收起延时失败:", e),
+  );
+}
+
+/** 把「全屏自动穿透」开关同步给 Rust。 */
+function syncFullscreenPassthrough(enabled: boolean): void {
+  invoke("set_fullscreen_passthrough", { enabled }).catch((e) =>
+    console.error("[fullscreen] 同步开关失败:", e),
   );
 }
 
@@ -191,6 +199,9 @@ export default function App() {
       // 若留到窗口缩回挂件尺寸，460px 的面板会被挤进几十像素的窗口里。
       setSkinOpen(false);
       setSettingsOpen(false);
+      // 只有笔记面板收起才响。挂件从 hover 回到 idle 同样走这个入口，
+      // 但那是挂件行为，不该有音效。
+      if (modeRef.current === "expanded") playSound("paperClose");
       setClosing(true);
       closeTimer.current = window.setTimeout(doClose, CLOSE_ANIM);
     },
@@ -221,6 +232,8 @@ export default function App() {
       applyConfigToCtl(next);
       saveConfig(next);
       syncLockDelay(next.autoCloseDelay);
+      syncFullscreenPassthrough(next.fullscreenPassthrough);
+      setMuted(next.muted);
     },
     [applyConfigToCtl],
   );
@@ -306,6 +319,8 @@ export default function App() {
     passthroughRef.current = false;
     applyConfigToCtl(cfg);
     syncLockDelay(cfg.autoCloseDelay);
+    syncFullscreenPassthrough(cfg.fullscreenPassthrough);
+    setMuted(cfg.muted);
   }, [applyConfigToCtl]);
 
   // 加载皮肤清单并解析当前选用皮肤；变化模式对应 solidMode=true（整颗停靠、不滑出），
@@ -392,6 +407,9 @@ export default function App() {
     bind(
       listen<boolean>("passthrough-state", (ev) => {
         const on = ev.payload;
+        // 穿透音效挂在这里而非各切换入口：Rust 的 set_passthrough 无论被谁调用
+        // （用户切换 / 托盘 / 解锁按钮 / 全屏自动）都会广播本事件，音效自动覆盖全部路径。
+        playSound(on ? "lock" : "unlock");
         passthroughRef.current = on;
         setPassthroughState(on);
         appHiddenRef.current = false;
@@ -413,6 +431,13 @@ export default function App() {
     // 退出前 Rust 会广播 before-quit（见 src-tauri/LOGIC.md「退出」）：
     // 此时把防抖中的文本/待办编辑立即落库，避免丢掉最后一次输入。
     bind(listen("before-quit", () => scheduleSave(true)));
+    // 全屏自动穿透前 Rust 会广播 collapse-panel：穿透生效后主窗口被
+    // EnableWindow(FALSE) 禁用，面板上的关闭按钮就点不到了，所以先收起面板。
+    bind(
+      listen("collapse-panel", () => {
+        if (modeRef.current === "expanded") doClose();
+      }),
+    );
 
     loadState()
       .then((state) => {
@@ -492,7 +517,7 @@ export default function App() {
       sensor.stop();
       clearTimers();
     };
-  }, [windowCtl, beginClose, noteWin, scheduleSave]);
+  }, [windowCtl, beginClose, noteWin, scheduleSave, doClose]);
 
   /** 打开笔记面板。 */
   const openPanel = useCallback(() => {
@@ -501,6 +526,7 @@ export default function App() {
     clearTimers();
     setClosing(false);
     setMode("expanded");
+    playSound("paperOpen");
     // 面板由 NoteWindow 负责窗口形态；挂件当前的 dockEdge/dockY 决定对齐与弹出方向。
     noteWin.expand(windowCtl.currentEdge(), windowCtl.getDockY());
   }, [noteWin, windowCtl]);

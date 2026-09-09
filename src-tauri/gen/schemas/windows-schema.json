@@ -237,6 +237,12 @@
           "markdownDescription": "Allow persisting the currently active scratch tab id."
         },
         {
+          "description": "Allow syncing the fullscreen auto-passthrough switch from the settings panel.",
+          "type": "string",
+          "const": "allow-set-fullscreen-passthrough",
+          "markdownDescription": "Allow syncing the fullscreen auto-passthrough switch from the settings panel."
+        },
+        {
           "description": "Allow syncing the auto-collapse delay used by the passthrough unlock lock.",
           "type": "string",
           "const": "allow-set-lock-hide-delay",

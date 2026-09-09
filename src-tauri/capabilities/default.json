@@ -27,6 +27,7 @@
     "allow-open-data-dir",
     "allow-list-skins",
     "allow-toggle-passthrough",
+    "allow-set-fullscreen-passthrough",
     "allow-show-lock-window",
     "allow-hide-lock-window",
     "allow-set-lock-hide-delay",

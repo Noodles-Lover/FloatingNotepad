@@ -58,6 +58,11 @@ description = "Allow toggling mouse passthrough (WS_EX_TRANSPARENT) from tray or
 commands.allow = ["toggle_passthrough"]
 
 [[permission]]
+identifier = "allow-set-fullscreen-passthrough"
+description = "Allow syncing the fullscreen auto-passthrough switch from the settings panel."
+commands.allow = ["set_fullscreen_passthrough"]
+
+[[permission]]
 identifier = "allow-show-lock-window"
 description = "Allow showing the passthrough unlock lock window at a given position."
 commands.allow = ["show_lock_window"]

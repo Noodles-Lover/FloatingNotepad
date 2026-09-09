@@ -1,4 +1,5 @@
 mod db;
+mod tracker;
 
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Mutex;
@@ -458,17 +459,17 @@ impl PassthroughState {
     }
 }
 
-/// 切换穿透模式：更新状态 -> 执行 Win32 样式切换 -> 广播新状态给前端同步显示
-/// -> 同步系统托盘勾选。托盘菜单与挂件右键菜单统一走这里。
+/// 把穿透模式设置为指定状态（而不是切换）。
+///
+/// 这是穿透的**唯一实现**：更新状态 -> 执行 Win32 样式切换 -> 广播新状态给前端
+/// -> 同步系统托盘勾选。`do_toggle_passthrough`（用户切换）与全屏自动逻辑
+/// （`tracker.rs`）都经由它，不存在第二条旁路。
 ///
 /// 注意：目标窗口一律按 label "main" 取，绝不用命令注入的调用方窗口——
 /// 注入的 WebviewWindow 是「发起 invoke 的窗口」，穿透解锁锁若在锁窗口里调用，
 /// 样式会打在锁自己身上，主窗口的穿透位永远不被清除（表现为解锁后仍点击穿透）。
-fn do_toggle_passthrough(
-    app: &AppHandle,
-    tray_item: &Option<CheckMenuItem<tauri::Wry>>,
-) -> Result<(), String> {
-    // 取主窗口 HWND；窗口未就绪或取句柄失败时只翻转状态，不操作样式。
+pub fn set_passthrough(app: &AppHandle, on: bool) -> Result<(), String> {
+    // 取主窗口 HWND；窗口未就绪或取句柄失败时只写状态，不操作样式。
     let main_window = app.get_webview_window("main");
     let hwnd = match &main_window {
         Some(w) => match main_hwnd(w) {
@@ -480,21 +481,16 @@ fn do_toggle_passthrough(
         },
         None => None,
     };
-    let new_on = match &hwnd {
-        Some(h) => {
-            let next = !PassthroughState::read_current(app);
-            apply_transparent(*h, next)?;
-            // 穿透时窗口连同 webview 子窗口不接收点击、也不抢焦点。
-            unsafe { set_input_enabled(*h, !next) };
-            next
-        }
-        None => !PassthroughState::read_current(app),
-    };
-    PassthroughState::write_current(app, new_on);
+    if let Some(h) = hwnd {
+        apply_transparent(h, on)?;
+        // 穿透时窗口连同 webview 子窗口不接收点击、也不抢焦点。
+        unsafe { set_input_enabled(h, !on) };
+    }
+    PassthroughState::write_current(app, on);
     // 广播给前端用于同步显示（FloatingWidget 的 passthrough 标记、proximity 早退等）。
-    let _ = app.emit("passthrough-state", new_on);
+    let _ = app.emit("passthrough-state", on);
     // 关闭穿透时锁必然要收起，由 Rust 统一兜底，不依赖前端热区状态。
-    if !new_on {
+    if !on {
         let _ = hide_lock_now(app);
         if let Ok(mut s) = app.state::<Mutex<LockState>>().inner().lock() {
             s.visible = false;
@@ -502,14 +498,30 @@ fn do_toggle_passthrough(
         }
     }
     // 同步系统托盘勾选。
-    if let Some(item) = tray_item {
-        let _ = item.set_checked(new_on);
+    if let Some(item) = tray_item_for_state(app) {
+        let _ = item.set_checked(on);
     }
     Ok(())
 }
 
+/// 从托管引用取托盘穿透菜单项（命令与内部逻辑共用）。
+fn tray_item_for_state(app: &AppHandle) -> Option<CheckMenuItem<tauri::Wry>> {
+    app.state::<TrayPassthroughRef>()
+        .inner()
+        .0
+        .lock()
+        .ok()
+        .and_then(|g| g.clone())
+}
+
+/// 切换穿透模式：翻转后交由 set_passthrough 统一执行。托盘菜单与挂件右键菜单统一走这里。
+fn do_toggle_passthrough(app: &AppHandle) -> Result<(), String> {
+    let next = !PassthroughState::read_current(app);
+    set_passthrough(app, next)
+}
+
 impl PassthroughState {
-    fn read_current(app: &AppHandle) -> bool {
+    pub fn read_current(app: &AppHandle) -> bool {
         app.state::<Mutex<PassthroughState>>()
             .inner()
             .lock()
@@ -524,14 +536,18 @@ impl PassthroughState {
 }
 
 #[tauri::command]
-fn toggle_passthrough(
-    app: AppHandle,
-    tray_ref: State<'_, TrayPassthroughRef>,
-) -> Result<(), String> {
+fn toggle_passthrough(app: AppHandle) -> Result<(), String> {
     // 穿透状态与样式切换完全在 Rust 完成；托盘勾选项由托管引用同步。
-    // 不接收调用方窗口：目标恒为 main，见 do_toggle_passthrough 的说明。
-    let item = tray_ref.inner().0.lock().ok().and_then(|g| g.clone());
-    do_toggle_passthrough(&app, &item)
+    // 不接收调用方窗口：目标恒为 main，见 set_passthrough 的说明。
+    do_toggle_passthrough(&app)
+}
+
+/// 同步「全屏自动穿透」开关（设置面板控制，前端在加载配置与改动时调用）。
+#[tauri::command]
+fn set_fullscreen_passthrough(app: AppHandle, enabled: bool) {
+    app.state::<tracker::FullscreenState>()
+        .enabled
+        .store(enabled, Ordering::SeqCst);
 }
 
 /// 把托盘穿透菜单项的引用托管起来，供切换命令同步勾选。
@@ -549,8 +565,13 @@ pub fn run() {
             app.manage(Mutex::new(LockState::new()));
             // 托盘穿透菜单项引用，供切换命令同步勾选显示。
             app.manage(TrayPassthroughRef(Mutex::new(None)));
+            // 全屏检测与自动穿透的运行时状态（开关默认关，由前端加载配置后同步）。
+            app.manage(tracker::FullscreenState::new());
             // Create the schema up front; fail loudly if storage is unavailable.
             db::init_db(app);
+
+            // 启动全屏检测轮询（内部按开关决定是否动作）。
+            tracker::start(app.handle().clone());
 
             // 预创建锁窗口（隐藏常驻），首次 hover 出现时无需等待 webview 加载。
             if let Err(e) = ensure_lock_window(app.handle()) {
@@ -583,14 +604,7 @@ pub fn run() {
                     }
                     "toggle_passthrough" => {
                         // 直接执行切换（穿透逻辑在 Rust，托盘、挂件右键、解锁锁统一走此入口）。
-                        let item = app
-                            .state::<TrayPassthroughRef>()
-                            .inner()
-                            .0
-                            .lock()
-                            .ok()
-                            .and_then(|g| g.clone());
-                        if let Err(e) = do_toggle_passthrough(app, &item) {
+                        if let Err(e) = do_toggle_passthrough(app) {
                             eprintln!("[passthrough] 切换失败: {e}");
                         }
                     }
@@ -614,6 +628,7 @@ pub fn run() {
             open_data_dir,
             list_skins,
             toggle_passthrough,
+            set_fullscreen_passthrough,
             show_lock_window,
             hide_lock_window,
             set_lock_hide_delay,

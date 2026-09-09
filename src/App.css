@@ -1183,6 +1183,66 @@ body {
   cursor: pointer;
 }
 
+/* 开关行：标签 + 右侧拨动开关，风格与滑块行一致。 */
+.set-switch-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  font-size: 13px;
+  color: var(--ink-soft);
+  cursor: pointer;
+  user-select: none;
+  -webkit-user-select: none;
+}
+
+/* 跟随上级开关失效时整行压暗。 */
+.set-switch-row.disabled {
+  opacity: 0.45;
+  cursor: default;
+}
+
+.set-switch:disabled {
+  cursor: default;
+}
+
+.set-switch {
+  appearance: none;
+  -webkit-appearance: none;
+  width: 38px;
+  height: 20px;
+  margin: 0;
+  border-radius: 10px;
+  background: var(--paper-dark);
+  border: 1px solid var(--border);
+  cursor: pointer;
+  position: relative;
+  transition: background 140ms ease, border-color 140ms ease;
+}
+
+/* 拨块：用伪元素画一个圆点，选中时滑到右侧。 */
+.set-switch::after {
+  content: "";
+  position: absolute;
+  left: 2px;
+  top: 50%;
+  transform: translateY(-50%);
+  width: 14px;
+  height: 14px;
+  border-radius: 50%;
+  background: var(--paper);
+  box-shadow: 0 1px 2px rgba(60, 45, 20, 0.25);
+  transition: left 140ms ease;
+}
+
+.set-switch:checked {
+  background: var(--cinnabar);
+  border-color: var(--cinnabar);
+}
+
+.set-switch:checked::after {
+  left: 20px;
+}
+
 /* 设置面板底部的操作按钮（数据备份、更新）。 */
 .set-actions {
   display: flex;
