@@ -35,6 +35,8 @@ const RANGE_PAD_MS = 3 * 60 * 1000;
 const MIN_SPAN_MS = 30 * 60 * 1000;
 /** 网格步长的候选（由小到大取第一个够疏的）。 */
 const GRID_STEPS_MS = [5, 10, 15, 30, 60, 120, 180, 360].map((m) => m * 60 * 1000);
+/** 相邻刻度标签的最小像素间距：小于它就不显示，避免文字互相压住。 */
+const MIN_LABEL_GAP_PX = 44;
 /** 面板打开期间的自动刷新间隔（毫秒）。 */
 const REFRESH_MS = 30_000;
 
@@ -110,6 +112,8 @@ function Timeline({
   const [hover, setHover] = useState<{ session: UsageSession; cx: number } | null>(null);
   /** 浮层最终的横向位置：按其真实宽度夹进色条范围后的结果。 */
   const [tipX, setTipX] = useState(0);
+  /** 色条的像素宽度（刻度标签抽稀用）。 */
+  const [barWidth, setBarWidth] = useState(0);
 
   /** 时间 -> 百分比位置（相对显示区间，而非整天）。 */
   const pos = (t: number) => ((t - from) / span) * 100;
@@ -132,6 +136,35 @@ function Timeline({
     const half = tip.offsetWidth / 2;
     setTipX(Math.min(Math.max(hover.cx, half), bar.clientWidth - half));
   }, [hover]);
+
+  // 色条的像素宽度：刻度标签要按实际像素间距抽稀，否则窄面板上文字会叠在一起。
+  // layout effect 里量，首帧就能拿到；之后随窗口尺寸变化保持同步。
+  useLayoutEffect(() => {
+    const el = barRef.current;
+    if (!el) return;
+    const measure = () => setBarWidth(el.clientWidth);
+    measure();
+    const ro = new ResizeObserver(measure);
+    ro.observe(el);
+    return () => ro.disconnect();
+  }, []);
+
+  // 刻度标签：区间两端必显示，中间的网格点按最小像素间距抽稀，
+  // 挤不下时让位给后面的（末端时间优先保留）。
+  const labels: number[] = [];
+  for (const [i, t] of [from, ...grids, to].entries()) {
+    const x = (pos(t) / 100) * barWidth;
+    const last = labels[labels.length - 1];
+    if (last !== undefined) {
+      const gap = x - (pos(last) / 100) * barWidth;
+      if (gap < MIN_LABEL_GAP_PX) {
+        // 末端标签挤不下时，去掉上一个，保证结尾时刻始终可见。
+        if (i === grids.length + 1) labels.pop();
+        else continue;
+      }
+    }
+    labels.push(t);
+  }
 
   return (
     <div className="usage-tl">
@@ -182,7 +215,7 @@ function Timeline({
       </div>
       <div className="usage-tl-axis">
         {/* 首尾标签贴边对齐，避免被面板裁掉一半。 */}
-        {[from, ...grids, to].map((t, i, all) => (
+        {labels.map((t, i, all) => (
           <span
             key={t}
             className="usage-tl-tick"
@@ -262,8 +295,8 @@ export default function UsagePanel({ config, onChange, onClose }: Props) {
 
   const totals = data?.totals ?? [];
   const colors = colorMap(totals);
-  // 后端只给日期串（"YYYY-MM-DD"），本地解析出当天零点作为时间线原点。
-  const dayStart = data ? new Date(`${data.day}T00:00:00`).getTime() : 0;
+  // 后端按「凌晨 4 点」分日：日期串是逻辑日，该日的 04:00 才是时间线原点。
+  const dayStart = data ? new Date(`${data.day}T04:00:00`).getTime() : 0;
   const sum = totals.reduce((s, t) => s + t.ms, 0);
 
   return (
@@ -323,7 +356,9 @@ export default function UsagePanel({ config, onChange, onClose }: Props) {
             )}
           </div>
 
-          <div className="usage-hint">仅统计当天；历史记录保留 30 天后自动清理。</div>
+          <div className="usage-hint">
+            以凌晨 4 点为界统计当天（熬夜到 3 点仍算前一天）；历史记录保留 30 天后自动清理。
+          </div>
         </div>
       </div>
     </div>

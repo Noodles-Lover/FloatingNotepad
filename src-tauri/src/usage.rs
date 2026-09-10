@@ -1,12 +1,12 @@
 //! 应用使用时间统计。
 //!
-//! 每 5 秒看一眼前台窗口，把「连续使用某个应用」记成一条会话（起止时间）写进本地 SQLite。
-//! 只有前台切换、跨天、空闲或关闭功能时才会结束会话，其余时候只做一次 UPDATE 续期，
-//! 因此进程被强杀也只丢一个轮询间隔。
+//! 每 10 秒看一眼前台窗口，把「连续使用某个应用」记成一条会话（起止时间）写进本地 SQLite。
+//! 只有前台切换、跨天、空闲、系统睡眠或关闭功能时才会结束会话，其余时候只做一次
+//! UPDATE 续期，因此进程被强杀也只丢一个轮询间隔。
 //!
-//! 数据全部留在本机 notes.db，面板只展示当天。
+//! 数据全部留在本机 notes.db，面板只展示当天（凌晨 4 点为界）。
 
-use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicI64, Ordering};
 use std::sync::{Mutex, OnceLock};
 use std::time::Duration;
 
@@ -23,6 +23,9 @@ const IDLE_CUTOFF_MS: u32 = 60_000;
 /// 「A → 别的 app → A」中间那段的合并上限：不超过这个时长的中间记录会被丢掉，
 /// 前后两段接成一个区间（误触 / 焦点被短暂抢走不该在时间线上留下痕迹）。
 const MERGE_GAP_MS: i64 = 20_000;
+/// 两次轮询之间的墙上时钟跳变超过这个值，即认为系统睡过一觉（合盖 / 休眠）。
+/// 远大于轮询间隔，正常调度抖动不会误判。
+const SLEEP_GAP_MS: i64 = 60_000;
 
 /// 使用统计的运行时状态。
 pub struct UsageState {
@@ -30,6 +33,8 @@ pub struct UsageState {
     pub enabled: AtomicBool,
     /// 进行中的会话。只留 rowid 与归属，时长由数据库按 end-start 算。
     session: Mutex<Option<Session>>,
+    /// 上一次轮询的墙上时刻（Unix 毫秒）；与本次的差值用于识别系统睡眠。
+    last_poll_ms: AtomicI64,
 }
 
 struct Session {
@@ -43,6 +48,7 @@ impl UsageState {
         Self {
             enabled: AtomicBool::new(false),
             session: Mutex::new(None),
+            last_poll_ms: AtomicI64::new(0),
         }
     }
 }
@@ -65,10 +71,22 @@ fn poll_once(app: &AppHandle) {
     let state = app.state::<UsageState>();
     // 当作「此刻」的唯一时间基准：整轮判定共用，避免中途跳秒造成区间错位。
     let now = Clock::now();
+    let prev_poll = state.last_poll_ms.load(Ordering::SeqCst);
+    state.last_poll_ms.store(now.ms, Ordering::SeqCst);
 
     if !state.enabled.load(Ordering::SeqCst) {
         // 关掉时把进行中的会话收尾，否则会留一条没有结束时间的记录。
+        // 时间基准照常推进：重新开启时距上次采样已久，不应被判成睡了一觉。
         close_session(&state, now.ms);
+        return;
+    }
+
+    // 系统睡眠（合盖 / 休眠）时本线程被挂起，GetTickCount 与「最后输入时间」
+    // 一起冻结，空闲判定失效——醒来后会把整段睡眠算成使用时间。墙上时钟不受
+    // 挂起影响，因此用它识别睡眠：跳变超过阈值就把会话停在上一次轮询，
+    // 睡眠时长不计入任何应用。
+    if prev_poll > 0 && now.ms - prev_poll > SLEEP_GAP_MS {
+        close_session(&state, prev_poll);
         return;
     }
 

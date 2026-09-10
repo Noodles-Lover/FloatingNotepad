@@ -404,14 +404,19 @@ pub fn touch_session(id: i64, end_ms: i64) {
     .expect("update usage session failed");
 }
 
-/// 本地日期（"YYYY-MM-DD"）与「今日已过毫秒数」（秒精度）。
-/// 交给 SQLite 的 `localtime` 修饰符换算时区，省得自己处理时区与夏令时。
+/// 本地「逻辑日」（"YYYY-MM-DD"）与「自该日起点已过的毫秒数」（秒精度）。
+///
+/// 一天以**凌晨 4 点**为界：熬夜到凌晨 3 点仍算前一天，更符合实际作息。
+/// 时区换算交给 SQLite 的 `localtime` 修饰符，不自己处理夏令时。
+/// 起点 = 把当前时刻减 4 小时后取当日零点再加 4 小时——这样凌晨 0~4 点会
+/// 自然落到前一天的 04:00，不需要额外的分支判断。
 pub fn local_clock() -> (String, i64) {
     let conn = db().lock().unwrap();
     let (day, secs): (String, i64) = conn
         .query_row(
-            "SELECT date('now', 'localtime'),
-                    strftime('%s','now','localtime') - strftime('%s','now','localtime','start of day')",
+            "SELECT date('now', 'localtime', '-4 hours'),
+                    strftime('%s', 'now', 'localtime')
+                    - strftime('%s', datetime('now', 'localtime', '-4 hours', 'start of day', '+4 hours'))",
             [],
             |row| Ok((row.get(0)?, row.get(1)?)),
         )
