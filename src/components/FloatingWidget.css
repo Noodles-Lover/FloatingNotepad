@@ -1,0 +1,91 @@
+/* ---------- Floating widget ---------- */
+.widget-wrap {
+  width: var(--widget-size, 56px);
+  height: var(--widget-size, 56px);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  user-select: none;
+  -webkit-user-select: none;
+  transition: transform 160ms ease-out;
+}
+
+.widget-wrap.hidden.dock-right {
+  transform: translateX(calc(var(--widget-size, 56px) / 2));
+}
+
+.widget-wrap.hidden.dock-left {
+  transform: translateX(calc(var(--widget-size, 56px) / -2));
+}
+
+.widget-wrap.revealed,
+.widget-wrap.dragging {
+  transform: translateX(0);
+}
+
+.widget-img {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
+  /* 原图按"右侧构图"：内容集中在图片右侧。始终让图片框右对齐，
+     内容即贴近框右；靠右时不翻转直接贴右，靠左时翻转(scaleX)后内容贴左。
+     若用 left center，靠左翻转后会因原图左半空白而留出空隙。 */
+  object-position: right center;
+  pointer-events: none;
+  user-select: none;
+  -webkit-user-select: none;
+  transition: opacity 180ms ease-out, transform 180ms ease-out;
+}
+
+.widget-wrap.flipped .widget-img {
+  transform: scaleX(-1);
+}
+
+.widget-wrap.solid.hidden.dock-right,
+.widget-wrap.solid.hidden.dock-left {
+  transform: translateX(0);
+}
+
+.widget-img-idle {
+  opacity: var(--idle-opacity, 0.85);
+}
+
+.widget-wrap.revealed .widget-img-idle {
+  opacity: 0;
+}
+
+.widget-img-hover {
+  opacity: 0;
+}
+
+.widget-wrap.revealed .widget-img-hover {
+  opacity: 1;
+}
+
+.widget-wrap.passthrough .widget-img-idle {
+  opacity: var(--idle-opacity, 0.85);
+}
+
+.widget-wrap.passthrough .widget-img-hover {
+  opacity: 0;
+}
+
+.widget-wrap.passthrough .widget-img-single {
+  opacity: var(--idle-opacity, 0.7);
+}
+
+.widget-img-single {
+  opacity: var(--idle-opacity, 0.7);
+}
+
+.widget-wrap.revealed .widget-img-single {
+  opacity: 1;
+}
+
+/* 贴左侧时水平翻转，让"探出"方向朝右（滑动模式单张图）。 */
+.widget-wrap.flipped .widget-img-single {
+  transform: scaleX(-1);
+}
+

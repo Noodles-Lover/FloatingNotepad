@@ -1,0 +1,217 @@
+/* ---- 使用统计面板（UsagePanel）---- */
+
+/* 时间线需要横向空间，比皮肤/设置面板宽一些。 */
+.usage-panel {
+  width: min(520px, 92vw);
+}
+
+.usage-group-title {
+  margin-bottom: 6px;
+  font-size: 12px;
+  font-weight: 700;
+  color: var(--ink-faint);
+  letter-spacing: 0.04em;
+}
+
+/* 包住色条：浮层的定位基准（absolute 相对它，画在色条正上方）。 */
+.usage-tl-bar-wrap {
+  position: relative;
+}
+
+.usage-tl-bar {
+  position: relative;
+  height: 26px;
+  background: var(--paper-dark);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  overflow: hidden;
+}
+
+/* 整点网格线：压在色块之下，只作刻度参照。 */
+.usage-tl-grid {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  width: 1px;
+  background: rgba(122, 102, 56, 0.18);
+}
+
+.usage-tl-seg {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  opacity: 0.9;
+}
+
+/* 悬停浮层：画在色条正上方、面板内部（锚点已按半宽夹进色条范围）。
+   窗口之外没有像素可用，面板的 clip-path 又会裁掉任何越界的后代，
+   所以不追求「跳出容器」，只保证完整可见。 */
+.usage-tl-tip {
+  position: absolute;
+  bottom: calc(100% + 6px);
+  transform: translateX(-50%);
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 2px;
+  padding: 4px 8px;
+  background: var(--paper);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  box-shadow: 0 4px 10px rgba(60, 45, 20, 0.16);
+  font-size: 11px;
+  color: var(--ink-soft);
+  white-space: nowrap;
+  pointer-events: none;
+  z-index: 3;
+}
+
+.usage-tip-head {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  max-width: 100%;
+}
+
+.usage-tip-dot {
+  flex: none;
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+}
+
+.usage-tip-name {
+  font-weight: 600;
+  color: var(--ink);
+  /* 名字过长时截断：浮层要整体夹在面板内，宽度必须可控。 */
+  max-width: 110px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.usage-tip-time {
+  color: var(--ink-faint);
+  font-variant-numeric: tabular-nums;
+}
+
+.usage-tip-dur {
+  margin-left: 6px;
+  color: var(--ink-soft);
+}
+
+.usage-tl-axis {
+  position: relative;
+  height: 14px;
+  margin-top: 3px;
+}
+
+.usage-tl-tick {
+  position: absolute;
+  top: 0;
+  font-size: 10px;
+  color: var(--ink-faint);
+  white-space: nowrap;
+}
+
+.usage-pie-row {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.usage-pie-wrap {
+  position: relative;
+  flex: none;
+  width: 116px;
+  height: 116px;
+}
+
+.usage-pie {
+  width: 100%;
+  height: 100%;
+}
+
+.usage-pie-track {
+  stroke: var(--paper-dark);
+}
+
+/* 圆心文字用 HTML 叠在 SVG 上：字体随面板主题走，不必在 SVG 里单独设色。 */
+.usage-pie-center {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 2px;
+  pointer-events: none;
+}
+
+.usage-pie-total {
+  font-size: 15px;
+  font-weight: 700;
+  color: var(--ink-soft);
+}
+
+.usage-pie-sub {
+  font-size: 10px;
+  color: var(--ink-faint);
+}
+
+.usage-legend {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+  max-height: 132px;
+  overflow: auto;
+}
+
+.usage-legend-row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 12px;
+  color: var(--ink-soft);
+}
+
+.usage-dot {
+  flex: none;
+  width: 9px;
+  height: 9px;
+  border-radius: 50%;
+}
+
+.usage-legend-name {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.usage-legend-time,
+.usage-legend-pct {
+  flex: none;
+  color: var(--ink-faint);
+  font-variant-numeric: tabular-nums;
+}
+
+.usage-legend-pct {
+  width: 32px;
+  text-align: right;
+}
+
+.usage-empty {
+  padding: 10px 0;
+  font-size: 12px;
+  color: var(--ink-faint);
+  text-align: center;
+}
+
+.usage-hint {
+  font-size: 11px;
+  color: var(--ink-faint);
+  line-height: 1.5;
+}

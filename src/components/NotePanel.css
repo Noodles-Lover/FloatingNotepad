@@ -1,0 +1,688 @@
+/* ---------- 头部图标按钮 ---------- */
+.icon-btn {
+  width: 26px;
+  height: 26px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border: 1px solid var(--border);
+  border-radius: 7px;
+  background: rgba(255, 253, 245, 0.6);
+  color: var(--ink-soft);
+  cursor: pointer;
+  transition:
+    background 160ms ease,
+    transform 160ms ease,
+    border-color 160ms ease;
+  font-family: var(--font-ui);
+}
+
+.icon-btn:hover {
+  background: var(--paper);
+  border-color: var(--gold);
+}
+
+.icon-btn:active {
+  transform: scale(0.95);
+}
+
+.icon-btn.active {
+  background: rgba(90, 143, 78, 0.18);
+  border-color: var(--jade);
+  color: var(--jade-dark);
+}
+
+/* ---------- Note panel：一张被撕下的便签纸 ---------- */
+/* 面板外壳：承载开合动画与撕纸边缘。动画放在外壳上，面板与边缘一起滑入/滑出，
+   收起时一起消失，不会原地残留。 */
+.panel-box {
+  position: relative;
+  width: 100%;
+  height: 100%;
+  animation: panel-in 260ms cubic-bezier(0.22, 1, 0.36, 1);
+}
+.panel-box.dock-right {
+  transform-origin: right center;
+}
+.panel-box.dock-left {
+  animation: panel-in-left 260ms cubic-bezier(0.22, 1, 0.36, 1);
+  transform-origin: left center;
+}
+.panel-box.closing {
+  animation: panel-out 240ms cubic-bezier(0.6, 0, 0.7, 0.4) forwards;
+}
+.panel-box.dock-left.closing {
+  animation: panel-out-left 240ms cubic-bezier(0.6, 0, 0.7, 0.4) forwards;
+}
+
+/* 撕纸边缘：比面板纸大一圈的深色底，沿手撕轮廓露出一条厚度边/边界线 */
+.panel-edge {
+  position: absolute;
+  inset: -2px;
+  clip-path: var(--torn);
+  background: rgba(120, 90, 40, 0.42);
+  pointer-events: none;
+}
+
+.panel {
+  position: relative;
+  width: 100%;
+  height: 100%;
+  display: flex;
+  flex-direction: column;
+  padding: 16px 16px 14px;
+  gap: 8px;
+  background: var(--paper-2);
+  color: var(--ink);
+  user-select: none;
+  -webkit-user-select: none;
+  overflow: hidden;
+  clip-path: var(--torn);
+  /* 撕纸轮廓投影：沿锯齿边缘向四周均匀扩散，无外框描边。
+     阴影挂在面板本身上，收起动画（滑出 + 渐隐）会带着它一起消失，不会原地残留。 */
+  filter:
+    drop-shadow(0 0 18px rgba(60, 45, 15, 0.3))
+    drop-shadow(0 0 5px rgba(60, 45, 15, 0.12));
+  transition: filter 200ms ease;
+}
+
+/* 顶部"折痕"：便签纸顶部常有一道因翻折留下的浅痕 */
+.panel::after {
+  content: "";
+  position: absolute;
+  left: 2%;
+  right: 2%;
+  top: 0;
+  height: 5px;
+  pointer-events: none;
+  background: linear-gradient(
+    rgba(150, 130, 80, 0.12),
+    rgba(150, 130, 80, 0.05) 60%,
+    transparent
+  );
+}
+
+.panel::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  background-image:
+    url("data:image/svg+xml,%3Csvg viewBox='0 0 200 200' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='noise'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.65' numOctaves='3' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23noise)' opacity='0.05'/%3E%3C/svg%3E"),
+    radial-gradient(circle at 10% 15%, rgba(168, 145, 90, 0.07) 0, transparent 24%),
+    radial-gradient(circle at 92% 88%, rgba(168, 145, 90, 0.05) 0, transparent 28%);
+  z-index: -1;
+}
+
+/* 面板开合：从挂件方向单纯左右滑入/滑出，无旋转缩放。
+   收起结束时 opacity 到 0，避免在挂件位置留下半透明残影导致闪一下。 */
+@keyframes panel-in {
+  0% {
+    opacity: var(--idle-opacity, 0.7);
+    transform: translateX(26px);
+  }
+  100% {
+    opacity: 1;
+    transform: translateX(0);
+  }
+}
+
+@keyframes panel-out {
+  from {
+    opacity: 1;
+    transform: translateX(0);
+  }
+  to {
+    opacity: 0;
+    transform: translateX(26px);
+  }
+}
+
+@keyframes panel-in-left {
+  0% {
+    opacity: var(--idle-opacity, 0.7);
+    transform: translateX(-26px);
+  }
+  100% {
+    opacity: 1;
+    transform: translateX(0);
+  }
+}
+
+@keyframes panel-out-left {
+  from {
+    opacity: 1;
+    transform: translateX(0);
+  }
+  to {
+    opacity: 0;
+    transform: translateX(-26px);
+  }
+}
+
+.panel-head {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: space-between;
+  align-items: center;
+  padding-top: 4px;
+}
+
+/* 品牌：回形针 + 笺名 + 日期印章 */
+.brand {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  font-weight: 700;
+  font-size: 15px;
+  color: var(--ink);
+  letter-spacing: 2px;
+}
+
+.brand svg {
+  color: var(--ink-soft);
+}
+
+/* 日期印章：像盖在便签上的红色日期戳 */
+.date-seal {
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--cinnabar);
+  border: 1.5px solid rgba(196, 92, 72, 0.55);
+  border-radius: 4px;
+  padding: 1px 6px;
+  letter-spacing: 1px;
+  transform: rotate(-2deg);
+  opacity: 0.92;
+  background: rgba(196, 92, 72, 0.06);
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+
+/* 星期：日期旁的手写墨迹小字，无框、贴近纸面 */
+.week-seal {
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--ink-soft);
+  letter-spacing: 1px;
+  white-space: nowrap;
+}
+
+/* 时间：铅笔注记感 —— 比星期更淡一档、等宽数字，竖线分隔 */
+.time-seal {
+  position: relative;
+  font-size: 11px;
+  font-weight: 500;
+  color: var(--ink-faint);
+  letter-spacing: 0.5px;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+  margin-left: 12px;
+  transform: none;
+  opacity: 1;
+}
+
+.time-seal::before {
+  content: "";
+  position: absolute;
+  left: -7px;
+  top: 50%;
+  transform: translateY(-50%);
+  width: 1px;
+  height: 11px;
+  background: var(--border);
+}
+
+/* 日期印章行：头栏（panel-head）里的换行行，占满整行、靠右对齐。
+   不单独占一个面板 flex 项——那样面板的 8px gap 会在它上下各加一条，
+   和速记区就会隔得很开。 */
+.note-seal-row {
+  flex: 0 0 100%;
+  display: flex;
+  justify-content: flex-end;
+  align-items: center;
+  gap: 7px;
+  /* 上 4px 与按钮那排隔开；下 -6px 抵消面板的 8px gap——色条自身还有 10px
+     顶部内边距，不抵的话印章和速记区之间会显得隔了很远。 */
+  margin: 6px 0 -10px;
+}
+
+.x {
+  width: 26px;
+  height: 26px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: rgba(255, 253, 245, 0.55);
+  border: 1px solid var(--border);
+  color: var(--ink-soft);
+  font-size: 18px;
+  line-height: 1;
+  border-radius: 50%;
+  cursor: pointer;
+  transition:
+    background 160ms ease,
+    transform 160ms ease,
+    color 160ms ease;
+}
+
+.x:hover {
+  background: rgba(196, 92, 72, 0.12);
+  border-color: rgba(196, 92, 72, 0.45);
+  color: var(--cinnabar);
+}
+
+.x:active {
+  transform: scale(0.92);
+}
+
+.title {
+  background: rgba(255, 253, 245, 0.85);
+  border: 1px solid var(--border);
+  color: var(--ink);
+  border-radius: 8px;
+  padding: 8px;
+  font-size: 14px;
+  user-select: text;
+  -webkit-user-select: text;
+  font-family: var(--font-ui);
+}
+
+.title::placeholder {
+  color: var(--ink-faint);
+}
+
+/* ---------- 速记内容区：点线纸 ---------- */
+.content {
+  height: 120px;
+  resize: none;
+  background: rgba(255, 253, 245, 0.9);
+  /* 点线纸：每行由小点组成的虚线，间距更大 */
+  background-image: radial-gradient(circle at 2px 50%, #e3d4a6 1px, transparent 1.4px);
+  background-size: 6px 1.5em;
+  background-position: 0 1.4em;
+  border: 1px solid var(--border);
+  color: var(--ink);
+  border-radius: 8px;
+  padding: 10px;
+  font-size: 14px;
+  line-height: 1.5em;
+  user-select: text;
+  -webkit-user-select: text;
+  font-family: var(--font-ui);
+}
+
+.content::placeholder {
+  color: var(--ink-faint);
+}
+
+/* ---------- Todo 区 ---------- */
+.todo-list {
+  flex: 1;
+  /* 仅纵向滚动：任务行在切换分类/新贴动画时可能瞬时撑宽，禁用横向滚动避免滚动条闪现 */
+  overflow-y: auto;
+  overflow-x: hidden;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.todo {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  background: rgba(255, 253, 245, 0.85);
+  border: 1px solid rgba(232, 217, 168, 0.7);
+  border-radius: 8px;
+  padding: 4px 6px;
+  /* 新贴上的任务：轻轻"贴上" */
+  animation: stick-in 260ms cubic-bezier(0.3, 1.5, 0.5, 1);
+}
+
+@keyframes stick-in {
+  from {
+    opacity: 0;
+    transform: translateY(-6px) scale(0.97) rotate(-0.8deg);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+
+.todo-main {
+  position: relative;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+/* 完成的任务：一支红笔划过整行 */
+.todo.done .todo-main::after {
+  content: "";
+  position: absolute;
+  left: 26px;
+  right: 22px;
+  top: 50%;
+  height: 2px;
+  background: var(--cinnabar);
+  border-radius: 2px;
+  opacity: 0.65;
+  transform: scaleX(0);
+  transform-origin: left center;
+  animation: strike 200ms cubic-bezier(0.6, 0, 0.3, 1) forwards;
+}
+
+@keyframes strike {
+  to {
+    transform: scaleX(1);
+  }
+}
+
+/* 手写风格复选框 */
+.todo input[type="checkbox"] {
+  flex: 0 0 auto;
+  width: 18px;
+  height: 18px;
+  margin: 0;
+  appearance: none;
+  -webkit-appearance: none;
+  border: 2px solid var(--ink-faint);
+  border-radius: 4px;
+  background: var(--paper);
+  cursor: pointer;
+  transition: background 140ms ease, border-color 140ms ease;
+}
+
+.todo input[type="checkbox"]:checked {
+  background: var(--ink);
+  border-color: var(--ink);
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 14 14'%3E%3Cpath d='M3 7.5l2.5 2.5L11 4' fill='none' stroke='%23fffdf5' stroke-width='2.2' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E");
+  background-size: 85%;
+  background-position: center;
+  background-repeat: no-repeat;
+}
+
+/* 备注按钮 */
+.todo-note-btn {
+  flex: 0 0 auto;
+  width: 20px;
+  height: 20px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: rgba(168, 145, 90, 0.1);
+  border: 1px solid rgba(168, 145, 90, 0.28);
+  color: var(--ink-soft);
+  font-size: 13px;
+  line-height: 1;
+  border-radius: 5px;
+  cursor: pointer;
+  padding: 0;
+  transition: background 120ms ease, color 120ms ease;
+}
+
+.todo-note-btn:hover {
+  background: rgba(168, 145, 90, 0.22);
+}
+
+.todo-note-btn.has {
+  background: rgba(90, 143, 78, 0.16);
+  border-color: rgba(90, 143, 78, 0.45);
+  color: var(--jade-dark);
+}
+
+/* 备注气泡：一张小纸条 */
+.todo-note-pop {
+  position: fixed;
+  transform: translateX(-50%) translateY(-100%);
+  max-width: 240px;
+  background: #fffbe8;
+  color: var(--ink);
+  font-size: 12px;
+  line-height: 1.4;
+  padding: 6px 9px;
+  border: 1px solid var(--border);
+  border-radius: 3px 8px 5px 7px;
+  box-shadow: 0 8px 20px rgba(60, 45, 20, 0.25);
+  white-space: pre-wrap;
+  word-break: break-word;
+  z-index: 50;
+  pointer-events: none;
+  font-family: var(--font-ui);
+}
+
+.todo-note-pop::after {
+  content: "";
+  position: absolute;
+  top: 100%;
+  left: 50%;
+  transform: translateX(-50%);
+  border: 5px solid transparent;
+  border-top-color: #fffbe8;
+}
+
+.todo-note-input {
+  width: 100%;
+  resize: vertical;
+  min-height: 38px;
+  background: rgba(255, 253, 245, 0.9);
+  border: 1px solid var(--border);
+  color: var(--ink);
+  border-radius: 7px;
+  padding: 6px 8px;
+  font-size: 12px;
+  line-height: 1.4;
+  user-select: text;
+  -webkit-user-select: text;
+  font-family: var(--font-ui);
+}
+
+.todo-note-input:focus {
+  outline: 1px solid var(--gold);
+}
+
+.todo-text {
+  flex: 1;
+  min-width: 0;
+  border: none;
+  background: transparent;
+  color: var(--ink);
+  font-size: 13px;
+  padding: 2px 4px;
+  user-select: text;
+  -webkit-user-select: text;
+  font-family: var(--font-ui);
+}
+
+.todo-text:focus {
+  outline: 1px solid var(--gold);
+  border-radius: 4px;
+  background: rgba(255, 253, 245, 0.6);
+}
+
+.todo.done .todo-text {
+  color: var(--ink-faint);
+}
+
+.todo-del {
+  flex: 0 0 auto;
+  width: 22px;
+  height: 22px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: rgba(196, 92, 72, 0.1);
+  border: 1px solid rgba(196, 92, 72, 0.3);
+  color: var(--cinnabar);
+  font-size: 16px;
+  line-height: 1;
+  border-radius: 50%;
+  cursor: pointer;
+  transition: background 160ms ease, transform 160ms ease;
+}
+
+.todo-del:hover {
+  background: rgba(196, 92, 72, 0.22);
+  color: var(--cinnabar-dark);
+}
+
+.todo-del:active {
+  transform: scale(0.9);
+}
+
+.todo-add {
+  display: flex;
+  gap: 6px;
+}
+
+.todo-input {
+  flex: 1;
+  min-width: 0;
+  background: rgba(255, 253, 245, 0.9);
+  border: 1px solid var(--border);
+  color: var(--ink);
+  border-radius: 8px;
+  padding: 6px 8px;
+  font-size: 13px;
+  user-select: text;
+  -webkit-user-select: text;
+  font-family: var(--font-ui);
+}
+
+.todo-input::placeholder {
+  color: var(--ink-faint);
+}
+
+.todo-add-btn {
+  background: var(--paper-3);
+  border: 1px solid var(--border);
+  color: var(--ink-soft);
+  border-radius: 8px;
+  padding: 4px 14px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: background 160ms ease, transform 160ms ease;
+  font-family: var(--font-ui);
+}
+
+.todo-add-btn:hover {
+  background: var(--paper-dark);
+}
+
+.todo-add-btn:active {
+  transform: scale(0.97);
+}
+
+/* ---------- Priority control ---------- */
+.prio {
+  flex: 0 0 auto;
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.prio-step {
+  width: 18px;
+  height: 18px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: var(--paper-2);
+  border: 1px solid var(--border);
+  color: var(--ink-soft);
+  font-size: 13px;
+  line-height: 1;
+  border-radius: 5px;
+  cursor: pointer;
+  padding: 0;
+  transition: background 120ms ease;
+}
+
+.prio-step:hover:not(:disabled) {
+  background: var(--paper-dark);
+}
+
+.prio-step:disabled {
+  opacity: 0.4;
+  cursor: default;
+}
+
+.prio-num {
+  min-width: 16px;
+  text-align: center;
+  font-size: 12px;
+  font-weight: 700;
+}
+
+.prio-bar {
+  width: 46px;
+  height: 6px;
+  border-radius: 4px;
+  background: rgba(61, 50, 41, 0.1);
+  overflow: hidden;
+  display: inline-flex;
+}
+
+.prio-fill {
+  height: 100%;
+  border-radius: 4px;
+  transition: width 160ms ease, background 160ms ease;
+}
+
+/* ---------- Panel head actions ---------- */
+.head-actions {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.skin-btn {
+  height: 26px;
+  padding: 0 12px;
+  display: flex;
+  align-items: center;
+  background: rgba(255, 253, 245, 0.6);
+  border: 1px solid var(--border);
+  color: var(--ink-soft);
+  font-size: 13px;
+  font-weight: 600;
+  border-radius: 13px;
+  cursor: pointer;
+  transition:
+    background 160ms ease,
+    transform 160ms ease,
+    border-color 160ms ease;
+  font-family: var(--font-ui);
+}
+
+.skin-btn:hover {
+  background: var(--paper);
+  border-color: var(--gold);
+}
+
+.skin-btn:active {
+  transform: scale(0.95);
+}
+
+.pin-btn {
+  color: var(--ink-soft);
+  font-size: 13px;
+  cursor: pointer;
+  transition: background 160ms ease, transform 160ms ease;
+}
+
+.pin-btn:hover {
+  background: rgba(168, 145, 90, 0.2);
+}
+
+.pin-btn:active {
+  transform: scale(0.95);
+}
+
+.pin-btn.active {
+  background: rgba(90, 143, 78, 0.2);
+  border-color: var(--jade);
+  color: var(--jade-dark);
+}
+

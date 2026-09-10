@@ -123,3 +123,14 @@ App 内所有增删改都收敛到这几个封装，后端命令为纯数据读�
 - 面板打开即读一次，之后每 30 秒刷新：采样在后台持续进行，面板停留期间需要跟上。
 
 数据全部来自本机 `notes.db`，面板不做任何跨天查询。
+
+---
+
+## 8. 样式组织（styles/ + 组件同名 CSS）
+
+样式按组件拆分，没有单体 CSS 文件：
+
+- `styles/base.css`：重置与设计令牌（`:root` 的纸墨配色、撕纸轮廓 `--torn`、阴影）的全局唯一来源。
+- `styles/overlay.css`：皮肤 / 设置 / 使用统计三类覆盖层共用的壳（`.skin-overlay`、`.skin-panel`、`.set-*` 开关）与皮肤卡片网格——三个面板长得一样是因为它们真的共用这些类。
+- 其余与组件同目录同名：`FloatingWidget.css`、`TabBar.css`、`NotePanel.css`、`ConfirmDialog.css`、`LockView.css`、`UsagePanel.css`。
+- 所有 CSS 仍是全局类名（未用 CSS Modules），因此**导入顺序即级联顺序**：统一在 `main.tsx` 按固定顺序导入，不要调整顺序，也不要改成组件内各自 import——那会改变同优先级规则的覆盖关系。

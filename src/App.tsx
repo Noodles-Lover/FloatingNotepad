@@ -24,9 +24,8 @@ import SkinPanel from "./components/SkinPanel";
 import SettingsPanel from "./components/SettingsPanel";
 import UsagePanel from "./components/UsagePanel";
 import ConfirmDialog from "./components/ConfirmDialog";
-import "./App.css";
-
 /** 窗口的三种显示模式。 */
+
 type Mode = "hidden" | "revealed" | "expanded";
 
 /** 收起动画时长（毫秒），动画结束后才真正卸载/隐藏。 */
