@@ -1,4 +1,5 @@
 use std::sync::{Mutex, OnceLock};
+use std::time::Duration;
 use rusqlite::{Connection, Transaction};
 use serde::{Deserialize, Serialize};
 use tauri::Manager;
@@ -45,6 +46,19 @@ pub fn init_db(app: &tauri::App) {
         .unwrap()
         .join("notes.db");
     let conn = Connection::open(db_path).expect("open sqlite failed");
+
+    // WAL：默认的回滚日志模式每次写入都要「建 journal → 两次 fsync → 删 journal」，
+    // 慢盘或被安全软件扫到时，一次 fsync 偶发能卡到秒级——而数据库命令跑在主线程
+    // （见 lib.rs 的约束注释），直接表现为界面掉帧。WAL 把写入变成追加日志，
+    // 读不阻塞写、写不阻塞读，fsync 次数也大幅下降。
+    // synchronous=NORMAL：WAL 下应用崩溃不会损坏数据库，只有整机掉电才有丢数据的可能。
+    conn.pragma_update(None, "journal_mode", "WAL")
+        .expect("enable wal failed");
+    conn.pragma_update(None, "synchronous", "NORMAL")
+        .expect("set synchronous failed");
+    // 采样线程与命令可能同时写库：取不到锁时排队等 5 秒，不要立刻报错。
+    conn.busy_timeout(Duration::from_millis(5000))
+        .expect("set busy_timeout failed");
 
     conn.execute(
         "CREATE TABLE IF NOT EXISTS notes (

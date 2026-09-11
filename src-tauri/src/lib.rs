@@ -114,9 +114,24 @@ fn start_mouse_watch(app: AppHandle, watcher: State<MouseWatcher>) {
     watcher.start(app);
 }
 
+// ---- 数据库命令的线程约束 ----
+// 写入（save_* / set_active_*）保持同步：它们是「全量替换」语义，并发完成时
+// 若顺序颠倒，后跑完的旧快照会把新内容盖掉——同步执行天然按到达顺序排队。
+// 读取没有这个约束，改成 async 由 Tauri 放到线程池执行，避免慢查询卡住主线程。
+
 #[tauri::command]
-fn load_tabs() -> Result<db::PersistState, String> {
+async fn load_tabs() -> Result<db::PersistState, String> {
     Ok(db::load_state())
+}
+
+#[tauri::command]
+async fn load_categories() -> Result<db::CategoryState, String> {
+    Ok(db::load_categories())
+}
+
+#[tauri::command]
+async fn load_usage() -> Result<db::UsageDay, String> {
+    Ok(db::load_usage(&usage::today()))
 }
 
 #[tauri::command]
@@ -129,11 +144,6 @@ fn save_tabs(tabs: Vec<db::TabInput>) -> Result<(), String> {
 fn set_active_tab(tab_id: i64) -> Result<(), String> {
     db::set_active_tab(tab_id);
     Ok(())
-}
-
-#[tauri::command]
-fn load_categories() -> Result<db::CategoryState, String> {
-    Ok(db::load_categories())
 }
 
 #[tauri::command]
@@ -550,12 +560,6 @@ fn set_usage_tracking(app: AppHandle, enabled: bool) {
     app.state::<usage::UsageState>()
         .enabled
         .store(enabled, Ordering::SeqCst);
-}
-
-/// 取当天的应用使用统计：会话区间（时间线）+ 各应用总时长（饼图）。
-#[tauri::command]
-fn load_usage() -> Result<db::UsageDay, String> {
-    Ok(db::load_usage(&usage::today()))
 }
 
 /// 同步「全屏自动穿透」开关（设置面板控制，前端在加载配置与改动时调用）。
