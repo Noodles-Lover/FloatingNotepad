@@ -170,6 +170,32 @@ pub fn is_shell_overlay(_hwnd: ()) -> bool {
     false
 }
 
+/// 屏保是否正在运行——屏保一起，人肯定不在电脑前。
+/// 这是「明确离开」的三个信号之一（另两个是锁屏与系统睡眠）。
+#[cfg(target_os = "windows")]
+pub fn screensaver_running() -> bool {
+    use windows::Win32::UI::WindowsAndMessaging::{
+        SystemParametersInfoW, SPI_GETSCREENSAVERRUNNING, SYSTEM_PARAMETERS_INFO_UPDATE_FLAGS,
+    };
+
+    unsafe {
+        let mut running = windows::Win32::Foundation::BOOL(0);
+        let queried = SystemParametersInfoW(
+            SPI_GETSCREENSAVERRUNNING,
+            0,
+            Some(&mut running as *mut _ as *mut std::ffi::c_void),
+            // 只是查询，不写入用户配置，因此不传 SPIF_UPDATEINIFILE。
+            SYSTEM_PARAMETERS_INFO_UPDATE_FLAGS(0),
+        );
+        queried.is_ok() && running.as_bool()
+    }
+}
+
+#[cfg(not(target_os = "windows"))]
+pub fn screensaver_running() -> bool {
+    false
+}
+
 /// 距最后一次键鼠输入的时长（毫秒）：用来判断「人是否还在电脑前」——
 /// 人走开时前台应用不会变，只看前台窗口会把离席时间也算成使用时间。
 #[cfg(target_os = "windows")]

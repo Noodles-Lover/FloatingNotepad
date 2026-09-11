@@ -1,8 +1,9 @@
 //! 应用使用时间统计。
 //!
 //! 每 10 秒看一眼前台窗口，把「连续使用某个应用」记成一条会话（起止时间）写进本地 SQLite。
-//! 只有前台切换、跨天、空闲、系统睡眠或关闭功能时才会结束会话，其余时候只做一次
-//! UPDATE 续期，因此进程被强杀也只丢一个轮询间隔。
+//! 只有前台切换、跨天、明确离开（锁屏 / 屏保 / 系统睡眠，外加长时间无输入兜底）
+//! 或关闭功能时才会结束会话，其余时候只做一次 UPDATE 续期，
+//! 因此进程被强杀也只丢一个轮询间隔。
 //!
 //! 数据全部留在本机 notes.db，面板只展示当天（凌晨 4 点为界）。
 
@@ -18,11 +19,19 @@ use crate::db;
 /// 注意：这也是会话的最小可分辨时长，合并阈值必须大于它，否则「夹在中间」的
 /// 会话永远达不到判定长度（见 MERGE_GAP_MS）。
 const POLL_INTERVAL: Duration = Duration::from_secs(10);
-/// 空闲超过这个时长即认为人已离开，停止累计。
-const IDLE_CUTOFF_MS: u32 = 60_000;
+/// 连续无键鼠输入达到这个时长，才**兜底**判定人已离开。
+///
+/// 不能按几十秒就停表：看视频、看文档、开会投屏时全程没有输入，但人一直在看。
+/// 真正的「明确离开」由锁屏（系统覆盖层）、屏保、系统睡眠三个信号判定，
+/// 这条只用来兜住「离开了但既没锁屏也没屏保」的情况。
+const IDLE_CUTOFF_MS: u32 = 45 * 60_000;
 /// 「A → 别的 app → A」中间那段的合并上限：不超过这个时长的中间记录会被丢掉，
 /// 前后两段接成一个区间（误触 / 焦点被短暂抢走不该在时间线上留下痕迹）。
 const MERGE_GAP_MS: i64 = 20_000;
+/// 锁屏 / 登录界面的宿主进程：前台是它们时人显然已离开。
+/// 与 `is_shell_overlay` 的类名判定互补——不同 Windows 版本锁屏时返回的窗口并不一样，
+/// 类名漏掉的这里兜住，避免把「锁屏」记成一条 LockApp 的使用记录。
+const AWAY_PROCESSES: &[&str] = &["LockApp.exe", "LogonUI.exe"];
 /// 两次轮询之间的墙上时钟跳变超过这个值，即认为系统睡过一觉（合盖 / 休眠）。
 /// 远大于轮询间隔，正常调度抖动不会误判。
 const SLEEP_GAP_MS: i64 = 60_000;
@@ -90,12 +99,12 @@ fn poll_once(app: &AppHandle) {
         return;
     }
 
-    // 人已离开（长时间无键鼠输入）时前台应用不会变，此时不该继续累计。
-    let current = if crate::foreground::idle_ms() >= IDLE_CUTOFF_MS {
-        None
-    } else {
-        foreground_app()
-    };
+    // 只有「明确离开」才停表：锁屏（前台是系统覆盖层，foreground_app 会返回 None）、
+    // 屏保运行、系统睡眠（上面已处理）。看视频这类零输入但人在看的情况必须继续累计，
+    // 因此键鼠空闲只作兜底，且阈值放到 45 分钟。
+    let away =
+        crate::foreground::screensaver_running() || crate::foreground::idle_ms() >= IDLE_CUTOFF_MS;
+    let current = if away { None } else { foreground_app() };
 
     let Ok(mut guard) = state.session.lock() else {
         return;
@@ -210,6 +219,9 @@ fn foreground_app() -> Option<String> {
     }
     let name = crate::foreground::process_name(hwnd);
     if name.is_empty() || name == "(unknown)" || name == own_process() {
+        return None;
+    }
+    if AWAY_PROCESSES.iter().any(|p| name.eq_ignore_ascii_case(p)) {
         return None;
     }
     Some(name)
