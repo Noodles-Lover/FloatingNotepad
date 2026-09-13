@@ -30,6 +30,7 @@
     "allow-set-fullscreen-passthrough",
     "allow-set-usage-tracking",
     "allow-load-usage",
+    "allow-load-usage-all",
     "allow-show-lock-window",
     "allow-hide-lock-window",
     "allow-set-lock-hide-delay",

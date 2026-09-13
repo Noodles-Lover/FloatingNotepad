@@ -6,6 +6,29 @@
 #[cfg(target_os = "windows")]
 use windows::Win32::Foundation::HWND;
 
+/// 前台窗口的句柄（原始值）；取不到时为 0。
+#[cfg(target_os = "windows")]
+pub fn foreground_hwnd() -> isize {
+    use windows::Win32::UI::WindowsAndMessaging::GetForegroundWindow;
+    unsafe { GetForegroundWindow().0 as isize }
+}
+
+#[cfg(not(target_os = "windows"))]
+pub fn foreground_hwnd() -> isize {
+    0
+}
+
+/// 是否是本应用的穿透解锁锁窗口（label "widget-lock"）。
+///
+/// 它是穿透态下由本应用弹出的 UI：既不能被全屏检测当成「用户离开了全屏应用」，
+/// 也不该中断正在进行的会话——游戏还在跑，用户只是把鼠标移到了挂件上。
+pub fn is_lock_window(app: &tauri::AppHandle, hwnd: isize) -> bool {
+    use tauri::Manager;
+    app.get_webview_window("widget-lock")
+        .and_then(|w| crate::main_hwnd(&w).ok())
+        .is_some_and(|h| h.0 as isize == hwnd)
+}
+
 /// 取窗口标题；无标题或读取失败时返回空串。
 #[cfg(target_os = "windows")]
 pub fn window_title(hwnd: HWND) -> String {

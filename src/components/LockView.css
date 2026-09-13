@@ -1,9 +1,15 @@
 /* ---------- 穿透解锁按钮（独立锁窗口） ---------- */
-/* 锁窗口 40×40、透明背景，只渲染一颗圆形锁按钮。窗口本体不穿透（区别于
-   主窗口的 OS 级穿透），点击后由 Rust 关闭穿透并收起本窗口。 */
+/* 锁窗口 30×30、透明背景，只渲染一颗锁按钮；按钮 26px，比窗口小一圈，
+   让 hover 放大也有地方伸展。窗口本体不穿透（区别于主窗口的 OS 级穿透），
+   点击后由 Rust 关闭穿透并收起本窗口。 */
 .lock-btn {
-  width: 40px;
-  height: 40px;
+  /* 固定在窗口左上角：Windows 会把小窗口撑到系统最小尺寸（136×38），
+     按钮必须落在原点，才能与 Rust 用 SetWindowRgn 裁出的可交互区域重合。 */
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 26px;
+  height: 26px;
   display: flex;
   align-items: center;
   justify-content: center;
@@ -24,7 +30,7 @@
 }
 
 .lock-btn:hover {
-  transform: scale(1.12);
+  transform: scale(1.1);
   filter: drop-shadow(0 0 2px rgba(255, 253, 245, 1))
     drop-shadow(0 0 4px rgba(255, 253, 245, 0.9))
     drop-shadow(0 1px 3px rgba(60, 45, 15, 0.55));

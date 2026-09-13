@@ -99,6 +99,12 @@ fn poll_once(app: &AppHandle) {
         return;
     }
 
+    // 解锁锁是本应用自己的 UI，它成为前台时保持会话不动：游戏还在跑，
+    // 用户只是把鼠标移到了挂件上，不该因此中断会话。
+    if crate::foreground::is_lock_window(app, crate::foreground::foreground_hwnd()) {
+        return;
+    }
+
     // 只有「明确离开」才停表：锁屏（前台是系统覆盖层，foreground_app 会返回 None）、
     // 屏保运行、系统睡眠（上面已处理）。看视频这类零输入但人在看的情况必须继续累计，
     // 因此键鼠空闲只作兜底，且阈值放到 45 分钟。

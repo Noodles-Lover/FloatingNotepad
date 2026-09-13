@@ -207,6 +207,12 @@
           "markdownDescription": "Allow reading today's app usage sessions and per-app totals from the local SQLite database."
         },
         {
+          "description": "Allow reading all-time per-app usage totals from the local SQLite database.",
+          "type": "string",
+          "const": "allow-load-usage-all",
+          "markdownDescription": "Allow reading all-time per-app usage totals from the local SQLite database."
+        },
+        {
           "description": "Allow revealing the app data directory in the file manager, for backup and migration.",
           "type": "string",
           "const": "allow-open-data-dir",

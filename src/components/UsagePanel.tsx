@@ -1,9 +1,11 @@
 import { useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
 import {
   loadUsage,
+  loadUsageAll,
   type UsageDay,
   type UsageSession,
   type UsageTotal,
+  type UsageTotals,
 } from "../lib/usage";
 import type { AppConfig } from "../lib/config";
 
@@ -233,8 +235,16 @@ function Timeline({
   );
 }
 
-/** 圆饼图：各应用总时长占比，中心显示当天合计。 */
-function Pie({ totals, colors }: { totals: UsageTotal[]; colors: Map<string, string> }) {
+/** 圆饼图：各应用总时长占比，中心显示合计与口径（今日 / 全部）。 */
+function Pie({
+  totals,
+  colors,
+  label,
+}: {
+  totals: UsageTotal[];
+  colors: Map<string, string>;
+  label: string;
+}) {
   const sum = totals.reduce((s, t) => s + t.ms, 0);
   const r = 42;
   const circumference = 2 * Math.PI * r;
@@ -267,33 +277,44 @@ function Pie({ totals, colors }: { totals: UsageTotal[]; colors: Map<string, str
       </svg>
       <div className="usage-pie-center">
         <span className="usage-pie-total">{fmtDur(sum)}</span>
-        <span className="usage-pie-sub">今日合计</span>
+        <span className="usage-pie-sub">{label}</span>
       </div>
     </div>
   );
 }
 
+/** 饼图的口径：当天（与时间线一致）或全部历史。时间线始终只看当天。 */
+type Scope = "today" | "all";
+
 /**
  * 使用统计面板（覆盖层）：开关采样、当天时间线、各应用占比饼图。
- * 数据来自 Rust 采样器（usage.rs），只统计当天。
+ * 数据来自 Rust 采样器（usage.rs）。饼图可切到「全部」看历史累计。
  */
 export default function UsagePanel({ config, onChange, onClose }: Props) {
   const [data, setData] = useState<UsageDay | null>(null);
+  const [allData, setAllData] = useState<UsageTotals | null>(null);
+  const [scope, setScope] = useState<Scope>("today");
 
   const refresh = useCallback(() => {
     loadUsage()
       .then(setData)
       .catch((e) => console.error("[usage] 读取失败:", e));
-  }, []);
+    // 历史数据只在切到「全部」时才取，切回今天不必再查一次。
+    if (scope === "all") {
+      loadUsageAll()
+        .then(setAllData)
+        .catch((e) => console.error("[usage] 读取全部失败:", e));
+    }
+  }, [scope]);
 
-  // 打开即读一次，之后定时刷新：采样在后台持续进行，面板停留时需要跟上。
+  // 打开（或切换口径）即读一次，之后定时刷新：采样在后台持续进行，面板停留时需要跟上。
   useEffect(() => {
     refresh();
     const timer = window.setInterval(refresh, REFRESH_MS);
     return () => window.clearInterval(timer);
   }, [refresh]);
 
-  const totals = data?.totals ?? [];
+  const totals = scope === "all" ? (allData?.totals ?? []) : (data?.totals ?? []);
   const colors = colorMap(totals);
   // 后端按「凌晨 4 点」分日：日期串是逻辑日，该日的 04:00 才是时间线原点。
   const dayStart = data ? new Date(`${data.day}T04:00:00`).getTime() : 0;
@@ -332,25 +353,52 @@ export default function UsagePanel({ config, onChange, onClose }: Props) {
           </div>
 
           <div className="usage-group">
-            <div className="usage-group-title">应用分布</div>
+            <div className="usage-group-head">
+              <span className="usage-group-title">应用分布</span>
+              <span className="usage-scope">
+                <button
+                  className={`usage-scope-btn ${scope === "today" ? "active" : ""}`}
+                  onClick={() => setScope("today")}
+                >
+                  今天
+                </button>
+                <button
+                  className={`usage-scope-btn ${scope === "all" ? "active" : ""}`}
+                  onClick={() => setScope("all")}
+                >
+                  全部
+                </button>
+              </span>
+            </div>
             {totals.length > 0 ? (
-              <div className="usage-pie-row">
-                <Pie totals={totals} colors={colors} />
-                <div className="usage-legend">
-                  {totals.map((t) => (
-                    <div className="usage-legend-row" key={t.app}>
-                      <span className="usage-dot" style={{ background: colors.get(t.app) }} />
-                      <span className="usage-legend-name" title={appLabel(t.app)}>
-                        {appLabel(t.app)}
-                      </span>
-                      <span className="usage-legend-time">{fmtDur(t.ms)}</span>
-                      <span className="usage-legend-pct">
-                        {sum > 0 ? Math.round((t.ms / sum) * 100) : 0}%
-                      </span>
-                    </div>
-                  ))}
+              <>
+                <div className="usage-pie-row">
+                  <Pie
+                    totals={totals}
+                    colors={colors}
+                    label={scope === "all" ? "全部合计" : "今日合计"}
+                  />
+                  <div className="usage-legend">
+                    {totals.map((t) => (
+                      <div className="usage-legend-row" key={t.app}>
+                        <span className="usage-dot" style={{ background: colors.get(t.app) }} />
+                        <span className="usage-legend-name" title={appLabel(t.app)}>
+                          {appLabel(t.app)}
+                        </span>
+                        <span className="usage-legend-time">{fmtDur(t.ms)}</span>
+                        <span className="usage-legend-pct">
+                          {sum > 0 ? Math.round((t.ms / sum) * 100) : 0}%
+                        </span>
+                      </div>
+                    ))}
+                  </div>
                 </div>
-              </div>
+                {scope === "all" && allData?.from_day && (
+                  <div className="usage-range">
+                    {`数据范围 ${allData.from_day} ~ ${allData.to_day}`}
+                  </div>
+                )}
+              </>
             ) : (
               <div className="usage-empty">暂无数据</div>
             )}

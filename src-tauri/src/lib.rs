@@ -16,10 +16,11 @@ use tauri::{AppHandle, Emitter, Manager, PhysicalPosition, State, WebviewUrl, We
 
 use windows::Win32::Foundation::HWND;
 use windows::Win32::UI::Input::KeyboardAndMouse::EnableWindow;
+use windows::Win32::Graphics::Gdi::{CreateRoundRectRgn, SetWindowRgn};
 use windows::Win32::UI::WindowsAndMessaging::{
-    GetWindowLongPtrW, SetWindowLongPtrW, SetWindowPos, GWL_EXSTYLE, HWND_TOP, SWP_FRAMECHANGED,
-    SWP_NOMOVE, SWP_NOSIZE, SWP_NOACTIVATE, WS_EX_LAYERED, WS_EX_NOACTIVATE, WS_EX_TOOLWINDOW,
-    WS_EX_TRANSPARENT,
+    GetWindowLongPtrW, IsWindowVisible, SetWindowLongPtrW, SetWindowPos, ShowWindow,
+    GWL_EXSTYLE, HWND_TOP, SWP_FRAMECHANGED, SWP_NOMOVE, SWP_NOSIZE, SWP_NOACTIVATE, SW_HIDE,
+    SW_SHOWNA, WS_EX_LAYERED, WS_EX_NOACTIVATE, WS_EX_TOOLWINDOW, WS_EX_TRANSPARENT,
 };
 
 /// Event payload broadcast on every cursor poll.
@@ -132,6 +133,12 @@ async fn load_categories() -> Result<db::CategoryState, String> {
 #[tauri::command]
 async fn load_usage() -> Result<db::UsageDay, String> {
     Ok(db::load_usage(&usage::today()))
+}
+
+/// 取全部历史的应用总时长（面板的「全部」视图，时间线始终只看当天）。
+#[tauri::command]
+async fn load_usage_all() -> Result<db::UsageTotals, String> {
+    Ok(db::load_usage_all())
 }
 
 #[tauri::command]
@@ -268,10 +275,11 @@ unsafe fn set_input_enabled(hwnd: HWND, enabled: bool) {
 // 主窗口穿透时对 OS 整体穿透，内部任何 DOM 都收不到鼠标事件，
 // 因此「点击解锁」必须由一个自身不穿透的独立小窗口承载。
 
-/// 锁窗口边长（逻辑像素），与前端 CSS 的 .lock-btn 尺寸一致。
-const LOCK_SIZE: f64 = 40.0;
+/// 锁窗口边长（逻辑像素）。比前端的 .lock-btn 略大一圈，
+/// 给按钮的 hover 放大留出空间，免得放大时被窗口边界裁掉。
+const LOCK_SIZE: f64 = 30.0;
 /// 锁与挂件的间距（物理像素）。
-const LOCK_GAP_PX: i32 = 6;
+const LOCK_GAP_PX: i32 = 4;
 
 /// 解锁锁的运行时状态：显示中标记、离开热区的时刻、自动收起延时。
 pub struct LockState {
@@ -323,10 +331,42 @@ fn lock_rect_for(widget: (i32, i32, i32, i32)) -> ((i32, i32, i32, i32), (i32, i
     ((x, y, x + size, y + size), (x, y))
 }
 
+/// 主窗口当前是否可见（托盘「隐藏挂件」后为 false）。
+fn main_window_visible(app: &AppHandle) -> bool {
+    app.get_webview_window("main")
+        .and_then(|w| main_hwnd(&w).ok())
+        .map(|h| unsafe { IsWindowVisible(h) }.as_bool())
+        .unwrap_or(false)
+}
+
+/// 锁若处于显示中则收起，并清掉 hover 状态。
+fn hide_lock_if_visible(app: &AppHandle) {
+    let Ok(mut s) = app.state::<Mutex<LockState>>().inner().lock() else {
+        return;
+    };
+    if !s.visible {
+        return;
+    }
+    s.visible = false;
+    s.left_at = None;
+    drop(s); // 释放锁后再操作窗口，避免窗口回调重入时死锁。
+    if let Err(e) = hide_lock_now(app) {
+        eprintln!("[lock] 隐藏失败: {e}");
+    }
+}
+
 /// 穿透态下的锁 hover 检测：完全在 Rust 完成，不依赖前端事件。
 fn update_lock_hover(app: &AppHandle, x: i32, y: i32) {
-    // 仅穿透态启用。
+    // 仅穿透态启用。非穿透态下若锁还挂着（例如穿透刚被关掉），顺手收起来，
+    // 否则它会一直浮在屏幕上——这里以前是直接 return，锁就再也没有收起的机会。
     if !PassthroughState::read_current(app) {
+        hide_lock_if_visible(app);
+        return;
+    }
+    // 主窗口被托盘「隐藏挂件」时，矩形仍然算得出来，热区依旧成立，
+    // 锁会孤零零地浮在屏幕上。主窗口不可见时一律收起。
+    if !main_window_visible(app) {
+        hide_lock_if_visible(app);
         return;
     }
     let Some(widget) = main_window_rect(app) else {
@@ -369,14 +409,43 @@ fn show_lock_at(app: &AppHandle, x: i32, y: i32) -> Result<(), String> {
     let lock = ensure_lock_window(app)?;
     lock.set_position(PhysicalPosition::new(x, y))
         .map_err(|e| format!("定位锁窗口失败: {e}"))?;
-    lock.show().map_err(|e| format!("显示锁窗口失败: {e}"))?;
+    // 不能用 WebviewWindow::show()：它走 SW_SHOW，会激活窗口、把焦点从全屏应用
+    // 里抢走（游戏失焦，穿透也就名存实亡），同时还会让自己变成前台窗口。
+    // SW_SHOWNA 只显示不激活，配合窗口上的 WS_EX_NOACTIVATE，
+    // 前台仍是原来的应用——锁只负责可见与可点。
+    let hwnd = main_hwnd(&lock)?;
+    let _ = unsafe { ShowWindow(hwnd, SW_SHOWNA) };
     Ok(())
 }
 
 /// 隐藏锁窗口（内部实现，窗口未创建时静默跳过）。
+///
+/// 与显示一样直接发 Win32 消息：显示走的是 `SW_SHOWNA`（绕开 Tauri 的 show），
+/// 这里对称地用 `SW_HIDE`，不依赖 Tauri 对窗口可见状态的记忆。
 fn hide_lock_now(app: &AppHandle) -> Result<(), String> {
     if let Some(lock) = app.get_webview_window("widget-lock") {
-        lock.hide().map_err(|e| format!("隐藏锁窗口失败: {e}"))?;
+        let hwnd = main_hwnd(&lock)?;
+        let _ = unsafe { ShowWindow(hwnd, SW_HIDE) };
+    }
+    Ok(())
+}
+
+/// 把锁窗口的绘制与命中测试都裁到按钮那一小块。
+///
+/// Windows 会把小窗口撑到系统最小尺寸（实测 30×30 被撑成 136×38），
+/// 多出来的部分虽然透明，却**照常参与命中测试**——等于在挂件旁边糊了一块看不见的
+/// 挡板，穿透点击全被它吃掉。窗口区域同时裁剪绘制与用户交互，正好解掉这个问题。
+fn apply_lock_region(lock: &WebviewWindow) -> Result<(), String> {
+    let hwnd = main_hwnd(lock)?;
+    let scale = lock.scale_factor().unwrap_or(1.0);
+    let size = (LOCK_SIZE * scale).round().max(1.0) as i32;
+    unsafe {
+        // 圆角半径取边长 → 得到一个圆形区域，与锁按钮的圆形外观一致。
+        let region = CreateRoundRectRgn(0, 0, size, size, size, size);
+        if region.is_invalid() {
+            return Err("创建锁窗口区域失败".into());
+        }
+        SetWindowRgn(hwnd, region, true);
     }
     Ok(())
 }
@@ -419,6 +488,7 @@ fn ensure_lock_window(app: &AppHandle) -> Result<WebviewWindow, String> {
                 SWP_NOMOVE | SWP_NOSIZE | SWP_NOACTIVATE | SWP_FRAMECHANGED,
             );
         }
+        apply_lock_region(&lock)?;
     }
     Ok(lock)
 }
@@ -656,6 +726,7 @@ pub fn run() {
             set_fullscreen_passthrough,
             set_usage_tracking,
             load_usage,
+            load_usage_all,
             show_lock_window,
             hide_lock_window,
             set_lock_hide_delay,

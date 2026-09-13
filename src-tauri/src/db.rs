@@ -418,6 +418,50 @@ pub fn touch_session(id: i64, end_ms: i64) {
     .expect("update usage session failed");
 }
 
+/// 全部历史范围内的各应用总时长（面板可切到「全部」查看，与时间线的当天口径不同）。
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct UsageTotals {
+    pub totals: Vec<UsageTotal>,
+    /// 有记录的首 / 末日期（"YYYY-MM-DD"）；没有任何记录时为空串。
+    pub from_day: String,
+    pub to_day: String,
+}
+
+/// 读全部历史：各应用累计总时长（降序）与有记录的日期范围。
+pub fn load_usage_all() -> UsageTotals {
+    let conn = db().lock().unwrap();
+
+    let totals = conn
+        .prepare(
+            "SELECT app, SUM(end_ms - start_ms) FROM usage_sessions
+             GROUP BY app ORDER BY SUM(end_ms - start_ms) DESC",
+        )
+        .and_then(|mut stmt| {
+            stmt.query_map([], |row| {
+                Ok(UsageTotal {
+                    app: row.get(0)?,
+                    ms: row.get(1)?,
+                })
+            })
+            .map(|rows| rows.filter_map(|r| r.ok()).collect::<Vec<_>>())
+        })
+        .unwrap_or_default();
+
+    let (from_day, to_day): (String, String) = conn
+        .query_row(
+            "SELECT COALESCE(MIN(day), ''), COALESCE(MAX(day), '') FROM usage_sessions",
+            [],
+            |row| Ok((row.get(0)?, row.get(1)?)),
+        )
+        .unwrap_or_default();
+
+    UsageTotals {
+        totals,
+        from_day,
+        to_day,
+    }
+}
+
 /// 本地「逻辑日」（"YYYY-MM-DD"）与「自该日起点已过的毫秒数」（秒精度）。
 ///
 /// 一天以**凌晨 4 点**为界：熬夜到凌晨 3 点仍算前一天，更符合实际作息。

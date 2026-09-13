@@ -13,6 +13,55 @@
   letter-spacing: 0.04em;
 }
 
+/* 板块标题 + 右侧口径切换 */
+.usage-group-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 6px;
+}
+
+.usage-group-head .usage-group-title {
+  margin-bottom: 0;
+}
+
+.usage-scope {
+  display: flex;
+  gap: 4px;
+}
+
+.usage-scope-btn {
+  padding: 2px 9px;
+  background: rgba(255, 253, 245, 0.6);
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  color: var(--ink-faint);
+  font-size: 11px;
+  cursor: pointer;
+  font-family: var(--font-ui);
+  transition:
+    background 140ms ease,
+    border-color 140ms ease,
+    color 140ms ease;
+}
+
+.usage-scope-btn:hover {
+  border-color: var(--gold);
+}
+
+.usage-scope-btn.active {
+  background: rgba(196, 92, 72, 0.12);
+  border-color: rgba(196, 92, 72, 0.45);
+  color: var(--cinnabar);
+}
+
+.usage-range {
+  margin-top: 8px;
+  font-size: 11px;
+  color: var(--ink-faint);
+  font-variant-numeric: tabular-nums;
+}
+
 /* 包住色条：浮层的定位基准（absolute 相对它，画在色条正上方）。 */
 .usage-tl-bar-wrap {
   position: relative;

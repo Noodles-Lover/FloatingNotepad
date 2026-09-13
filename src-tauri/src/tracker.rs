@@ -48,6 +48,14 @@ fn poll_once(app: &AppHandle) {
     }
 
     let snap = snapshot();
+
+    // 解锁锁是本应用在穿透态下弹出的 UI，它当然不是全屏窗口。若据此判定
+    // 「已退出全屏」，用户只是把鼠标移到挂件上（想点锁解锁）就会被立刻自动解除
+    // 穿透、锁也跟着消失——所以锁窗口成为前台时保持上一次判定不动。
+    if crate::foreground::is_lock_window(app, snap.hwnd) {
+        return;
+    }
+
     let was = state.was_fullscreen.load(Ordering::SeqCst);
 
     // 调试日志（当前停用）：需要核对全屏误报 / 漏报时取消下面的注释，
@@ -96,6 +104,8 @@ fn poll_once(app: &AppHandle) {
 /// 调试日志停用后这些字段暂无读取方，恢复日志（见 poll_once 内注释）即会用上。
 #[allow(dead_code)]
 struct Snapshot {
+    /// 前台窗口句柄（原始值）：用于认出本应用自己的窗口。
+    hwnd: isize,
     process_name: String,
     window_title: String,
     fullscreen: bool,
@@ -108,6 +118,7 @@ struct Snapshot {
 #[cfg(not(target_os = "windows"))]
 fn snapshot() -> Snapshot {
     Snapshot {
+        hwnd: 0,
         process_name: String::new(),
         window_title: String::new(),
         fullscreen: false,
@@ -173,6 +184,7 @@ fn snapshot() -> Snapshot {
         }
 
         Snapshot {
+            hwnd: hwnd.0 as isize,
             process_name,
             window_title,
             fullscreen,
