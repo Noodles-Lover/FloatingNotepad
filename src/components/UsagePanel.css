@@ -1,0 +1,268 @@
+/* ---- 使用统计面板（UsagePanel）---- */
+
+/* 时间线需要横向空间，比皮肤/设置面板宽一些。 */
+.usage-panel {
+  width: min(520px, 92vw);
+}
+
+.usage-group-title {
+  margin-bottom: 4px;
+  font-size: 12px;
+  font-weight: 700;
+  color: var(--ink-faint);
+  letter-spacing: 0.04em;
+}
+
+/* 板块标题 + 右侧口径切换 */
+.usage-group-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 4px;
+}
+
+.usage-group-head .usage-group-title {
+  margin-bottom: 0;
+}
+
+.usage-scope {
+  display: flex;
+  gap: 4px;
+}
+
+.usage-scope-btn {
+  padding: 2px 9px;
+  background: rgba(255, 253, 245, 0.6);
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  color: var(--ink-faint);
+  font-size: 11px;
+  cursor: pointer;
+  font-family: var(--font-ui);
+  transition:
+    background 140ms ease,
+    border-color 140ms ease,
+    color 140ms ease;
+}
+
+.usage-scope-btn:hover {
+  border-color: var(--gold);
+}
+
+.usage-scope-btn.active {
+  background: rgba(196, 92, 72, 0.12);
+  border-color: rgba(196, 92, 72, 0.45);
+  color: var(--cinnabar);
+}
+
+.usage-range {
+  margin-top: 6px;
+  font-size: 11px;
+  color: var(--ink-faint);
+  font-variant-numeric: tabular-nums;
+}
+
+/* 包住色条：浮层的定位基准（absolute 相对它，画在色条正上方）。 */
+.usage-tl-bar-wrap {
+  position: relative;
+}
+
+.usage-tl-bar {
+  position: relative;
+  height: 26px;
+  background: var(--paper-dark);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  overflow: hidden;
+}
+
+/* 整点网格线：压在色块之下，只作刻度参照。 */
+.usage-tl-grid {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  width: 1px;
+  background: rgba(122, 102, 56, 0.18);
+}
+
+.usage-tl-seg {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  opacity: 0.9;
+}
+
+/* 悬停浮层：画在色条正上方、面板内部（锚点已按半宽夹进色条范围）。
+   窗口之外没有像素可用，面板的 clip-path 又会裁掉任何越界的后代，
+   所以不追求「跳出容器」，只保证完整可见。 */
+.usage-tl-tip {
+  position: absolute;
+  bottom: calc(100% + 6px);
+  transform: translateX(-50%);
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 2px;
+  padding: 4px 8px;
+  background: var(--paper);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  box-shadow: 0 4px 10px rgba(60, 45, 20, 0.16);
+  font-size: 11px;
+  color: var(--ink-soft);
+  white-space: nowrap;
+  pointer-events: none;
+  z-index: 3;
+}
+
+.usage-tip-head {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  max-width: 100%;
+}
+
+.usage-tip-dot {
+  flex: none;
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+}
+
+.usage-tip-name {
+  font-weight: 600;
+  color: var(--ink);
+  /* 名字过长时截断：浮层要整体夹在面板内，宽度必须可控。 */
+  max-width: 110px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.usage-tip-time {
+  color: var(--ink-faint);
+  font-variant-numeric: tabular-nums;
+}
+
+.usage-tip-dur {
+  margin-left: 6px;
+  color: var(--ink-soft);
+}
+
+.usage-tl-axis {
+  position: relative;
+  height: 14px;
+  margin-top: 3px;
+}
+
+.usage-tl-tick {
+  position: absolute;
+  top: 0;
+  font-size: 10px;
+  color: var(--ink-faint);
+  white-space: nowrap;
+}
+
+.usage-pie-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.usage-pie-wrap {
+  position: relative;
+  flex: none;
+  width: 110px;
+  height: 110px;
+}
+
+.usage-pie {
+  width: 100%;
+  height: 100%;
+}
+
+.usage-pie-track {
+  stroke: var(--paper-dark);
+}
+
+/* 圆心文字用 HTML 叠在 SVG 上：字体随面板主题走，不必在 SVG 里单独设色。 */
+.usage-pie-center {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 1px;
+  pointer-events: none;
+}
+
+/* 圆环内径在 106px 尺寸下约 60px，字号需留出「12h 34m」这类较长合计的余量。 */
+.usage-pie-total {
+  font-size: 13px;
+  font-weight: 700;
+  color: var(--ink-soft);
+}
+
+.usage-pie-sub {
+  font-size: 10px;
+  color: var(--ink-faint);
+}
+
+/* 图例最高与饼图等高（106px），超出滚动：两块并排时高度由饼图决定。 */
+.usage-legend {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  max-height: 110px;
+  overflow: auto;
+}
+
+.usage-legend-row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 12px;
+  color: var(--ink-soft);
+}
+
+.usage-dot {
+  flex: none;
+  width: 9px;
+  height: 9px;
+  border-radius: 50%;
+}
+
+.usage-legend-name {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.usage-legend-time,
+.usage-legend-pct {
+  flex: none;
+  color: var(--ink-faint);
+  font-variant-numeric: tabular-nums;
+}
+
+.usage-legend-pct {
+  width: 32px;
+  text-align: right;
+}
+
+.usage-empty {
+  padding: 10px 0;
+  font-size: 12px;
+  color: var(--ink-faint);
+  text-align: center;
+}
+
+.usage-hint {
+  font-size: 11px;
+  color: var(--ink-faint);
+  line-height: 1.5;
+}

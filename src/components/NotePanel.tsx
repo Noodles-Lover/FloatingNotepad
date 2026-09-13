@@ -23,6 +23,8 @@ interface Props {
   onDeleteCategory: (id: number) => void;
   pinned: boolean;
   onTogglePin: () => void;
+  muted: boolean; // 是否静音（头栏按钮切换）
+  onToggleMute: () => void;
   onSwitchTab: (id: number) => void;
   onAddTab: () => void;
   onRenameTab: (id: number, title: string) => void;
@@ -35,6 +37,7 @@ interface Props {
   idleOpacity: number; // 挂件闲置不透明度：面板开合动画的起始/结束不透明度
   onOpenSkin: () => void; // 打开皮肤选择面板
   onOpenSettings: () => void; // 打开设置面板
+  onOpenUsage: () => void; // 打开使用统计面板
 }
 
 /** 回形针图标（品牌装饰）。 */
@@ -79,6 +82,38 @@ function PaletteIcon() {
   );
 }
 
+/** 统计（柱状图）图标。 */
+function ChartIcon() {
+  return (
+    <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+      <path d="M3 3v16a2 2 0 0 0 2 2h16" />
+      <path d="M7 16v-4" />
+      <path d="M12 16V8" />
+      <path d="M17 16v-8" />
+    </svg>
+  );
+}
+
+/** 音量图标：静音时在喇叭右侧画一个叉，开启时画声波。 */
+function VolumeIcon({ muted }: { muted: boolean }) {
+  return (
+    <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+      <path d="M11 5 6 9H2v6h4l5 4V5z" />
+      {muted ? (
+        <>
+          <path d="M22 9l-6 6" />
+          <path d="M16 9l6 6" />
+        </>
+      ) : (
+        <>
+          <path d="M15.5 8.5a5 5 0 0 1 0 7" />
+          <path d="M18.5 5.5a9 9 0 0 1 0 13" />
+        </>
+      )}
+    </svg>
+  );
+}
+
 /** 根据优先级返回进度条颜色（1-5 绿、6-7 黄、8 橙、9-10 红）。 */
 function priorityColor(p: number): string {
   if (p >= 9) return "#e2483d";
@@ -117,8 +152,11 @@ export default function NotePanel({
   closing,
   edge,
   idleOpacity,
+  muted,
+  onToggleMute,
   onOpenSkin,
   onOpenSettings,
+  onOpenUsage,
 }: Props) {
   const taRef = useRef<HTMLTextAreaElement>(null);
   const todoInputRef = useRef<HTMLInputElement>(null);
@@ -171,18 +209,6 @@ export default function NotePanel({
         <span className="brand">
           <PaperclipIcon />
           <span>浮笺</span>
-          <span className="date-seal">
-            {sealTime.getFullYear()}.
-            {String(sealTime.getMonth() + 1).padStart(2, "0")}.
-            {String(sealTime.getDate()).padStart(2, "0")}
-          </span>
-          <span className="week-seal">
-            周{["日", "一", "二", "三", "四", "五", "六"][sealTime.getDay()]}
-          </span>
-          <span className="time-seal">
-            {String(sealTime.getHours()).padStart(2, "0")}:
-            {String(sealTime.getMinutes()).padStart(2, "0")}
-          </span>
         </span>
         <div className="head-actions">
           <button
@@ -195,12 +221,40 @@ export default function NotePanel({
           <button className="icon-btn" onClick={onOpenSkin} title="皮肤">
             <PaletteIcon />
           </button>
+          <button className="icon-btn" onClick={onOpenUsage} title="使用统计">
+            <ChartIcon />
+          </button>
+          <button
+            className={`icon-btn mute-btn ${muted ? "active" : ""}`}
+            onClick={onToggleMute}
+            title={muted ? "已静音（点此恢复音效）" : "静音（关闭穿透与面板音效）"}
+          >
+            <VolumeIcon muted={muted} />
+          </button>
           <button className="icon-btn" onClick={onOpenSettings} title="设置">
             <SettingsIcon />
           </button>
           <button className="x" onClick={onClose} title="收起 (Esc)">
             ×
           </button>
+        </div>
+
+        {/* 日期印章：作为头栏的换行行（占满整行）紧贴按钮那排下方。
+            若单独占一个面板 flex 项，面板的 8px gap 会在它上下各加一条，
+            和速记区就会隔得很开。 */}
+        <div className="note-seal-row">
+          <span className="date-seal">
+            {sealTime.getFullYear()}.
+            {String(sealTime.getMonth() + 1).padStart(2, "0")}.
+            {String(sealTime.getDate()).padStart(2, "0")}
+          </span>
+          <span className="week-seal">
+            周{["日", "一", "二", "三", "四", "五", "六"][sealTime.getDay()]}
+          </span>
+          <span className="time-seal">
+            {String(sealTime.getHours()).padStart(2, "0")}:
+            {String(sealTime.getMinutes()).padStart(2, "0")}
+          </span>
         </div>
       </div>
 

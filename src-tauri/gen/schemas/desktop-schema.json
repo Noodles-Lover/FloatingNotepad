@@ -201,6 +201,18 @@
           "markdownDescription": "Allow loading all scratch tabs and the active tab id from the local SQLite database."
         },
         {
+          "description": "Allow reading today's app usage sessions and per-app totals from the local SQLite database.",
+          "type": "string",
+          "const": "allow-load-usage",
+          "markdownDescription": "Allow reading today's app usage sessions and per-app totals from the local SQLite database."
+        },
+        {
+          "description": "Allow reading all-time per-app usage totals from the local SQLite database.",
+          "type": "string",
+          "const": "allow-load-usage-all",
+          "markdownDescription": "Allow reading all-time per-app usage totals from the local SQLite database."
+        },
+        {
           "description": "Allow revealing the app data directory in the file manager, for backup and migration.",
           "type": "string",
           "const": "allow-open-data-dir",
@@ -237,10 +249,22 @@
           "markdownDescription": "Allow persisting the currently active scratch tab id."
         },
         {
+          "description": "Allow syncing the fullscreen auto-passthrough switch from the settings panel.",
+          "type": "string",
+          "const": "allow-set-fullscreen-passthrough",
+          "markdownDescription": "Allow syncing the fullscreen auto-passthrough switch from the settings panel."
+        },
+        {
           "description": "Allow syncing the auto-collapse delay used by the passthrough unlock lock.",
           "type": "string",
           "const": "allow-set-lock-hide-delay",
           "markdownDescription": "Allow syncing the auto-collapse delay used by the passthrough unlock lock."
+        },
+        {
+          "description": "Allow switching the app usage tracking sampler on or off from the usage panel.",
+          "type": "string",
+          "const": "allow-set-usage-tracking",
+          "markdownDescription": "Allow switching the app usage tracking sampler on or off from the usage panel."
         },
         {
           "description": "Allow showing the passthrough unlock lock window at a given position.",

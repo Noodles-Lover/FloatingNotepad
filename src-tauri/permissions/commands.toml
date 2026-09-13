@@ -58,6 +58,26 @@ description = "Allow toggling mouse passthrough (WS_EX_TRANSPARENT) from tray or
 commands.allow = ["toggle_passthrough"]
 
 [[permission]]
+identifier = "allow-set-fullscreen-passthrough"
+description = "Allow syncing the fullscreen auto-passthrough switch from the settings panel."
+commands.allow = ["set_fullscreen_passthrough"]
+
+[[permission]]
+identifier = "allow-set-usage-tracking"
+description = "Allow switching the app usage tracking sampler on or off from the usage panel."
+commands.allow = ["set_usage_tracking"]
+
+[[permission]]
+identifier = "allow-load-usage"
+description = "Allow reading today's app usage sessions and per-app totals from the local SQLite database."
+commands.allow = ["load_usage"]
+
+[[permission]]
+identifier = "allow-load-usage-all"
+description = "Allow reading all-time per-app usage totals from the local SQLite database."
+commands.allow = ["load_usage_all"]
+
+[[permission]]
 identifier = "allow-show-lock-window"
 description = "Allow showing the passthrough unlock lock window at a given position."
 commands.allow = ["show_lock_window"]

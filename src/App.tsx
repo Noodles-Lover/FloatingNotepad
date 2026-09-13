@@ -6,6 +6,7 @@ import { WindowController, type Edge } from "./lib/window";
 import { NoteWindow } from "./lib/noteWindow";
 import { loadState, saveTabs, setActiveTab, loadCategories, saveCategories, setActiveCategory } from "./lib/db";
 import { ProximitySensor } from "./lib/proximity";
+import { playSound, setMuted } from "./lib/sounds";
 import { loadConfig, saveConfig, DEFAULT_CONFIG, type AppConfig } from "./lib/config";
 import {
   loadSkins,
@@ -21,10 +22,10 @@ import FloatingWidget from "./components/FloatingWidget";
 import NotePanel from "./components/NotePanel";
 import SkinPanel from "./components/SkinPanel";
 import SettingsPanel from "./components/SettingsPanel";
+import UsagePanel from "./components/UsagePanel";
 import ConfirmDialog from "./components/ConfirmDialog";
-import "./App.css";
-
 /** 窗口的三种显示模式。 */
+
 type Mode = "hidden" | "revealed" | "expanded";
 
 /** 收起动画时长（毫秒），动画结束后才真正卸载/隐藏。 */
@@ -38,6 +39,20 @@ const SAVE_DEBOUNCE = 400;
 function syncLockDelay(delayMs: number): void {
   invoke("set_lock_hide_delay", { delayMs }).catch((e) =>
     console.error("[lock] 同步收起延时失败:", e),
+  );
+}
+
+/** 把「全屏自动穿透」开关同步给 Rust。 */
+function syncFullscreenPassthrough(enabled: boolean): void {
+  invoke("set_fullscreen_passthrough", { enabled }).catch((e) =>
+    console.error("[fullscreen] 同步开关失败:", e),
+  );
+}
+
+/** 把「记录应用使用时间」开关同步给 Rust 采样器。 */
+function syncUsageTracking(enabled: boolean): void {
+  invoke("set_usage_tracking", { enabled }).catch((e) =>
+    console.error("[usage] 同步开关失败:", e),
   );
 }
 
@@ -79,6 +94,7 @@ export default function App() {
   const [skin, setSkin] = useState<Skin | null>(null); // 当前选用皮肤对象（解析 skinName 后得到）
   const [skinOpen, setSkinOpen] = useState(false); // 皮肤面板是否打开
   const [settingsOpen, setSettingsOpen] = useState(false); // 设置面板是否打开
+  const [usageOpen, setUsageOpen] = useState(false); // 使用统计面板是否打开
   // 删除确认弹窗：pendingDelete 非空时弹出，用户确认才真正删除（避免误删不可恢复）。
   const [pendingDelete, setPendingDelete] = useState<{
     kind: "tab" | "category";
@@ -104,7 +120,7 @@ export default function App() {
   const catsApiRef = useRef<EntityListApi<Category> | null>(null);
 
   modeRef.current = mode;
-  modalOpenRef.current = skinOpen || settingsOpen;
+  modalOpenRef.current = skinOpen || settingsOpen || usageOpen;
 
   // WindowController 等控制器都是“只创建一次”的实例。
   const windowCtlRef = useRef<WindowController | null>(null);
@@ -191,6 +207,10 @@ export default function App() {
       // 若留到窗口缩回挂件尺寸，460px 的面板会被挤进几十像素的窗口里。
       setSkinOpen(false);
       setSettingsOpen(false);
+      setUsageOpen(false);
+      // 只有笔记面板收起才响。挂件从 hover 回到 idle 同样走这个入口，
+      // 但那是挂件行为，不该有音效。
+      if (modeRef.current === "expanded") playSound("paperClose");
       setClosing(true);
       closeTimer.current = window.setTimeout(doClose, CLOSE_ANIM);
     },
@@ -221,6 +241,9 @@ export default function App() {
       applyConfigToCtl(next);
       saveConfig(next);
       syncLockDelay(next.autoCloseDelay);
+      syncFullscreenPassthrough(next.fullscreenPassthrough);
+      syncUsageTracking(next.usageTracking);
+      setMuted(next.muted);
     },
     [applyConfigToCtl],
   );
@@ -293,8 +316,8 @@ export default function App() {
   // 打开覆盖层面板时重置收起倒计时：让每次打开都能用满一个完整延时周期，
   // 不会被上一次计时顺手收走。鼠标移开后仍会照常自动收起（收起时面板一并关闭）。
   useEffect(() => {
-    if (skinOpen || settingsOpen) clearTimers();
-  }, [skinOpen, settingsOpen]);
+    if (skinOpen || settingsOpen || usageOpen) clearTimers();
+  }, [skinOpen, settingsOpen, usageOpen]);
 
   // 加载用户配置（出厂默认 <- localStorage 覆盖），
   // 拿到后既要刷新 React 状态，也要立刻应用到窗口控制器（否则挂件大小/窗口尺寸不生效）。
@@ -306,6 +329,9 @@ export default function App() {
     passthroughRef.current = false;
     applyConfigToCtl(cfg);
     syncLockDelay(cfg.autoCloseDelay);
+    syncFullscreenPassthrough(cfg.fullscreenPassthrough);
+    syncUsageTracking(cfg.usageTracking);
+    setMuted(cfg.muted);
   }, [applyConfigToCtl]);
 
   // 加载皮肤清单并解析当前选用皮肤；变化模式对应 solidMode=true（整颗停靠、不滑出），
@@ -392,6 +418,9 @@ export default function App() {
     bind(
       listen<boolean>("passthrough-state", (ev) => {
         const on = ev.payload;
+        // 穿透音效挂在这里而非各切换入口：Rust 的 set_passthrough 无论被谁调用
+        // （用户切换 / 托盘 / 解锁按钮 / 全屏自动）都会广播本事件，音效自动覆盖全部路径。
+        playSound(on ? "lock" : "unlock");
         passthroughRef.current = on;
         setPassthroughState(on);
         appHiddenRef.current = false;
@@ -413,6 +442,13 @@ export default function App() {
     // 退出前 Rust 会广播 before-quit（见 src-tauri/LOGIC.md「退出」）：
     // 此时把防抖中的文本/待办编辑立即落库，避免丢掉最后一次输入。
     bind(listen("before-quit", () => scheduleSave(true)));
+    // 全屏自动穿透前 Rust 会广播 collapse-panel：穿透生效后主窗口被
+    // EnableWindow(FALSE) 禁用，面板上的关闭按钮就点不到了，所以先收起面板。
+    bind(
+      listen("collapse-panel", () => {
+        if (modeRef.current === "expanded") doClose();
+      }),
+    );
 
     loadState()
       .then((state) => {
@@ -492,7 +528,7 @@ export default function App() {
       sensor.stop();
       clearTimers();
     };
-  }, [windowCtl, beginClose, noteWin, scheduleSave]);
+  }, [windowCtl, beginClose, noteWin, scheduleSave, doClose]);
 
   /** 打开笔记面板。 */
   const openPanel = useCallback(() => {
@@ -501,6 +537,7 @@ export default function App() {
     clearTimers();
     setClosing(false);
     setMode("expanded");
+    playSound("paperOpen");
     // 面板由 NoteWindow 负责窗口形态；挂件当前的 dockEdge/dockY 决定对齐与弹出方向。
     noteWin.expand(windowCtl.currentEdge(), windowCtl.getDockY());
   }, [noteWin, windowCtl]);
@@ -594,6 +631,11 @@ export default function App() {
     onConfigChange({ ...configRef.current, pinned: !configRef.current.pinned });
   }, [onConfigChange]);
 
+  /** 切换静音并持久化（音效开关在面板头栏，与固定按钮同排）。 */
+  const onToggleMute = useCallback(() => {
+    onConfigChange({ ...configRef.current, muted: !configRef.current.muted });
+  }, [onConfigChange]);
+
   // 渲染时按优先级降序排列（高优先级在前），不修改底层存储顺序。
   const activeCategory: Category | undefined =
     catsApi.list.find((c) => c.id === catsApi.activeId) ?? catsApi.list[0];
@@ -668,6 +710,8 @@ export default function App() {
           onReorderCategory={catsApi.reorder}
           pinned={config.pinned}
           onTogglePin={onTogglePin}
+          muted={config.muted}
+          onToggleMute={onToggleMute}
           onSwitchTab={tabsApi.switchTo}
           onAddTab={tabsApi.add}
           onRenameTab={tabsApi.rename}
@@ -679,6 +723,7 @@ export default function App() {
           idleOpacity={config.idleOpacity}
           onOpenSkin={() => setSkinOpen(true)}
           onOpenSettings={() => setSettingsOpen(true)}
+          onOpenUsage={() => setUsageOpen(true)}
         />
       ) : (
         <FloatingWidget
@@ -711,6 +756,14 @@ export default function App() {
           config={config}
           onChange={onConfigChange}
           onClose={() => setSettingsOpen(false)}
+        />
+      )}
+
+      {usageOpen && (
+        <UsagePanel
+          config={config}
+          onChange={onConfigChange}
+          onClose={() => setUsageOpen(false)}
         />
       )}
 

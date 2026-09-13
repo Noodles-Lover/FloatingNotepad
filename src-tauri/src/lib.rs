@@ -1,4 +1,7 @@
 mod db;
+mod foreground;
+mod tracker;
+mod usage;
 
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Mutex;
@@ -13,10 +16,11 @@ use tauri::{AppHandle, Emitter, Manager, PhysicalPosition, State, WebviewUrl, We
 
 use windows::Win32::Foundation::HWND;
 use windows::Win32::UI::Input::KeyboardAndMouse::EnableWindow;
+use windows::Win32::Graphics::Gdi::{CreateRoundRectRgn, SetWindowRgn};
 use windows::Win32::UI::WindowsAndMessaging::{
-    GetWindowLongPtrW, SetWindowLongPtrW, SetWindowPos, GWL_EXSTYLE, HWND_TOP, SWP_FRAMECHANGED,
-    SWP_NOMOVE, SWP_NOSIZE, SWP_NOACTIVATE, WS_EX_LAYERED, WS_EX_NOACTIVATE, WS_EX_TOOLWINDOW,
-    WS_EX_TRANSPARENT,
+    GetWindowLongPtrW, IsWindowVisible, SetWindowLongPtrW, SetWindowPos, ShowWindow,
+    GWL_EXSTYLE, HWND_TOP, SWP_FRAMECHANGED, SWP_NOMOVE, SWP_NOSIZE, SWP_NOACTIVATE, SW_HIDE,
+    SW_SHOWNA, WS_EX_LAYERED, WS_EX_NOACTIVATE, WS_EX_TOOLWINDOW, WS_EX_TRANSPARENT,
 };
 
 /// Event payload broadcast on every cursor poll.
@@ -111,9 +115,30 @@ fn start_mouse_watch(app: AppHandle, watcher: State<MouseWatcher>) {
     watcher.start(app);
 }
 
+// ---- 数据库命令的线程约束 ----
+// 写入（save_* / set_active_*）保持同步：它们是「全量替换」语义，并发完成时
+// 若顺序颠倒，后跑完的旧快照会把新内容盖掉——同步执行天然按到达顺序排队。
+// 读取没有这个约束，改成 async 由 Tauri 放到线程池执行，避免慢查询卡住主线程。
+
 #[tauri::command]
-fn load_tabs() -> Result<db::PersistState, String> {
+async fn load_tabs() -> Result<db::PersistState, String> {
     Ok(db::load_state())
+}
+
+#[tauri::command]
+async fn load_categories() -> Result<db::CategoryState, String> {
+    Ok(db::load_categories())
+}
+
+#[tauri::command]
+async fn load_usage() -> Result<db::UsageDay, String> {
+    Ok(db::load_usage(&usage::today()))
+}
+
+/// 取全部历史的应用总时长（面板的「全部」视图，时间线始终只看当天）。
+#[tauri::command]
+async fn load_usage_all() -> Result<db::UsageTotals, String> {
+    Ok(db::load_usage_all())
 }
 
 #[tauri::command]
@@ -126,11 +151,6 @@ fn save_tabs(tabs: Vec<db::TabInput>) -> Result<(), String> {
 fn set_active_tab(tab_id: i64) -> Result<(), String> {
     db::set_active_tab(tab_id);
     Ok(())
-}
-
-#[tauri::command]
-fn load_categories() -> Result<db::CategoryState, String> {
-    Ok(db::load_categories())
 }
 
 #[tauri::command]
@@ -255,10 +275,11 @@ unsafe fn set_input_enabled(hwnd: HWND, enabled: bool) {
 // 主窗口穿透时对 OS 整体穿透，内部任何 DOM 都收不到鼠标事件，
 // 因此「点击解锁」必须由一个自身不穿透的独立小窗口承载。
 
-/// 锁窗口边长（逻辑像素），与前端 CSS 的 .lock-btn 尺寸一致。
-const LOCK_SIZE: f64 = 40.0;
+/// 锁窗口边长（逻辑像素）。比前端的 .lock-btn 略大一圈，
+/// 给按钮的 hover 放大留出空间，免得放大时被窗口边界裁掉。
+const LOCK_SIZE: f64 = 30.0;
 /// 锁与挂件的间距（物理像素）。
-const LOCK_GAP_PX: i32 = 6;
+const LOCK_GAP_PX: i32 = 4;
 
 /// 解锁锁的运行时状态：显示中标记、离开热区的时刻、自动收起延时。
 pub struct LockState {
@@ -310,10 +331,42 @@ fn lock_rect_for(widget: (i32, i32, i32, i32)) -> ((i32, i32, i32, i32), (i32, i
     ((x, y, x + size, y + size), (x, y))
 }
 
+/// 主窗口当前是否可见（托盘「隐藏挂件」后为 false）。
+fn main_window_visible(app: &AppHandle) -> bool {
+    app.get_webview_window("main")
+        .and_then(|w| main_hwnd(&w).ok())
+        .map(|h| unsafe { IsWindowVisible(h) }.as_bool())
+        .unwrap_or(false)
+}
+
+/// 锁若处于显示中则收起，并清掉 hover 状态。
+fn hide_lock_if_visible(app: &AppHandle) {
+    let Ok(mut s) = app.state::<Mutex<LockState>>().inner().lock() else {
+        return;
+    };
+    if !s.visible {
+        return;
+    }
+    s.visible = false;
+    s.left_at = None;
+    drop(s); // 释放锁后再操作窗口，避免窗口回调重入时死锁。
+    if let Err(e) = hide_lock_now(app) {
+        eprintln!("[lock] 隐藏失败: {e}");
+    }
+}
+
 /// 穿透态下的锁 hover 检测：完全在 Rust 完成，不依赖前端事件。
 fn update_lock_hover(app: &AppHandle, x: i32, y: i32) {
-    // 仅穿透态启用。
+    // 仅穿透态启用。非穿透态下若锁还挂着（例如穿透刚被关掉），顺手收起来，
+    // 否则它会一直浮在屏幕上——这里以前是直接 return，锁就再也没有收起的机会。
     if !PassthroughState::read_current(app) {
+        hide_lock_if_visible(app);
+        return;
+    }
+    // 主窗口被托盘「隐藏挂件」时，矩形仍然算得出来，热区依旧成立，
+    // 锁会孤零零地浮在屏幕上。主窗口不可见时一律收起。
+    if !main_window_visible(app) {
+        hide_lock_if_visible(app);
         return;
     }
     let Some(widget) = main_window_rect(app) else {
@@ -356,14 +409,43 @@ fn show_lock_at(app: &AppHandle, x: i32, y: i32) -> Result<(), String> {
     let lock = ensure_lock_window(app)?;
     lock.set_position(PhysicalPosition::new(x, y))
         .map_err(|e| format!("定位锁窗口失败: {e}"))?;
-    lock.show().map_err(|e| format!("显示锁窗口失败: {e}"))?;
+    // 不能用 WebviewWindow::show()：它走 SW_SHOW，会激活窗口、把焦点从全屏应用
+    // 里抢走（游戏失焦，穿透也就名存实亡），同时还会让自己变成前台窗口。
+    // SW_SHOWNA 只显示不激活，配合窗口上的 WS_EX_NOACTIVATE，
+    // 前台仍是原来的应用——锁只负责可见与可点。
+    let hwnd = main_hwnd(&lock)?;
+    let _ = unsafe { ShowWindow(hwnd, SW_SHOWNA) };
     Ok(())
 }
 
 /// 隐藏锁窗口（内部实现，窗口未创建时静默跳过）。
+///
+/// 与显示一样直接发 Win32 消息：显示走的是 `SW_SHOWNA`（绕开 Tauri 的 show），
+/// 这里对称地用 `SW_HIDE`，不依赖 Tauri 对窗口可见状态的记忆。
 fn hide_lock_now(app: &AppHandle) -> Result<(), String> {
     if let Some(lock) = app.get_webview_window("widget-lock") {
-        lock.hide().map_err(|e| format!("隐藏锁窗口失败: {e}"))?;
+        let hwnd = main_hwnd(&lock)?;
+        let _ = unsafe { ShowWindow(hwnd, SW_HIDE) };
+    }
+    Ok(())
+}
+
+/// 把锁窗口的绘制与命中测试都裁到按钮那一小块。
+///
+/// Windows 会把小窗口撑到系统最小尺寸（实测 30×30 被撑成 136×38），
+/// 多出来的部分虽然透明，却**照常参与命中测试**——等于在挂件旁边糊了一块看不见的
+/// 挡板，穿透点击全被它吃掉。窗口区域同时裁剪绘制与用户交互，正好解掉这个问题。
+fn apply_lock_region(lock: &WebviewWindow) -> Result<(), String> {
+    let hwnd = main_hwnd(lock)?;
+    let scale = lock.scale_factor().unwrap_or(1.0);
+    let size = (LOCK_SIZE * scale).round().max(1.0) as i32;
+    unsafe {
+        // 圆角半径取边长 → 得到一个圆形区域，与锁按钮的圆形外观一致。
+        let region = CreateRoundRectRgn(0, 0, size, size, size, size);
+        if region.is_invalid() {
+            return Err("创建锁窗口区域失败".into());
+        }
+        SetWindowRgn(hwnd, region, true);
     }
     Ok(())
 }
@@ -406,6 +488,7 @@ fn ensure_lock_window(app: &AppHandle) -> Result<WebviewWindow, String> {
                 SWP_NOMOVE | SWP_NOSIZE | SWP_NOACTIVATE | SWP_FRAMECHANGED,
             );
         }
+        apply_lock_region(&lock)?;
     }
     Ok(lock)
 }
@@ -458,17 +541,17 @@ impl PassthroughState {
     }
 }
 
-/// 切换穿透模式：更新状态 -> 执行 Win32 样式切换 -> 广播新状态给前端同步显示
-/// -> 同步系统托盘勾选。托盘菜单与挂件右键菜单统一走这里。
+/// 把穿透模式设置为指定状态（而不是切换）。
+///
+/// 这是穿透的**唯一实现**：更新状态 -> 执行 Win32 样式切换 -> 广播新状态给前端
+/// -> 同步系统托盘勾选。`do_toggle_passthrough`（用户切换）与全屏自动逻辑
+/// （`tracker.rs`）都经由它，不存在第二条旁路。
 ///
 /// 注意：目标窗口一律按 label "main" 取，绝不用命令注入的调用方窗口——
 /// 注入的 WebviewWindow 是「发起 invoke 的窗口」，穿透解锁锁若在锁窗口里调用，
 /// 样式会打在锁自己身上，主窗口的穿透位永远不被清除（表现为解锁后仍点击穿透）。
-fn do_toggle_passthrough(
-    app: &AppHandle,
-    tray_item: &Option<CheckMenuItem<tauri::Wry>>,
-) -> Result<(), String> {
-    // 取主窗口 HWND；窗口未就绪或取句柄失败时只翻转状态，不操作样式。
+pub fn set_passthrough(app: &AppHandle, on: bool) -> Result<(), String> {
+    // 取主窗口 HWND；窗口未就绪或取句柄失败时只写状态，不操作样式。
     let main_window = app.get_webview_window("main");
     let hwnd = match &main_window {
         Some(w) => match main_hwnd(w) {
@@ -480,21 +563,16 @@ fn do_toggle_passthrough(
         },
         None => None,
     };
-    let new_on = match &hwnd {
-        Some(h) => {
-            let next = !PassthroughState::read_current(app);
-            apply_transparent(*h, next)?;
-            // 穿透时窗口连同 webview 子窗口不接收点击、也不抢焦点。
-            unsafe { set_input_enabled(*h, !next) };
-            next
-        }
-        None => !PassthroughState::read_current(app),
-    };
-    PassthroughState::write_current(app, new_on);
+    if let Some(h) = hwnd {
+        apply_transparent(h, on)?;
+        // 穿透时窗口连同 webview 子窗口不接收点击、也不抢焦点。
+        unsafe { set_input_enabled(h, !on) };
+    }
+    PassthroughState::write_current(app, on);
     // 广播给前端用于同步显示（FloatingWidget 的 passthrough 标记、proximity 早退等）。
-    let _ = app.emit("passthrough-state", new_on);
+    let _ = app.emit("passthrough-state", on);
     // 关闭穿透时锁必然要收起，由 Rust 统一兜底，不依赖前端热区状态。
-    if !new_on {
+    if !on {
         let _ = hide_lock_now(app);
         if let Ok(mut s) = app.state::<Mutex<LockState>>().inner().lock() {
             s.visible = false;
@@ -502,14 +580,30 @@ fn do_toggle_passthrough(
         }
     }
     // 同步系统托盘勾选。
-    if let Some(item) = tray_item {
-        let _ = item.set_checked(new_on);
+    if let Some(item) = tray_item_for_state(app) {
+        let _ = item.set_checked(on);
     }
     Ok(())
 }
 
+/// 从托管引用取托盘穿透菜单项（命令与内部逻辑共用）。
+fn tray_item_for_state(app: &AppHandle) -> Option<CheckMenuItem<tauri::Wry>> {
+    app.state::<TrayPassthroughRef>()
+        .inner()
+        .0
+        .lock()
+        .ok()
+        .and_then(|g| g.clone())
+}
+
+/// 切换穿透模式：翻转后交由 set_passthrough 统一执行。托盘菜单与挂件右键菜单统一走这里。
+fn do_toggle_passthrough(app: &AppHandle) -> Result<(), String> {
+    let next = !PassthroughState::read_current(app);
+    set_passthrough(app, next)
+}
+
 impl PassthroughState {
-    fn read_current(app: &AppHandle) -> bool {
+    pub fn read_current(app: &AppHandle) -> bool {
         app.state::<Mutex<PassthroughState>>()
             .inner()
             .lock()
@@ -524,14 +618,26 @@ impl PassthroughState {
 }
 
 #[tauri::command]
-fn toggle_passthrough(
-    app: AppHandle,
-    tray_ref: State<'_, TrayPassthroughRef>,
-) -> Result<(), String> {
+fn toggle_passthrough(app: AppHandle) -> Result<(), String> {
     // 穿透状态与样式切换完全在 Rust 完成；托盘勾选项由托管引用同步。
-    // 不接收调用方窗口：目标恒为 main，见 do_toggle_passthrough 的说明。
-    let item = tray_ref.inner().0.lock().ok().and_then(|g| g.clone());
-    do_toggle_passthrough(&app, &item)
+    // 不接收调用方窗口：目标恒为 main，见 set_passthrough 的说明。
+    do_toggle_passthrough(&app)
+}
+
+/// 同步「记录应用使用时间」开关（使用面板控制，前端在加载配置与改动时调用）。
+#[tauri::command]
+fn set_usage_tracking(app: AppHandle, enabled: bool) {
+    app.state::<usage::UsageState>()
+        .enabled
+        .store(enabled, Ordering::SeqCst);
+}
+
+/// 同步「全屏自动穿透」开关（设置面板控制，前端在加载配置与改动时调用）。
+#[tauri::command]
+fn set_fullscreen_passthrough(app: AppHandle, enabled: bool) {
+    app.state::<tracker::FullscreenState>()
+        .enabled
+        .store(enabled, Ordering::SeqCst);
 }
 
 /// 把托盘穿透菜单项的引用托管起来，供切换命令同步勾选。
@@ -549,8 +655,18 @@ pub fn run() {
             app.manage(Mutex::new(LockState::new()));
             // 托盘穿透菜单项引用，供切换命令同步勾选显示。
             app.manage(TrayPassthroughRef(Mutex::new(None)));
+            // 全屏检测与自动穿透的运行时状态（开关默认关，由前端加载配置后同步）。
+            app.manage(tracker::FullscreenState::new());
+            // 应用使用统计的运行时状态（开关默认关，由前端加载配置后同步）。
+            app.manage(usage::UsageState::new());
             // Create the schema up front; fail loudly if storage is unavailable.
             db::init_db(app);
+
+            // 启动全屏检测轮询（内部按开关决定是否动作）。
+            tracker::start(app.handle().clone());
+
+            // 启动应用使用统计轮询（内部按开关决定是否采样）。
+            usage::start(app.handle().clone());
 
             // 预创建锁窗口（隐藏常驻），首次 hover 出现时无需等待 webview 加载。
             if let Err(e) = ensure_lock_window(app.handle()) {
@@ -583,14 +699,7 @@ pub fn run() {
                     }
                     "toggle_passthrough" => {
                         // 直接执行切换（穿透逻辑在 Rust，托盘、挂件右键、解锁锁统一走此入口）。
-                        let item = app
-                            .state::<TrayPassthroughRef>()
-                            .inner()
-                            .0
-                            .lock()
-                            .ok()
-                            .and_then(|g| g.clone());
-                        if let Err(e) = do_toggle_passthrough(app, &item) {
+                        if let Err(e) = do_toggle_passthrough(app) {
                             eprintln!("[passthrough] 切换失败: {e}");
                         }
                     }
@@ -614,6 +723,10 @@ pub fn run() {
             open_data_dir,
             list_skins,
             toggle_passthrough,
+            set_fullscreen_passthrough,
+            set_usage_tracking,
+            load_usage,
+            load_usage_all,
             show_lock_window,
             hide_lock_window,
             set_lock_hide_delay,

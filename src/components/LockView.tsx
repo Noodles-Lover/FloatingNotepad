@@ -16,8 +16,8 @@ export default function LockView() {
     >
       <svg
         viewBox="0 0 24 24"
-        width="17"
-        height="17"
+        width="15"
+        height="15"
         fill="none"
         stroke="currentColor"
         strokeWidth="2.2"

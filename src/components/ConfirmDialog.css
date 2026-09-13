@@ -1,0 +1,85 @@
+/* ---------- 删除确认弹窗 ---------- */
+.confirm-mask {
+  position: fixed;
+  inset: 0;
+  background: rgba(50, 40, 20, 0.35);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 999;
+  backdrop-filter: blur(2px);
+}
+
+.confirm-box {
+  position: relative;
+  width: 280px;
+  background: var(--paper);
+  clip-path: var(--torn);
+  filter: drop-shadow(0 14px 28px rgba(60, 45, 20, 0.32));
+  padding: 26px 22px 20px;
+  font-family: var(--font-ui);
+}
+
+.confirm-box::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  background-image:
+    url("data:image/svg+xml,%3Csvg viewBox='0 0 200 200' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='noise'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.65' numOctaves='3' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23noise)' opacity='0.05'/%3E%3C/svg%3E");
+  z-index: -1;
+}
+
+.confirm-title {
+  font-size: 15px;
+  font-weight: 700;
+  color: var(--ink);
+  margin-bottom: 8px;
+}
+
+.confirm-msg {
+  font-size: 13px;
+  line-height: 1.5;
+  color: var(--ink-soft);
+}
+
+.confirm-actions {
+  margin-top: 16px;
+  display: flex;
+  justify-content: flex-end;
+  gap: 10px;
+}
+
+.confirm-btn {
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 6px 16px;
+  font-size: 13px;
+  cursor: pointer;
+  font-family: var(--font-ui);
+  transition: background 160ms ease, transform 160ms ease;
+}
+
+.confirm-btn.cancel {
+  background: var(--paper-3);
+  color: var(--ink-soft);
+}
+
+.confirm-btn.cancel:hover {
+  background: var(--paper-dark);
+}
+
+.confirm-btn.ok {
+  background: var(--cinnabar);
+  border-color: var(--cinnabar);
+  color: var(--paper);
+}
+
+.confirm-btn.ok:hover {
+  background: var(--cinnabar-dark);
+}
+
+.confirm-btn:active {
+  transform: scale(0.96);
+}
+

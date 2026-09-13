@@ -74,7 +74,8 @@ App 端判定**始终基于 UI 当前真实 bounds**：
 - `loadConfig()`：同步读取。以 `DEFAULT_CONFIG` 为底，合并 localStorage 里的用户覆盖，覆盖前过 `sanitize`（数值范围过滤，非法值丢弃）。
 - `saveConfig(cfg)`：应用内「设置」面板调整后写 localStorage。
 - 出厂默认值集中在 `DEFAULT_CONFIG`。
-- 配置项：`widgetSize`、`windowWidth`、`windowHeight`、`autoCloseDelay`、`idleOpacity`、`pinned`（面板固定）、`panelMargin`（面板碰撞箱外扩）。
+- 静音（`muted`）由速记面板**头栏的喇叭按钮**切换，设置面板里不再有开关——头栏要放固定、皮肤、统计、静音、设置、收起六个按钮，设置面板只留不与它们重复的项。
+- 配置项：`widgetSize`、`windowWidth`、`windowHeight`、`autoCloseDelay`、`idleOpacity`、`pinned`（面板固定）、`panelMargin`（面板碰撞箱外扩）、`fullscreenPassthrough`（全屏自动穿透）、`muted`（静音）、`usageTracking`（记录应用使用时间）。
 
 > 穿透状态是 Rust 维护的运行时态，由 `passthrough-state` 广播驱动，前端只同步显示、不自行持久化（见第 3 节）。
 
@@ -108,3 +109,30 @@ App 内所有增删改都收敛到这几个封装，后端命令为纯数据读�
 **退出前落库**：Rust 的退出流程会先广播 `before-quit`（见 `src-tauri/LOGIC.md`「退出」），前端监听后立即 `scheduleSave(true)`，把防抖中的文本/待办编辑写入。结构性变更（新增 / 删除 / 重排 / 切换激活）本就是立即持久化，不受防抖影响。
 
 **状态管理**：标签页与分类共用同一套「带激活项的持久化列表」管理模式，由 `src/lib/useEntityList.ts` 的 `useEntityList` hook 统一提供（列表 + 激活项 + refs + CRUD：新增 / 切换 / 重命名 / 重排 / 删除确认 / 编辑激活项）。App 只注入差异点（数据形状、默认名、删除确认条件、持久化目标）；`src/lib/list.ts` 提供纯函数 `reorderById`（重排核心逻辑）。待办编辑基于当前激活分类经 `mutateTodos(mutator)` 统一走「读取最新引用 → 更新 todos → 防抖保存」，不再按操作各写一份模板。
+
+---
+
+## 7. 使用统计（usage.ts / UsagePanel）
+
+`src/lib/usage.ts` 封装两条命令；`UsagePanel` 是与皮肤、设置同级的覆盖层面板，从速记面板头栏的柱状图图标进入。
+
+- `loadUsage()`：取当天数据——`sessions`（区间，画时间线）与 `totals`（各应用总时长，画饼图）。后端只统计当天，无需传日期。
+- `loadUsageAll()`：取全部历史的各应用总时长与日期范围。饼图可在「今天 / 全部」间切换，**时间线始终只看当天**，不随切换变化；历史数据只在切到「全部」时才请求。
+- `setUsageTracking(enabled)`：把 `config.usageTracking` 同步给 Rust 采样器，与全屏开关同一条同步路径（配置加载时一次、改动时一次）。
+- **日界**：与后端一致，一天从**当天 04:00** 起算（日期串是逻辑日，`new Date(\`${day}T04:00:00\`)` 得原点）。
+- **时间线**：会话按所属应用着色，颜色与饼图图例共用一份映射（按总时长排名取色）。横轴**按当天实际会话裁剪**——只显示有首尾各留 3 分钟余量的区间，而不是整天；跨度不足 30 分钟时按 30 分钟居中铺开，避免一两条短会话被放大成「用了一整天」。悬停色块弹出浮层，显示应用名、起止时刻与时长。浮层画在**色条正上方、面板内部**，横向锚点按浮层半宽夹进色条范围——窗口只有这么大，webview 之外没有像素可显示；而面板的撕纸边缘是 `clip-path`，会裁掉**任何越界的后代**（`fixed` 元素也逃不掉，portal 挂到 `body` 也一样），所以方案是往里收而不是往外跳。开销可忽略：仅在悬停期间多渲染一个节点，坐标在进入色块时取一次 `getBoundingClientRect`。
+- **饼图**：SVG 圆环，用 `stroke-dasharray` 依次叠加各应用的弧段，圆心显示当天合计。
+- 面板打开即读一次，之后每 30 秒刷新：采样在后台持续进行，面板停留期间需要跟上。
+
+数据全部来自本机 `notes.db`，面板不做任何跨天查询。
+
+---
+
+## 8. 样式组织（styles/ + 组件同名 CSS）
+
+样式按组件拆分，没有单体 CSS 文件：
+
+- `styles/base.css`：重置与设计令牌（`:root` 的纸墨配色、撕纸轮廓 `--torn`、阴影）的全局唯一来源。
+- `styles/overlay.css`：皮肤 / 设置 / 使用统计三类覆盖层共用的壳（`.skin-overlay`、`.skin-panel`、`.set-*` 开关）与皮肤卡片网格——三个面板长得一样是因为它们真的共用这些类。
+- 其余与组件同目录同名：`FloatingWidget.css`、`TabBar.css`、`NotePanel.css`、`ConfirmDialog.css`、`LockView.css`、`UsagePanel.css`。
+- 所有 CSS 仍是全局类名（未用 CSS Modules），因此**导入顺序即级联顺序**：统一在 `main.tsx` 按固定顺序导入，不要调整顺序，也不要改成组件内各自 import——那会改变同优先级规则的覆盖关系。
