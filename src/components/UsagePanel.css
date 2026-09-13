@@ -6,7 +6,7 @@
 }
 
 .usage-group-title {
-  margin-bottom: 6px;
+  margin-bottom: 4px;
   font-size: 12px;
   font-weight: 700;
   color: var(--ink-faint);
@@ -18,7 +18,7 @@
   display: flex;
   align-items: center;
   justify-content: space-between;
-  margin-bottom: 6px;
+  margin-bottom: 4px;
 }
 
 .usage-group-head .usage-group-title {
@@ -56,7 +56,7 @@
 }
 
 .usage-range {
-  margin-top: 8px;
+  margin-top: 6px;
   font-size: 11px;
   color: var(--ink-faint);
   font-variant-numeric: tabular-nums;
@@ -165,14 +165,14 @@
 .usage-pie-row {
   display: flex;
   align-items: center;
-  gap: 12px;
+  gap: 10px;
 }
 
 .usage-pie-wrap {
   position: relative;
   flex: none;
-  width: 116px;
-  height: 116px;
+  width: 110px;
+  height: 110px;
 }
 
 .usage-pie {
@@ -192,12 +192,13 @@
   flex-direction: column;
   align-items: center;
   justify-content: center;
-  gap: 2px;
+  gap: 1px;
   pointer-events: none;
 }
 
+/* 圆环内径在 106px 尺寸下约 60px，字号需留出「12h 34m」这类较长合计的余量。 */
 .usage-pie-total {
-  font-size: 15px;
+  font-size: 13px;
   font-weight: 700;
   color: var(--ink-soft);
 }
@@ -207,13 +208,14 @@
   color: var(--ink-faint);
 }
 
+/* 图例最高与饼图等高（106px），超出滚动：两块并排时高度由饼图决定。 */
 .usage-legend {
   flex: 1;
   min-width: 0;
   display: flex;
   flex-direction: column;
-  gap: 5px;
-  max-height: 132px;
+  gap: 4px;
+  max-height: 110px;
   overflow: auto;
 }
 

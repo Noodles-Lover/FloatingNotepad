@@ -40,7 +40,7 @@
   display: flex;
   justify-content: space-between;
   align-items: center;
-  padding: 14px 6px;
+  padding: 10px 6px;
   font-weight: 700;
   color: var(--ink-soft);
   border-bottom: 1px dashed var(--border);
@@ -76,7 +76,7 @@
 }
 
 .skin-body {
-  padding: 14px 6px;
+  padding: 10px 6px;
   overflow: auto;
   display: flex;
   flex-direction: column;
