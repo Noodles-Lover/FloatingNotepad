@@ -134,5 +134,13 @@ App 内所有增删改都收敛到这几个封装，后端命令为纯数据读�
 
 - `styles/base.css`：重置与设计令牌（`:root` 的纸墨配色、撕纸轮廓 `--torn`、阴影）的全局唯一来源。
 - `styles/overlay.css`：皮肤 / 设置 / 使用统计三类覆盖层共用的壳（`.skin-overlay`、`.skin-panel`、`.set-*` 开关）与皮肤卡片网格——三个面板长得一样是因为它们真的共用这些类。
-- 其余与组件同目录同名：`FloatingWidget.css`、`TabBar.css`、`NotePanel.css`、`ConfirmDialog.css`、`LockView.css`、`UsagePanel.css`。
+- 其余与组件同目录同名：`FloatingWidget.css`、`TabBar.css`、`NotePanel.css`、`ConfirmDialog.css`、`LockView.css`、`UsagePanel.css`、`ChimeView.css`。
 - 所有 CSS 仍是全局类名（未用 CSS Modules），因此**导入顺序即级联顺序**：统一在 `main.tsx` 按固定顺序导入，不要调整顺序，也不要改成组件内各自 import——那会改变同优先级规则的覆盖关系。
+
+---
+
+## 9. 音效与挂件交互
+
+- **音效统一出口（`lib/sounds.ts`）**：`SoundPlayer` 类持音频池与静音状态，导出单例 `sounds`，调用点只写 `sounds.play("paperOpen")`，静音判断也在类里。`playOnEvent(event, name)` 用于「替播不了声音的窗口代播」——报时小窗从未被用户点过，Chromium 会拦掉无用户交互的 audio，因此 `chime-show` 由主窗口代播，报时小窗自身只显示时刻。
+- **报时小窗（`ChimeView`）**：内容来自 Rust——`chime-show` 载荷带时刻与不透明度（时刻由 Rust 格式化，前后端不各写一套）；挂载时再主动取一次 `chime_state`，避免事件错过后小窗空白或停在启动时刻。
+- **挂件右键菜单关闭后要收起**：原生菜单期间指针被菜单接管，挂件收不到 `mouseleave`，会一直卡在展开态。菜单关闭后走一次 `onWidgetLeave` 收起；指针若确实还停在挂件上，光标采样会在冷却结束后重新展开。

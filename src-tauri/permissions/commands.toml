@@ -78,6 +78,21 @@ description = "Allow reading all-time per-app usage totals from the local SQLite
 commands.allow = ["load_usage_all"]
 
 [[permission]]
+identifier = "allow-set-chime"
+description = "Allow syncing the hourly chime switch and its opacity from the features panel."
+commands.allow = ["set_chime"]
+
+[[permission]]
+identifier = "allow-ring-chime"
+description = "Allow showing the hourly chime popup on demand."
+commands.allow = ["ring_chime"]
+
+[[permission]]
+identifier = "allow-chime-state"
+description = "Allow reading the current chime time and opacity for the chime popup."
+commands.allow = ["chime_state"]
+
+[[permission]]
 identifier = "allow-show-lock-window"
 description = "Allow showing the passthrough unlock lock window at a given position."
 commands.allow = ["show_lock_window"]

@@ -36,6 +36,7 @@ interface Props {
   edge: Edge; // 当前贴附的边，决定面板动画从哪侧飘出
   idleOpacity: number; // 挂件闲置不透明度：面板开合动画的起始/结束不透明度
   onOpenSkin: () => void; // 打开皮肤选择面板
+  onOpenFeatures: () => void; // 打开功能面板
   onOpenSettings: () => void; // 打开设置面板
   onOpenUsage: () => void; // 打开使用统计面板
 }
@@ -90,6 +91,16 @@ function ChartIcon() {
       <path d="M7 16v-4" />
       <path d="M12 16V8" />
       <path d="M17 16v-8" />
+    </svg>
+  );
+}
+
+/** 功能（星芒）图标。 */
+function SparkleIcon() {
+  return (
+    <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+      <path d="M12 3l1.9 5.1L19 10l-5.1 1.9L12 17l-1.9-5.1L5 10l5.1-1.9L12 3z" />
+      <path d="M18 16l.8 2.2L21 19l-2.2.8L18 22l-.8-2.2L15 19l2.2-.8L18 16z" />
     </svg>
   );
 }
@@ -155,6 +166,7 @@ export default function NotePanel({
   muted,
   onToggleMute,
   onOpenSkin,
+  onOpenFeatures,
   onOpenSettings,
   onOpenUsage,
 }: Props) {
@@ -220,6 +232,9 @@ export default function NotePanel({
           </button>
           <button className="icon-btn" onClick={onOpenSkin} title="皮肤">
             <PaletteIcon />
+          </button>
+          <button className="icon-btn" onClick={onOpenFeatures} title="功能">
+            <SparkleIcon />
           </button>
           <button className="icon-btn" onClick={onOpenUsage} title="使用统计">
             <ChartIcon />

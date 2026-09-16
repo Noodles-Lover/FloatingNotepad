@@ -6,7 +6,7 @@ import { WindowController, type Edge } from "./lib/window";
 import { NoteWindow } from "./lib/noteWindow";
 import { loadState, saveTabs, setActiveTab, loadCategories, saveCategories, setActiveCategory } from "./lib/db";
 import { ProximitySensor } from "./lib/proximity";
-import { playSound, setMuted } from "./lib/sounds";
+import { sounds } from "./lib/sounds";
 import { loadConfig, saveConfig, DEFAULT_CONFIG, type AppConfig } from "./lib/config";
 import {
   loadSkins,
@@ -23,6 +23,7 @@ import NotePanel from "./components/NotePanel";
 import SkinPanel from "./components/SkinPanel";
 import SettingsPanel from "./components/SettingsPanel";
 import UsagePanel from "./components/UsagePanel";
+import FeaturePanel from "./components/FeaturePanel";
 import ConfirmDialog from "./components/ConfirmDialog";
 /** 窗口的三种显示模式。 */
 
@@ -53,6 +54,13 @@ function syncFullscreenPassthrough(enabled: boolean): void {
 function syncUsageTracking(enabled: boolean): void {
   invoke("set_usage_tracking", { enabled }).catch((e) =>
     console.error("[usage] 同步开关失败:", e),
+  );
+}
+
+/** 把「整点报时」开关与闲置透明度同步给 Rust（小窗按此透明度显示）。 */
+function syncChime(enabled: boolean, opacity: number): void {
+  invoke("set_chime", { enabled, opacity }).catch((e) =>
+    console.error("[chime] 同步失败:", e),
   );
 }
 
@@ -95,6 +103,7 @@ export default function App() {
   const [skinOpen, setSkinOpen] = useState(false); // 皮肤面板是否打开
   const [settingsOpen, setSettingsOpen] = useState(false); // 设置面板是否打开
   const [usageOpen, setUsageOpen] = useState(false); // 使用统计面板是否打开
+  const [featuresOpen, setFeaturesOpen] = useState(false); // 功能面板是否打开
   // 删除确认弹窗：pendingDelete 非空时弹出，用户确认才真正删除（避免误删不可恢复）。
   const [pendingDelete, setPendingDelete] = useState<{
     kind: "tab" | "category";
@@ -120,7 +129,7 @@ export default function App() {
   const catsApiRef = useRef<EntityListApi<Category> | null>(null);
 
   modeRef.current = mode;
-  modalOpenRef.current = skinOpen || settingsOpen || usageOpen;
+  modalOpenRef.current = skinOpen || settingsOpen || usageOpen || featuresOpen;
 
   // WindowController 等控制器都是“只创建一次”的实例。
   const windowCtlRef = useRef<WindowController | null>(null);
@@ -208,9 +217,10 @@ export default function App() {
       setSkinOpen(false);
       setSettingsOpen(false);
       setUsageOpen(false);
+      setFeaturesOpen(false);
       // 只有笔记面板收起才响。挂件从 hover 回到 idle 同样走这个入口，
       // 但那是挂件行为，不该有音效。
-      if (modeRef.current === "expanded") playSound("paperClose");
+      if (modeRef.current === "expanded") sounds.play("paperClose");
       setClosing(true);
       closeTimer.current = window.setTimeout(doClose, CLOSE_ANIM);
     },
@@ -243,7 +253,8 @@ export default function App() {
       syncLockDelay(next.autoCloseDelay);
       syncFullscreenPassthrough(next.fullscreenPassthrough);
       syncUsageTracking(next.usageTracking);
-      setMuted(next.muted);
+      syncChime(next.chime, next.idleOpacity);
+      sounds.setMuted(next.muted);
     },
     [applyConfigToCtl],
   );
@@ -265,34 +276,7 @@ export default function App() {
     [windowCtl],
   );
 
-  /** 在挂件上右键：弹出原生菜单（隐藏 / 开关穿透）。 */
-  const openContextMenu = useCallback(async () => {
-    const hideItem = await MenuItem.new({
-      text: "隐藏挂件",
-      action: () => {
-        appHiddenRef.current = true;
-        setMode("hidden");
-        windowCtl.hideApp().catch((e) => console.error("[hideApp] 失败:", e));
-      },
-    });
-    const passItem = await CheckMenuItem.new({
-      text: "穿透模式",
-      checked: passthroughRef.current,
-      action: () => {
-        // 请求 Rust 切换；状态由 passthrough-state 广播同步（挂件在穿透态无法接收右键，属正常）。
-        setPassthrough(!passthroughRef.current);
-      },
-    });
-    const quitItem = await MenuItem.new({
-      text: "退出",
-      action: () => {
-        // 与系统托盘「退出」共用 Rust 的 quit_app，避免两端各写一套导致行为不一致。
-        invoke("quit_app").catch((e) => console.error("[退出] 失败:", e));
-      },
-    });
-    const menu = await Menu.new({ items: [hideItem, passItem, quitItem] });
-    await menu.popup();
-  }, [windowCtl, setPassthrough]);
+
 
   /** 鼠标离开挂件即收起（穿透态/拖拽中除外）。
    *  竞态说明：鼠标快速掠过挂件时，mouseleave 可能先于 cursor-move 的
@@ -313,11 +297,51 @@ export default function App() {
     }, 0);
   }, [beginClose]);
 
+  /** 在挂件上右键：弹出原生菜单（隐藏 / 穿透 / 试一下报时 / 退出）。 */
+  const openContextMenu = useCallback(async () => {
+    const hideItem = await MenuItem.new({
+      text: "隐藏挂件",
+      action: () => {
+        appHiddenRef.current = true;
+        setMode("hidden");
+        windowCtl.hideApp().catch((e) => console.error("[hideApp] 失败:", e));
+      },
+    });
+    const passItem = await CheckMenuItem.new({
+      text: "穿透模式",
+      checked: passthroughRef.current,
+      action: () => {
+        // 请求 Rust 切换；状态由 passthrough-state 广播同步（挂件在穿透态无法接收右键，属正常）。
+        setPassthrough(!passthroughRef.current);
+      },
+    });
+    // 临时调试项：等整点太慢，右键即可立刻弹一次报时小窗看效果。
+    const chimeItem = await MenuItem.new({
+      text: "试一下报时",
+      action: () => {
+        invoke("ring_chime").catch((e) => console.error("[chime] 触发失败:", e));
+      },
+    });
+    const quitItem = await MenuItem.new({
+      text: "退出",
+      action: () => {
+        // 与系统托盘「退出」共用 Rust 的 quit_app，避免两端各写一套导致行为不一致。
+        invoke("quit_app").catch((e) => console.error("[退出] 失败:", e));
+      },
+    });
+    const menu = await Menu.new({ items: [hideItem, passItem, chimeItem, quitItem] });
+    await menu.popup();
+    // 菜单期间指针被菜单接管，挂件收不到 mouseleave，会一直卡在展开态。
+    // 菜单关闭等同于鼠标离开：走同一条收起路径；若指针确实还停在挂件上，
+    // 光标采样会在冷却结束后把它再展开回来。
+    onWidgetLeave();
+  }, [windowCtl, setPassthrough, onWidgetLeave]);
+
   // 打开覆盖层面板时重置收起倒计时：让每次打开都能用满一个完整延时周期，
   // 不会被上一次计时顺手收走。鼠标移开后仍会照常自动收起（收起时面板一并关闭）。
   useEffect(() => {
-    if (skinOpen || settingsOpen || usageOpen) clearTimers();
-  }, [skinOpen, settingsOpen, usageOpen]);
+    if (skinOpen || settingsOpen || usageOpen || featuresOpen) clearTimers();
+  }, [skinOpen, settingsOpen, usageOpen, featuresOpen]);
 
   // 加载用户配置（出厂默认 <- localStorage 覆盖），
   // 拿到后既要刷新 React 状态，也要立刻应用到窗口控制器（否则挂件大小/窗口尺寸不生效）。
@@ -331,8 +355,15 @@ export default function App() {
     syncLockDelay(cfg.autoCloseDelay);
     syncFullscreenPassthrough(cfg.fullscreenPassthrough);
     syncUsageTracking(cfg.usageTracking);
-    setMuted(cfg.muted);
+    syncChime(cfg.chime, cfg.idleOpacity);
+    // 静音状态要在播放启动提示音之前就位，否则静音也会被响到。
+    sounds.setMuted(cfg.muted);
+    sounds.play("notification");
   }, [applyConfigToCtl]);
+
+  // 报时小窗从没被用户点过，播不了声音（Chromium 拦无交互的自动播放），
+  // 由主窗口代播——这个判断在 sounds.playOnEvent 里。
+  useEffect(() => sounds.playOnEvent("chime-show", "notification"), []);
 
   // 加载皮肤清单并解析当前选用皮肤；变化模式对应 solidMode=true（整颗停靠、不滑出），
   // 滑动模式/无皮肤对应 solidMode=false（CSS 滑出半掩）。提升到 App 级避免重挂载闪现。
@@ -420,7 +451,7 @@ export default function App() {
         const on = ev.payload;
         // 穿透音效挂在这里而非各切换入口：Rust 的 set_passthrough 无论被谁调用
         // （用户切换 / 托盘 / 解锁按钮 / 全屏自动）都会广播本事件，音效自动覆盖全部路径。
-        playSound(on ? "lock" : "unlock");
+        sounds.play(on ? "lock" : "unlock");
         passthroughRef.current = on;
         setPassthroughState(on);
         appHiddenRef.current = false;
@@ -537,7 +568,7 @@ export default function App() {
     clearTimers();
     setClosing(false);
     setMode("expanded");
-    playSound("paperOpen");
+    sounds.play("paperOpen");
     // 面板由 NoteWindow 负责窗口形态；挂件当前的 dockEdge/dockY 决定对齐与弹出方向。
     noteWin.expand(windowCtl.currentEdge(), windowCtl.getDockY());
   }, [noteWin, windowCtl]);
@@ -722,6 +753,7 @@ export default function App() {
           edge={edge}
           idleOpacity={config.idleOpacity}
           onOpenSkin={() => setSkinOpen(true)}
+          onOpenFeatures={() => setFeaturesOpen(true)}
           onOpenSettings={() => setSettingsOpen(true)}
           onOpenUsage={() => setUsageOpen(true)}
         />
@@ -764,6 +796,14 @@ export default function App() {
           config={config}
           onChange={onConfigChange}
           onClose={() => setUsageOpen(false)}
+        />
+      )}
+
+      {featuresOpen && (
+        <FeaturePanel
+          config={config}
+          onChange={onConfigChange}
+          onClose={() => setFeaturesOpen(false)}
         />
       )}
 

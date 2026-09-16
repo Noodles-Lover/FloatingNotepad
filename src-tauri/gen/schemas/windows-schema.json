@@ -177,6 +177,12 @@
       "description": "Permission identifier",
       "oneOf": [
         {
+          "description": "Allow reading the current chime time and opacity for the chime popup.",
+          "type": "string",
+          "const": "allow-chime-state",
+          "markdownDescription": "Allow reading the current chime time and opacity for the chime popup."
+        },
+        {
           "description": "Allow hiding the passthrough unlock lock window.",
           "type": "string",
           "const": "allow-hide-lock-window",
@@ -225,6 +231,12 @@
           "markdownDescription": "Allow quitting the app from the widget context menu, sharing the tray's exit path."
         },
         {
+          "description": "Allow showing the hourly chime popup on demand.",
+          "type": "string",
+          "const": "allow-ring-chime",
+          "markdownDescription": "Allow showing the hourly chime popup on demand."
+        },
+        {
           "description": "Allow saving (replace) all todo categories in the local SQLite database.",
           "type": "string",
           "const": "allow-save-categories",
@@ -247,6 +259,12 @@
           "type": "string",
           "const": "allow-set-active-tab",
           "markdownDescription": "Allow persisting the currently active scratch tab id."
+        },
+        {
+          "description": "Allow syncing the hourly chime switch and its opacity from the features panel.",
+          "type": "string",
+          "const": "allow-set-chime",
+          "markdownDescription": "Allow syncing the hourly chime switch and its opacity from the features panel."
         },
         {
           "description": "Allow syncing the fullscreen auto-passthrough switch from the settings panel.",

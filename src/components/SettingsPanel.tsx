@@ -139,15 +139,6 @@ export default function SettingsPanel({ config, onChange, onClose }: Props) {
             unit="px"
             onChange={(v) => set({ panelMargin: v })}
           />
-          <label className="set-switch-row" title="进入全屏应用（游戏）时自动开启穿透，退出全屏自动恢复">
-            <span className="set-label">全屏时自动穿透</span>
-            <input
-              type="checkbox"
-              className="set-switch"
-              checked={config.fullscreenPassthrough}
-              onChange={(e) => set({ fullscreenPassthrough: e.target.checked })}
-            />
-          </label>
         </div>
         <div className="set-actions">
           <button className="set-btn" onClick={openDataDir} title="在数据文件夹中可备份 notes.db">

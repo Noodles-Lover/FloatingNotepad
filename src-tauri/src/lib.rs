@@ -1,3 +1,4 @@
+mod chime;
 mod db;
 mod foreground;
 mod tracker;
@@ -632,6 +633,25 @@ fn set_usage_tracking(app: AppHandle, enabled: bool) {
         .store(enabled, Ordering::SeqCst);
 }
 
+/// 同步「整点报时」开关与闲置透明度（功能面板控制）。
+#[tauri::command]
+fn set_chime(app: AppHandle, enabled: bool, opacity: f64) {
+    chime::apply(&app, enabled, opacity);
+}
+
+/// 立刻弹一次报时小窗：等不到整点时用它验证外观与音效（挂件右键菜单调用）。
+#[tauri::command]
+fn ring_chime(app: AppHandle) -> Result<(), String> {
+    chime::ring(&app)
+}
+
+/// 取报时小窗当前应显示的内容（时刻 + 不透明度）。
+/// 小窗挂载时主动取一次，避免错过事件后空白或显示启动时刻。
+#[tauri::command]
+fn chime_state(app: AppHandle) -> chime::Payload {
+    chime::current(&app)
+}
+
 /// 同步「全屏自动穿透」开关（设置面板控制，前端在加载配置与改动时调用）。
 #[tauri::command]
 fn set_fullscreen_passthrough(app: AppHandle, enabled: bool) {
@@ -659,6 +679,8 @@ pub fn run() {
             app.manage(tracker::FullscreenState::new());
             // 应用使用统计的运行时状态（开关默认关，由前端加载配置后同步）。
             app.manage(usage::UsageState::new());
+            // 整点报时的运行时状态（开关默认关，由前端加载配置后同步）。
+            app.manage(chime::ChimeState::new());
             // Create the schema up front; fail loudly if storage is unavailable.
             db::init_db(app);
 
@@ -668,9 +690,18 @@ pub fn run() {
             // 启动应用使用统计轮询（内部按开关决定是否采样）。
             usage::start(app.handle().clone());
 
+            // 启动整点报时（内部按开关决定是否弹窗）。
+            chime::start(app.handle().clone());
+
             // 预创建锁窗口（隐藏常驻），首次 hover 出现时无需等待 webview 加载。
             if let Err(e) = ensure_lock_window(app.handle()) {
                 eprintln!("[lock] 预创建锁窗口失败: {e}");
+            }
+
+            // 预创建报时窗口（隐藏常驻）：它靠事件刷新内容，
+            // 若等首次报时才创建，前端还没挂载，第一次事件就丢了。
+            if let Err(e) = chime::ensure(app.handle()) {
+                eprintln!("[chime] 预创建报时窗口失败: {e}");
             }
 
             // 系统托盘：右键菜单显示 / 隐藏挂件 / 切换穿透模式（带勾选）/ 退出。
@@ -727,6 +758,9 @@ pub fn run() {
             set_usage_tracking,
             load_usage,
             load_usage_all,
+            set_chime,
+            ring_chime,
+            chime_state,
             show_lock_window,
             hide_lock_window,
             set_lock_hide_delay,

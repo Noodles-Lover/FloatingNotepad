@@ -1,8 +1,8 @@
 {
   "$schema": "../gen/schemas/desktop-schema.json",
   "identifier": "default",
-  "description": "Capability for the floating notepad main window and the passthrough lock window",
-  "windows": ["main", "widget-lock"],
+  "description": "Capability for the floating notepad main window, the passthrough lock window and the hourly chime window",
+  "windows": ["main", "widget-lock", "chime"],
   "permissions": [
     "core:default",
     "core:app:allow-version",
@@ -31,6 +31,9 @@
     "allow-set-usage-tracking",
     "allow-load-usage",
     "allow-load-usage-all",
+    "allow-set-chime",
+    "allow-ring-chime",
+    "allow-chime-state",
     "allow-show-lock-window",
     "allow-hide-lock-window",
     "allow-set-lock-hide-delay",

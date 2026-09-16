@@ -1,0 +1,39 @@
+/* ---------- 整点报时小窗（chime 窗口，104×52）---------- */
+/* 透明背景由 base.css 的 body 规则提供，这里只画小窗本身。 */
+
+/* 卡片比窗口小一圈：留出 4px 让描边与投影画得出来——
+   贴着窗口边缘的话，外圈的描边和阴影都会被 webview 边界裁掉。 */
+.chime-card {
+  width: calc(100% - 8px);
+  height: calc(100% - 8px);
+  margin: 4px;
+  box-sizing: border-box;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: var(--paper-2);
+  /* 深色描边（浅色背景下明显）+ 外圈浅色描边（深色背景下明显）：
+     压在任何应用上都能和小窗本身区分开。 */
+  border: 2px solid var(--ink-soft);
+  border-radius: 10px;
+  box-shadow:
+    0 0 0 2px rgba(255, 253, 245, 0.9),
+    0 4px 12px rgba(60, 45, 20, 0.32);
+  animation: chime-in 200ms cubic-bezier(0.34, 1.3, 0.64, 1);
+}
+
+.chime-time {
+  font-size: 24px;
+  font-weight: 700;
+  color: var(--ink);
+  letter-spacing: 1px;
+  font-variant-numeric: tabular-nums;
+  font-family: var(--font-ui);
+}
+
+@keyframes chime-in {
+  from {
+    opacity: 0;
+    transform: scale(0.86);
+  }
+}

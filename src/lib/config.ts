@@ -27,6 +27,8 @@ export interface AppConfig {
   muted: boolean;
   /** 记录应用使用时间：采样前台应用，数据只写本机，使用面板展示当天。 */
   usageTracking: boolean;
+  /** 整点报时：每个整点弹小窗显示时刻并播放提示音。 */
+  chime: boolean;
 }
 
 export const DEFAULT_CONFIG: AppConfig = {
@@ -40,6 +42,7 @@ export const DEFAULT_CONFIG: AppConfig = {
   fullscreenPassthrough: true,
   muted: false,
   usageTracking: true,
+  chime: false,
 };
 
 const LS_KEY = "floating-notepad.config";
@@ -79,6 +82,7 @@ function sanitize(part: Partial<AppConfig>): Partial<AppConfig> {
     out.fullscreenPassthrough = part.fullscreenPassthrough;
   if (typeof part.muted === "boolean") out.muted = part.muted;
   if (typeof part.usageTracking === "boolean") out.usageTracking = part.usageTracking;
+  if (typeof part.chime === "boolean") out.chime = part.chime;
   return out;
 }
 
