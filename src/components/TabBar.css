@@ -220,3 +220,27 @@
   display: block;
 }
 
+/* 系统标签页（如「日程」）：不参与便签配色轮换——白纸底 + 朱砂虚线框 + 小日历图标。
+   用 border 而不是 outline：outline 画在盒子外面（便签的圆角是不规则手工裁剪，
+   outline 会从圆角处探出一点），border 跟着 border-radius 走，且设了 border-box
+   不会把便签撑大。 */
+.tab.tab-system {
+  box-sizing: border-box;
+  background: var(--paper);
+  color: var(--cinnabar-dark);
+  font-weight: 700;
+  border: 1px dashed var(--cinnabar);
+}
+
+/* 选中：虚线转实线，底部那条朱砂杠与普通标签页一致（不另立一套视觉）。 */
+.tab.tab-system.active {
+  border-style: solid;
+  border-bottom: 2px solid var(--cinnabar);
+}
+
+.tab-system-icon {
+  flex: 0 0 auto;
+  margin-right: 3px;
+  opacity: 0.85;
+}
+

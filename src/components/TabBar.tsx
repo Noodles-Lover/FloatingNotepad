@@ -4,6 +4,11 @@ import { useRef, useState } from "react";
 export interface TabBarItem {
   id: number;
   title: string;
+  /**
+   * 系统条目（如「待办」）：不可重命名、不可删除，只能切换与拖动排序。
+   * 它由应用固定提供，删掉就没了，所以这两项操作在 UI 上直接不提供。
+   */
+  system?: boolean;
 }
 
 interface Props {
@@ -140,10 +145,18 @@ export function TabBar({
           data-id={item.id}
           className={`tab ${item.id === activeId ? "active" : ""} ${
             dragId === item.id ? "dragging" : ""
-          } ${overId === item.id && dragId !== null && dragId !== item.id ? "drag-over" : ""}`}
+          } ${overId === item.id && dragId !== null && dragId !== item.id ? "drag-over" : ""} ${
+            item.system ? "tab-system" : ""
+          }`}
           onClick={() => onSwitch(item.id)}
-          onDoubleClick={() => beginRename(item)}
-          title="拖动可调整顺序，单击切换，双击重命名"
+          onDoubleClick={() => {
+            if (!item.system) beginRename(item);
+          }}
+          title={
+            item.system
+              ? "系统标签页：可拖动调整顺序，不能重命名或删除"
+              : "拖动可调整顺序，单击切换，双击重命名"
+          }
           onPointerDown={(e) => {
             if (editingId !== item.id) {
               dragStart.current = { id: item.id, x: e.clientX, y: e.clientY };
@@ -166,27 +179,48 @@ export function TabBar({
             />
           ) : (
             <>
-              <span className="tab-title">{item.title}</span>
-              <span
-                className="tab-del"
-                title="删除"
-                onClick={(e) => {
-                  e.stopPropagation();
-                  onDelete(item.id);
-                }}
-              >
-                <svg
-                  viewBox="0 0 12 12"
-                  width="10"
-                  height="10"
-                  stroke="currentColor"
-                  strokeWidth="2"
-                  strokeLinecap="round"
-                  aria-hidden="true"
-                >
-                  <path d="M2 2l8 8M10 2l-8 8" />
-                </svg>
+              <span className="tab-title">
+                {item.system && (
+                  <svg
+                    className="tab-system-icon"
+                    viewBox="0 0 24 24"
+                    width="10"
+                    height="10"
+                    fill="none"
+                    stroke="currentColor"
+                    strokeWidth="2.4"
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                    aria-hidden="true"
+                  >
+                    <rect width="18" height="18" x="3" y="4" rx="2" />
+                    <path d="M8 2v4M16 2v4M3 10h18" />
+                  </svg>
+                )}
+                {item.title}
               </span>
+              {!item.system && (
+                <span
+                  className="tab-del"
+                  title="删除"
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    onDelete(item.id);
+                  }}
+                >
+                  <svg
+                    viewBox="0 0 12 12"
+                    width="10"
+                    height="10"
+                    stroke="currentColor"
+                    strokeWidth="2"
+                    strokeLinecap="round"
+                    aria-hidden="true"
+                  >
+                    <path d="M2 2l8 8M10 2l-8 8" />
+                  </svg>
+                </span>
+              )}
             </>
           )}
         </div>

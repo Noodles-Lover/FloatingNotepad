@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import { listen, type UnlistenFn } from "@tauri-apps/api/event";
 import { Menu, MenuItem, CheckMenuItem } from "@tauri-apps/api/menu";
@@ -17,6 +17,7 @@ import {
   type Skin,
 } from "./lib/skins";
 import { useEntityList, type EntityListApi } from "./lib/useEntityList";
+import { loadPlans, nearestInfo, pendingCount, setPlanNotify, type Plan } from "./lib/plans";
 import type { Category, Tab, Todo } from "./types";
 import FloatingWidget from "./components/FloatingWidget";
 import NotePanel from "./components/NotePanel";
@@ -24,7 +25,9 @@ import SkinPanel from "./components/SkinPanel";
 import SettingsPanel from "./components/SettingsPanel";
 import UsagePanel from "./components/UsagePanel";
 import FeaturePanel from "./components/FeaturePanel";
+import PlansPanel from "./components/PlansPanel";
 import ConfirmDialog from "./components/ConfirmDialog";
+import PopupToast from "./components/PopupToast";
 /** 窗口的三种显示模式。 */
 
 type Mode = "hidden" | "revealed" | "expanded";
@@ -62,6 +65,11 @@ function syncChime(enabled: boolean, opacity: number): void {
   invoke("set_chime", { enabled, opacity }).catch((e) =>
     console.error("[chime] 同步失败:", e),
   );
+}
+
+/** 同步「任务提醒」总开关给 Rust（到点由它弹小窗）。 */
+function syncPlanNotify(enabled: boolean): void {
+  setPlanNotify(enabled).catch((e) => console.error("[plans] 同步开关失败:", e));
 }
 
 /** 新建一个空白标签页。 */
@@ -104,6 +112,7 @@ export default function App() {
   const [settingsOpen, setSettingsOpen] = useState(false); // 设置面板是否打开
   const [usageOpen, setUsageOpen] = useState(false); // 使用统计面板是否打开
   const [featuresOpen, setFeaturesOpen] = useState(false); // 功能面板是否打开
+  const [plansOpen, setPlansOpen] = useState(false); // 新增日程面板是否打开
   // 删除确认弹窗：pendingDelete 非空时弹出，用户确认才真正删除（避免误删不可恢复）。
   const [pendingDelete, setPendingDelete] = useState<{
     kind: "tab" | "category";
@@ -129,7 +138,7 @@ export default function App() {
   const catsApiRef = useRef<EntityListApi<Category> | null>(null);
 
   modeRef.current = mode;
-  modalOpenRef.current = skinOpen || settingsOpen || usageOpen || featuresOpen;
+  modalOpenRef.current = skinOpen || settingsOpen || usageOpen || featuresOpen || plansOpen;
 
   // WindowController 等控制器都是“只创建一次”的实例。
   const windowCtlRef = useRef<WindowController | null>(null);
@@ -184,6 +193,23 @@ export default function App() {
   const activeTab: Tab | undefined =
     tabsApi.list.find((t) => t.id === tabsApi.activeId) ?? tabsApi.list[0];
 
+  // ---- 日程：待办系统标签页的内容，主页面那一行与挂件角标都从它派生 ----
+  const [plans, setPlans] = useState<Plan[]>([]);
+  const nearest = useMemo(() => nearestInfo(plans), [plans]);
+  const planCount = useMemo(() => pendingCount(plans), [plans]);
+
+  // 启动取一次，之后每 5 分钟重取：跨过 04:00 日界后「今天」会变，
+  // 时刻流逝也会让"最近一项"过期，后台驻留期间同样要跟上。数据量很小，全量取即可。
+  useEffect(() => {
+    const load = () =>
+      loadPlans()
+        .then(setPlans)
+        .catch((e) => console.error("[plans] 加载失败:", e));
+    load();
+    const timer = window.setInterval(load, 300_000);
+    return () => window.clearInterval(timer);
+  }, []);
+
   // ---- 定时器管理 ----
   const clearTimers = () => {
     if (hideTimer.current) {
@@ -218,6 +244,7 @@ export default function App() {
       setSettingsOpen(false);
       setUsageOpen(false);
       setFeaturesOpen(false);
+      setPlansOpen(false);
       // 只有笔记面板收起才响。挂件从 hover 回到 idle 同样走这个入口，
       // 但那是挂件行为，不该有音效。
       if (modeRef.current === "expanded") sounds.play("paperClose");
@@ -254,6 +281,7 @@ export default function App() {
       syncFullscreenPassthrough(next.fullscreenPassthrough);
       syncUsageTracking(next.usageTracking);
       syncChime(next.chime, next.idleOpacity);
+      syncPlanNotify(next.planNotify);
       sounds.setMuted(next.muted);
     },
     [applyConfigToCtl],
@@ -322,6 +350,12 @@ export default function App() {
         invoke("ring_chime").catch((e) => console.error("[chime] 触发失败:", e));
       },
     });
+    const notifyItem = await MenuItem.new({
+      text: "试一下提醒",
+      action: () => {
+        invoke("test_notify").catch((e) => console.error("[plans] 测试提醒失败:", e));
+      },
+    });
     const quitItem = await MenuItem.new({
       text: "退出",
       action: () => {
@@ -329,7 +363,9 @@ export default function App() {
         invoke("quit_app").catch((e) => console.error("[退出] 失败:", e));
       },
     });
-    const menu = await Menu.new({ items: [hideItem, passItem, chimeItem, quitItem] });
+    const menu = await Menu.new({
+      items: [hideItem, passItem, chimeItem, notifyItem, quitItem],
+    });
     await menu.popup();
     // 菜单期间指针被菜单接管，挂件收不到 mouseleave，会一直卡在展开态。
     // 菜单关闭等同于鼠标离开：走同一条收起路径；若指针确实还停在挂件上，
@@ -340,8 +376,8 @@ export default function App() {
   // 打开覆盖层面板时重置收起倒计时：让每次打开都能用满一个完整延时周期，
   // 不会被上一次计时顺手收走。鼠标移开后仍会照常自动收起（收起时面板一并关闭）。
   useEffect(() => {
-    if (skinOpen || settingsOpen || usageOpen || featuresOpen) clearTimers();
-  }, [skinOpen, settingsOpen, usageOpen, featuresOpen]);
+    if (skinOpen || settingsOpen || usageOpen || featuresOpen || plansOpen) clearTimers();
+  }, [skinOpen, settingsOpen, usageOpen, featuresOpen, plansOpen]);
 
   // 加载用户配置（出厂默认 <- localStorage 覆盖），
   // 拿到后既要刷新 React 状态，也要立刻应用到窗口控制器（否则挂件大小/窗口尺寸不生效）。
@@ -356,14 +392,53 @@ export default function App() {
     syncFullscreenPassthrough(cfg.fullscreenPassthrough);
     syncUsageTracking(cfg.usageTracking);
     syncChime(cfg.chime, cfg.idleOpacity);
+    syncPlanNotify(cfg.planNotify);
     // 静音状态要在播放启动提示音之前就位，否则静音也会被响到。
     sounds.setMuted(cfg.muted);
     sounds.play("notification");
   }, [applyConfigToCtl]);
 
-  // 报时小窗从没被用户点过，播不了声音（Chromium 拦无交互的自动播放），
-  // 由主窗口代播——这个判断在 sounds.playOnEvent 里。
-  useEffect(() => sounds.playOnEvent("chime-show", "notification"), []);
+  // 弹窗与任务提醒的音效都由主窗口代播：那些窗口从没被用户点过，
+  // Chromium 会拦掉无用户交互的自动播放——这个判断在 sounds.playOnEvent 里。
+  // 弹出（目前是报时）用专门的钟声，任务提醒用通用提示音。
+  useEffect(() => sounds.playOnEvent("popup-show", "bell"), []);
+  useEffect(() => sounds.playOnEvent("plan-due", "notification"), []);
+
+  // 面板展开时弹出改在面板内显示（由 Rust 按窗口几何判断后只广播内容），
+  // 这里把内容画在面板顶部，停留时长与独立小窗一致。
+  const [popupToast, setPopupToast] = useState<{
+    text: string;
+    sub: string | null;
+    leaving: boolean;
+  } | null>(null);
+
+  /** 关掉面板内提示：先播消失动画，动画结束再卸载（直接卸载就看不到动画了）。 */
+  const dismissToast = useCallback(() => {
+    setPopupToast((prev) => (prev ? { ...prev, leaving: true } : null));
+    window.setTimeout(() => setPopupToast(null), 180);
+  }, []);
+
+  useEffect(() => {
+    const unlisten: Promise<UnlistenFn> = listen<{
+      text: string;
+      sub: string | null;
+    }>("popup-show", (ev) => {
+      if (modeRef.current !== "expanded") return; // 没开面板时看独立小窗
+      setPopupToast({ text: ev.payload.text, sub: ev.payload.sub, leaving: false });
+    });
+    return () => {
+      unlisten.then((fn) => fn()).catch(() => undefined);
+    };
+  }, []);
+
+  // 停留时长与独立小窗一致（Rust 的 VISIBLE = 5 秒）。
+  useEffect(() => {
+    if (!popupToast || popupToast.leaving) return;
+    const timer = window.setTimeout(dismissToast, 5000);
+    return () => window.clearTimeout(timer);
+  }, [popupToast, dismissToast]);
+
+
 
   // 加载皮肤清单并解析当前选用皮肤；变化模式对应 solidMode=true（整颗停靠、不滑出），
   // 滑动模式/无皮肤对应 solidMode=false（CSS 滑出半掩）。提升到 App 级避免重挂载闪现。
@@ -756,12 +831,17 @@ export default function App() {
           onOpenFeatures={() => setFeaturesOpen(true)}
           onOpenSettings={() => setSettingsOpen(true)}
           onOpenUsage={() => setUsageOpen(true)}
+          onOpenPlans={() => setPlansOpen(true)}
+          plans={plans}
+          onPlansChange={setPlans}
+          nearest={nearest}
         />
       ) : (
         <FloatingWidget
           revealed={mode === "revealed" || dragging}
           dragging={dragging}
           edge={edge}
+          planCount={config.planBadge ? planCount : 0}
           windowCtl={windowCtl}
           onOpen={openPanel}
           onDraggingChange={onDraggingChange}
@@ -804,6 +884,27 @@ export default function App() {
           config={config}
           onChange={onConfigChange}
           onClose={() => setFeaturesOpen(false)}
+        />
+      )}
+
+      {plansOpen && (
+        <PlansPanel
+          onChange={setPlans}
+          notify={config.planNotify}
+          onNotifyChange={(on) => onConfigChange({ ...config, planNotify: on })}
+          badge={config.planBadge}
+          onBadgeChange={(on) => onConfigChange({ ...config, planBadge: on })}
+          onClose={() => setPlansOpen(false)}
+        />
+      )}
+
+      {/* 只在面板展开时显示：收起面板后提示不该继续飘在挂件上方，
+          但状态留着——下次打开面板若还没过停留时长，它还在。 */}
+      {mode === "expanded" && popupToast && (
+        <PopupToast
+          text={popupToast.text}
+          sub={popupToast.sub}
+          leaving={popupToast.leaving}
         />
       )}
 

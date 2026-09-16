@@ -27,6 +27,8 @@ interface Props {
   onContextMenu: (e: React.MouseEvent) => void;
   /** 鼠标真正离开挂件时回调（用于可靠收起，避免 proximity 漏采样导致 hover 卡住）。 */
   onLeave: () => void;
+  /** 今天该做的事的条数（含逾期）；为 0 时不显示角标。 */
+  planCount: number;
 }
 
 /** 判定为“拖动”的最小位移（像素），小于此值视为点击。 */
@@ -51,6 +53,7 @@ export default function FloatingWidget({
   passthrough,
   onContextMenu,
   onLeave,
+  planCount,
 }: Props) {
   // 记录鼠标按下的起点，用于区分“点击”与“拖动”。
   const downPosRef = useRef<{ x: number; y: number } | null>(null);
@@ -140,9 +143,23 @@ export default function FloatingWidget({
       }}
       title={passthrough ? "" : "点击记一笔 · 拖动可贴边 · 右键打开菜单"}
     >
+      {/* 待办角标：贴在朝向屏幕内侧的上角——挂件靠左时放右上，靠右时放左上，
+          这样它始终落在可视范围里，不会被屏幕边缘切掉。 */}
+      {planCount > 0 && (
+        <span
+          className={`widget-badge widget-fade ${edge === "left" ? "at-right" : "at-left"}`}
+        >
+          {planCount}
+        </span>
+      )}
       {skin.mode === "slide" ? (
         /* 滑动模式：单张 widget.png，整颗挂件；隐藏态由 CSS 滑出半掩。 */
-        <img className="widget-img widget-img-single" src={skin.widget} alt="" draggable={false} />
+        <img
+          className="widget-img widget-img-single widget-fade"
+          src={skin.widget}
+          alt=""
+          draggable={false}
+        />
       ) : (
         <>
           {/* 默认图（半掩）：隐藏态显示，hover 时淡出 */}

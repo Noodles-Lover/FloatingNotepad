@@ -1,0 +1,226 @@
+/* 日程视图（待办系统标签页）：按日期 / 每周两组，每行「何时 + 时刻 + 内容 + 删除」。 */
+
+/* 占据待办清单那一块（与 .todo-list 同样的 flex/滚动规则）。 */
+.plans {
+  flex: 1;
+  overflow-y: auto;
+  overflow-x: hidden;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding: 2px 0 0;
+  min-height: 0;
+}
+
+.plan-group {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.plan-group-head {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  font-size: 11px;
+  color: var(--ink-faint);
+  letter-spacing: 1px;
+  padding: 0 2px 3px;
+  border-bottom: 1px dashed var(--border);
+}
+
+/* 条数：小圆牌，别让"有几件事"需要自己数 */
+.plan-count {
+  min-width: 14px;
+  padding: 0 4px;
+  border-radius: 7px;
+  background: var(--paper-3);
+  color: var(--ink-soft);
+  font-size: 10px;
+  line-height: 14px;
+  text-align: center;
+  font-variant-numeric: tabular-nums;
+}
+
+.plan-empty {
+  font-size: 12px;
+  color: var(--ink-faint);
+  padding: 5px 2px;
+}
+
+/* 行：时刻胶囊 + 日期 + 内容 + 删除。左侧竖条用来标「今天还没到点」。 */
+.plan-row {
+  position: relative;
+  display: grid;
+  grid-template-columns: 46px 44px 1fr 18px;
+  align-items: center;
+  gap: 6px;
+  padding: 3px 4px 3px 6px;
+  border-radius: 5px;
+}
+
+.plan-row:hover {
+  background: var(--paper-3);
+}
+
+/* 今天还没到点：朱砂竖条 + 内容加粗——与挂件角标同一批任务，一眼能对上 */
+.plan-row.pending::before {
+  content: "";
+  position: absolute;
+  left: 0;
+  top: 3px;
+  bottom: 3px;
+  width: 2px;
+  border-radius: 1px;
+  background: var(--cinnabar);
+}
+
+.plan-row.pending .plan-text {
+  color: var(--ink);
+  font-weight: 600;
+}
+
+/* 今天已过时刻：还在列表里，但淡下去（没有完成概念，所以不用删除线） */
+.plan-row.past {
+  opacity: 0.5;
+}
+
+/* 今后的日子：正常显示，只是不加标记 */
+.plan-row.later .plan-text {
+  color: var(--ink-soft);
+}
+
+/* 时刻胶囊：有时刻的用朱砂浅底，全天任务淡一些 */
+.plan-pill {
+  min-width: 0;
+  padding: 1px 0;
+  border-radius: 8px;
+  background: rgba(196, 92, 72, 0.12);
+  color: var(--cinnabar);
+  font-size: 11px;
+  line-height: 14px;
+  text-align: center;
+  font-variant-numeric: tabular-nums;
+}
+
+.plan-pill.allday {
+  background: var(--paper-3);
+  color: var(--ink-faint);
+}
+
+.plan-when {
+  font-size: 12px;
+  color: var(--ink-soft);
+}
+
+.plan-text {
+  font-size: 13px;
+  color: var(--ink);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.plan-del {
+  border: none;
+  background: none;
+  color: var(--ink-faint);
+  cursor: pointer;
+  font-size: 14px;
+  line-height: 1;
+  padding: 0;
+  opacity: 0;
+}
+
+.plan-row:hover .plan-del {
+  opacity: 1;
+}
+
+.plan-del:hover {
+  color: var(--cinnabar);
+}
+
+/* ---- 新增日程面板里的表单（与展示列表共用 .plan-* 行样式）---- */
+
+.plan-form {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 10px 12px;
+  background: var(--paper);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+}
+
+.plan-form-head {
+  font-size: 12px;
+  font-weight: 700;
+  color: var(--ink-soft);
+  letter-spacing: 1px;
+}
+
+/* 一行内的控件并排：日期/时刻一行，内容 + 添加按钮一行。
+   宽度给足，值才看得全（原生日期控件挤窄了就只剩个图标）。 */
+.plan-form-row {
+  display: flex;
+  gap: 8px;
+}
+
+.plan-input {
+  min-width: 0;
+  font-size: 13px;
+  font-family: var(--font-ui);
+  color: var(--ink);
+  background: var(--paper);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 6px 8px;
+  box-sizing: border-box;
+}
+
+.plan-input:focus {
+  outline: none;
+  border-color: var(--gold);
+}
+
+.plan-input-date {
+  flex: 1 1 auto;
+}
+
+.plan-input-week {
+  flex: 1 1 auto;
+  padding: 6px 4px;
+}
+
+.plan-input-time {
+  flex: 0 0 128px;
+}
+
+.plan-input-text {
+  width: 100%;
+}
+
+/* 添加按钮：贴在内容输入框右侧，不单独占一行 */
+.plan-submit {
+  flex: 0 0 auto;
+  padding: 0 14px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: var(--paper-2);
+  color: var(--ink-soft);
+  font-size: 13px;
+  font-family: var(--font-ui);
+  cursor: pointer;
+  transition:
+    border-color 160ms ease,
+    color 160ms ease;
+}
+
+.plan-submit:hover {
+  border-color: var(--gold);
+  color: var(--ink);
+}
+
+.plan-submit:active {
+  transform: scale(0.97);
+}

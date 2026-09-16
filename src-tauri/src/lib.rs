@@ -1,4 +1,9 @@
 mod chime;
+mod log;
+mod notify;
+mod popup;
+mod shortcut;
+mod plans;
 mod db;
 mod foreground;
 mod tracker;
@@ -645,11 +650,46 @@ fn ring_chime(app: AppHandle) -> Result<(), String> {
     chime::ring(&app)
 }
 
-/// 取报时小窗当前应显示的内容（时刻 + 不透明度）。
+/// 取弹窗当前应显示的内容（文本 + 副文本 + 不透明度）。
 /// 小窗挂载时主动取一次，避免错过事件后空白或显示启动时刻。
 #[tauri::command]
-fn chime_state(app: AppHandle) -> chime::Payload {
-    chime::current(&app)
+fn popup_state(app: AppHandle) -> popup::Payload {
+    popup::current(&app)
+}
+
+/// 取全部日程（一次性与周常混在一起，排序交给前端——它要按日期/时刻展开周常）。
+#[tauri::command]
+fn load_plans() -> Vec<db::Plan> {
+    db::load_plans()
+}
+
+/// 新增一条日程：`kind` 为 `once`（用 date）或 `weekly`（用 weekday）；time 可为空。
+#[tauri::command]
+fn add_plan(
+    kind: String,
+    date: Option<String>,
+    weekday: Option<i64>,
+    time: Option<String>,
+    text: String,
+) -> Result<db::Plan, String> {
+    db::add_plan(&kind, date.as_deref(), weekday, time.as_deref(), &text)
+}
+
+#[tauri::command]
+fn delete_plan(id: i64) -> Result<(), String> {
+    db::delete_plan(id)
+}
+
+/// 同步「任务提醒」总开关（日程面板控制，作用于全部日程）。
+#[tauri::command]
+fn set_plan_notify(app: AppHandle, enabled: bool) {
+    plans::apply(&app, enabled);
+}
+
+/// 立刻发一条测试提醒（挂件右键菜单）：不用等到点就能确认通知弹不弹得出来。
+#[tauri::command]
+fn test_notify(app: AppHandle) -> Result<(), String> {
+    plans::test(&app)
 }
 
 /// 同步「全屏自动穿透」开关（设置面板控制，前端在加载配置与改动时调用）。
@@ -667,6 +707,8 @@ pub fn run() {
     tauri::Builder::default()
         .plugin(tauri_plugin_updater::Builder::new().build())
         .plugin(tauri_plugin_process::init())
+        // 任务提醒走系统通知：是否在全屏/游戏里打扰用户由系统决定。
+        .plugin(tauri_plugin_notification::init())
         .setup(|app| {
             app.manage(MouseWatcher::new());
             // 穿透状态服务：穿透模式的唯一真相源，由 Rust 维护并执行 Win32 样式切换。
@@ -681,6 +723,10 @@ pub fn run() {
             app.manage(usage::UsageState::new());
             // 整点报时的运行时状态（开关默认关，由前端加载配置后同步）。
             app.manage(chime::ChimeState::new());
+            // 通用弹窗的运行时状态（不透明度 + 内容）。
+            app.manage(popup::PopupState::new());
+            // 日程提醒的运行时状态（开关默认关，由前端加载配置后同步）。
+            app.manage(plans::PlanState::new());
             // Create the schema up front; fail loudly if storage is unavailable.
             db::init_db(app);
 
@@ -693,16 +739,22 @@ pub fn run() {
             // 启动整点报时（内部按开关决定是否弹窗）。
             chime::start(app.handle().clone());
 
+            // 启动日程提醒（内部按开关决定是否弹窗）。
+            plans::start(app.handle().clone());
+
             // 预创建锁窗口（隐藏常驻），首次 hover 出现时无需等待 webview 加载。
             if let Err(e) = ensure_lock_window(app.handle()) {
                 eprintln!("[lock] 预创建锁窗口失败: {e}");
             }
 
-            // 预创建报时窗口（隐藏常驻）：它靠事件刷新内容，
-            // 若等首次报时才创建，前端还没挂载，第一次事件就丢了。
-            if let Err(e) = chime::ensure(app.handle()) {
-                eprintln!("[chime] 预创建报时窗口失败: {e}");
+            // 预创建弹窗（隐藏常驻）：它靠事件刷新内容，
+            // 若等首次弹出时才创建，前端还没挂载，第一次事件就丢了。
+            if let Err(e) = popup::ensure(app.handle()) {
+                eprintln!("[popup] 预创建弹窗失败: {e}");
             }
+
+            // 准备系统通知环境（补 AppUserModelID 快捷方式，见 notify.rs）。
+            notify::prepare(app.handle());
 
             // 系统托盘：右键菜单显示 / 隐藏挂件 / 切换穿透模式（带勾选）/ 退出。
             let show_item = MenuItem::with_id(app, "show", "显示挂件", true, None::<&str>)?;
@@ -760,7 +812,12 @@ pub fn run() {
             load_usage_all,
             set_chime,
             ring_chime,
-            chime_state,
+            popup_state,
+            load_plans,
+            add_plan,
+            delete_plan,
+            set_plan_notify,
+            test_notify,
             show_lock_window,
             hide_lock_window,
             set_lock_hide_delay,

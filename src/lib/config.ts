@@ -29,6 +29,11 @@ export interface AppConfig {
   usageTracking: boolean;
   /** 整点报时：每个整点弹小窗显示时刻并播放提示音。 */
   chime: boolean;
+  /** 任务提醒：到点时弹小窗显示任务内容（整点报时同一套机制）。作用于全部日程，
+   *  时间为空的日程不提醒。 */
+  planNotify: boolean;
+  /** 挂件上的待办角标：显示「还没到点」的任务条数。 */
+  planBadge: boolean;
 }
 
 export const DEFAULT_CONFIG: AppConfig = {
@@ -43,6 +48,8 @@ export const DEFAULT_CONFIG: AppConfig = {
   muted: false,
   usageTracking: true,
   chime: false,
+  planNotify: true,
+  planBadge: true,
 };
 
 const LS_KEY = "floating-notepad.config";
@@ -83,6 +90,8 @@ function sanitize(part: Partial<AppConfig>): Partial<AppConfig> {
   if (typeof part.muted === "boolean") out.muted = part.muted;
   if (typeof part.usageTracking === "boolean") out.usageTracking = part.usageTracking;
   if (typeof part.chime === "boolean") out.chime = part.chime;
+  if (typeof part.planNotify === "boolean") out.planNotify = part.planNotify;
+  if (typeof part.planBadge === "boolean") out.planBadge = part.planBadge;
   return out;
 }
 

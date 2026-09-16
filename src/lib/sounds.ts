@@ -5,7 +5,7 @@
 
 import { listen, type UnlistenFn } from "@tauri-apps/api/event";
 
-export type SoundName = "lock" | "unlock" | "paperOpen" | "paperClose" | "notification";
+export type SoundName = "lock" | "unlock" | "paperOpen" | "paperClose" | "notification" | "bell";
 
 const FILES: Record<SoundName, string> = {
   lock: "/audio/lock.mp3",
@@ -13,6 +13,8 @@ const FILES: Record<SoundName, string> = {
   paperOpen: "/audio/paper-open.mp3",
   paperClose: "/audio/paper-close.mp3",
   notification: "/audio/new-notification.mp3",
+  // 报时专用：整点报时与「试一下报时」用它，其它提示音不受影响。
+  bell: "/audio/bell.mp3",
 };
 
 /** 音效播放器：持有音频池与静音状态，全应用共用一个实例。 */

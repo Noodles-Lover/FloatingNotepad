@@ -93,6 +93,24 @@ pub fn init_db(app: &tauri::App) {
     )
     .expect("create tabs table failed");
 
+    // 日程曾作为系统标签页放在 tabs 里（速记那一栏），现已迁到分类栏；清掉残留行，
+    // 否则老库会一直在速记栏里留着一个删不掉的「日程」。
+    conn.execute("DELETE FROM tabs WHERE id = -1", []).ok();
+
+    // 日程/待办：一次性任务记 date，周常任务记 weekday，二者互斥；time 可为空（有时刻才会提醒）。
+    conn.execute(
+        "CREATE TABLE IF NOT EXISTS plans (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            kind TEXT NOT NULL CHECK (kind IN ('once', 'weekly')),
+            date TEXT,
+            weekday INTEGER,
+            time TEXT,
+            text TEXT NOT NULL
+        )",
+        [],
+    )
+    .expect("create plans table failed");
+
     conn.execute(
         "CREATE TABLE IF NOT EXISTS categories (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -103,6 +121,16 @@ pub fn init_db(app: &tauri::App) {
         [],
     )
     .expect("create categories table failed");
+
+    // 日程系统标签页：固定 id -1（负数不会与自增 id 冲突），排在已有分类之后，
+    // 与「主要」等分类并列——它落在待办那一栏，只负责展示与删除，新增走顶部按钮的面板。
+    // 放真行的原因是拖拽换序要能落库；不可重命名/删除由前端拦截。
+    conn.execute(
+        "INSERT OR IGNORE INTO categories (id, title, todos, position)
+         SELECT -1, '日程', '[]', COALESCE(MAX(position) + 1, 0) FROM categories",
+        [],
+    )
+    .expect("insert plans category failed");
 
     conn.execute(
         "CREATE TABLE IF NOT EXISTS meta (
@@ -468,6 +496,8 @@ pub fn load_usage_all() -> UsageTotals {
 /// 时区换算交给 SQLite 的 `localtime` 修饰符，不自己处理夏令时。
 /// 起点 = 把当前时刻减 4 小时后取当日零点再加 4 小时——这样凌晨 0~4 点会
 /// 自然落到前一天的 04:00，不需要额外的分支判断。
+/// 本地逻辑日与当天已过毫秒数——**专供应用使用统计**（凌晨 4 点换日，熬夜那段算前一天）。
+/// 其它功能一律用 [`local_day`] / [`local_time`] / [`local_weekday`] 的真实日历日。
 pub fn local_clock() -> (String, i64) {
     let conn = db().lock().unwrap();
     let (day, secs): (String, i64) = conn
@@ -480,6 +510,113 @@ pub fn local_clock() -> (String, i64) {
         )
         .unwrap_or_default();
     (day, secs * 1000)
+}
+
+/// 本地日期串（真实日历日，00:00 换日）。
+///
+/// 注意与 [`local_clock`] 的区别：那套「凌晨 4 点换日」**只用于应用使用统计**，
+/// 日程、报时等功能一律用真实日历日，别把两个日界混在一起。
+pub fn local_day() -> String {
+    let conn = db().lock().unwrap();
+    conn.query_row("SELECT date('now', 'localtime')", [], |r| r.get(0))
+        .unwrap_or_default()
+}
+
+/// 本地星期（0=周日，真实日历日）。
+pub fn local_weekday() -> i64 {
+    let conn = db().lock().unwrap();
+    conn.query_row(
+        "SELECT CAST(strftime('%w', 'now', 'localtime') AS INTEGER)",
+        [],
+        |r| r.get(0),
+    )
+    .unwrap_or(0)
+}
+
+/// 本地时刻：格式化好的「HH:MM」、当前分钟、当前秒（0–59）。
+/// 报时与提醒只关心真实时钟，与使用统计那套 4 点日界无关。
+pub fn local_time() -> (String, i64, i64) {
+    let conn = db().lock().unwrap();
+    conn.query_row(
+        "SELECT strftime('%H:%M', 'now', 'localtime'),
+                CAST(strftime('%M', 'now', 'localtime') AS INTEGER),
+                CAST(strftime('%S', 'now', 'localtime') AS INTEGER)",
+        [],
+        |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?)),
+    )
+    .unwrap_or_default()
+}
+
+// ---- 日程 / 待办 ----
+
+/// 一条日程：`once` 用 date，`weekly` 用 weekday，二者互斥；time 为空表示不提醒。
+#[derive(Debug, Clone, Serialize)]
+pub struct Plan {
+    pub id: i64,
+    pub kind: String,
+    pub date: Option<String>,
+    pub weekday: Option<i64>,
+    pub time: Option<String>,
+    pub text: String,
+}
+
+pub fn load_plans() -> Vec<Plan> {
+    let conn = db().lock().unwrap();
+    // 过期的一次性日程自动清掉：没有「完成」概念，留着只会越堆越多，用户还得手动删。
+    // 用真实日历日（00:00 换日）——4 点换日只属于应用使用统计。周常任务不会过期。
+    conn.execute(
+        "DELETE FROM plans WHERE kind = 'once' AND date < date('now', 'localtime')",
+        [],
+    )
+    .ok();
+    let mut stmt = conn
+        .prepare("SELECT id, kind, date, weekday, time, text FROM plans ORDER BY id ASC")
+        .expect("prepare load_plans failed");
+    stmt.query_map([], |row| {
+        Ok(Plan {
+            id: row.get(0)?,
+            kind: row.get(1)?,
+            date: row.get(2)?,
+            weekday: row.get(3)?,
+            time: row.get(4)?,
+            text: row.get(5)?,
+        })
+    })
+    .expect("load_plans failed")
+    .filter_map(|r| r.ok())
+    .collect()
+}
+
+/// 新增一条日程，返回带 id 的完整记录（前端直接并入列表，省一次全量拉取）。
+pub fn add_plan(
+    kind: &str,
+    date: Option<&str>,
+    weekday: Option<i64>,
+    time: Option<&str>,
+    text: &str,
+) -> Result<Plan, String> {
+    let conn = db().lock().unwrap();
+    conn.execute(
+        "INSERT INTO plans (kind, date, weekday, time, text) VALUES (?1, ?2, ?3, ?4, ?5)",
+        rusqlite::params![kind, date, weekday, time, text],
+    )
+    .map_err(|e| format!("新增日程失败: {e}"))?;
+    let id = conn.last_insert_rowid();
+    Ok(Plan {
+        id,
+        kind: kind.to_string(),
+        date: date.map(|s| s.to_string()),
+        weekday,
+        time: time.map(|s| s.to_string()),
+        text: text.to_string(),
+    })
+}
+
+pub fn delete_plan(id: i64) -> Result<(), String> {
+    let conn = db().lock().unwrap();
+    conn.execute("DELETE FROM plans WHERE id = ?1", rusqlite::params![id])
+        .map_err(|e| format!("删除日程失败: {e}"))?;
+    Ok(())
 }
 
 /// 合并「夹在中间的一小段」：A → B（很短）→ A 视为一直在用 A。
