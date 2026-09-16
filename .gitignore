@@ -7,7 +7,6 @@ src-tauri/target/
 
 # Rust
 **/*.rs.bk
-Cargo.lock
 
 # Logs
 *.log
