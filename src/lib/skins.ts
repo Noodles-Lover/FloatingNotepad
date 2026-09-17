@@ -3,7 +3,7 @@
  *
  * 物理结构：public/skin/<name>/ 下每个文件夹是一个材质包，文件夹名即材质名。
  * 前端无法列目录，故由 Rust 命令 list_skins 读取文件夹名；随后对每个文件夹用
- * fetch(HEAD) 探测图片文件名，按硬性约定判定模式：
+ * <img> 加载约定文件名下的图片，按硬性约定判定模式，同时取得素材宽高比：
  *   - 滑动模式：存在 widget.png 单张（整颗停靠，用 CSS 滑出半掩）
  *   - 变化模式：同时存在 idle.png（半掩）+ hover.png（伸出）两张
  * 文件名即为路径，不做额外映射；既无 widget 也无 idle/hover 的文件夹会被忽略。
@@ -16,6 +16,7 @@ export interface SlideSkin {
   name: string;
   mode: "slide";
   widget: string;
+  ratio: number;
 }
 
 /** 变化模式：idle（半掩）+ hover（伸出）两张图。 */
@@ -24,8 +25,13 @@ export interface TransformSkin {
   mode: "transform";
   idle: string;
   hover: string;
+  ratio: number;
 }
 
+/**
+ * 皮肤（材质包）。`ratio` 是素材宽高比（宽/高）——挂件容器与窗口按它收缩到图片实际大小；
+ * 容器比图片大出的那一圈会成为「幽灵碰撞箱」（见 `lib/window.ts` 的 `widgetBoxFor`）。
+ */
 export type Skin = SlideSkin | TransformSkin;
 
 /** 默认皮肤名（缺少或无效时回落）。 */
@@ -37,21 +43,28 @@ export function defaultSkin(): Skin {
     name: DEFAULT_SKIN_NAME,
     mode: "slide",
     widget: `/skin/${DEFAULT_SKIN_NAME}/widget.png`,
+    // 兜底比例：正常路径下比例是加载图片量出来的，这里只在素材整个加载失败时顶着用。
+    ratio: 1,
   };
 }
 
 /**
- * 探测某个素材 URL 是否存在且为图片。
- * 注意：dev 服务器（Vite）对不存在的 .png 可能回退返回 index.html（200 + text/html），
- * 故仅看 r.ok 不够，必须额外校验 content-type 以跳过 HTML 兜底，避免误判文件存在。
+ * 探测某个素材 URL：能解码成图片时返回其宽高比（宽/高），不存在或不是图片返回 null。
+ *
+ * 用 `<img>` 而不是 `fetch(HEAD)`：dev 服务器（Vite）对不存在的 .png 会回退返回
+ * index.html（200 + text/html），只看状态码会误判文件存在；`<img>` 解码失败即报错，
+ * 天然把 HTML 兜底挡掉。顺带量出宽高比——容器要按它收缩，光知道「存在」不够。
  */
-async function exists(url: string): Promise<boolean> {
-  try {
-    const r = await fetch(url, { method: "HEAD", cache: "no-store" });
-    return r.ok && (r.headers.get("content-type") || "").startsWith("image/");
-  } catch {
-    return false;
-  }
+function probeImage(url: string): Promise<number | null> {
+  return new Promise((resolve) => {
+    const img = new Image();
+    img.onload = () =>
+      resolve(
+        img.naturalWidth > 0 && img.naturalHeight > 0 ? img.naturalWidth / img.naturalHeight : null,
+      );
+    img.onerror = () => resolve(null);
+    img.src = url;
+  });
 }
 
 /**
@@ -70,15 +83,16 @@ export async function loadSkins(): Promise<Skin[]> {
   const skins: Skin[] = [];
   for (const name of names) {
     const dir = `/skin/${name}`;
-    const [hasWidget, hasIdle, hasHover] = await Promise.all([
-      exists(`${dir}/widget.png`),
-      exists(`${dir}/idle.png`),
-      exists(`${dir}/hover.png`),
+    const [widget, idle, hover] = await Promise.all([
+      probeImage(`${dir}/widget.png`),
+      probeImage(`${dir}/idle.png`),
+      probeImage(`${dir}/hover.png`),
     ]);
-    if (hasWidget) {
-      skins.push({ name, mode: "slide", widget: `${dir}/widget.png` });
-    } else if (hasIdle && hasHover) {
-      skins.push({ name, mode: "transform", idle: `${dir}/idle.png`, hover: `${dir}/hover.png` });
+    if (widget !== null) {
+      skins.push({ name, mode: "slide", widget: `${dir}/widget.png`, ratio: widget });
+    } else if (idle !== null && hover !== null) {
+      // 变化模式以 idle 图定容器尺寸：它是「基准」那张（两张画布尺寸不一定相同）。
+      skins.push({ name, mode: "transform", idle: `${dir}/idle.png`, hover: `${dir}/hover.png`, ratio: idle });
     }
     // 都不存在：忽略这个文件夹。
   }

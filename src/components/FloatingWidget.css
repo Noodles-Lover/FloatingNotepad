@@ -1,7 +1,9 @@
 /* ---------- Floating widget ---------- */
 .widget-wrap {
-  width: var(--widget-size, 56px);
-  height: var(--widget-size, 56px);
+  /* 尺寸由 App 按素材比例算出（lib/window.ts 的 widgetBoxFor），与窗口严格同尺寸：
+     容器等于图片实际大小，多出来的那一圈会成为碰撞箱外的空走一条。 */
+  width: var(--widget-width, 56px);
+  height: var(--widget-height, 56px);
   display: flex;
   align-items: center;
   justify-content: center;
@@ -10,12 +12,25 @@
   transition: transform 160ms ease-out;
 }
 
+/* 滑出半个容器宽度（= 半个图片），露出的一条缝即隐藏态的可见范围。 */
+/* 容器在窗口里贴住停靠边：万一窗口与容器尺寸一时不一致（下发慢了一拍），
+   图片也始终贴着屏幕边，多出来的窗口部分落在朝屏幕内侧——而不是把图片顶到屏幕外。 */
+.widget-wrap.dock-right {
+  margin-left: auto;
+}
+
+.widget-wrap.dock-left {
+  margin-right: auto;
+}
+
+/* 滑出到只剩一条缝：滑出量 = 容器宽 − 缝宽。缝宽 App 传下来（--widget-peek），
+   与 proximity 判定矩形用的是同一个数。 */
 .widget-wrap.hidden.dock-right {
-  transform: translateX(calc(var(--widget-size, 56px) / 2));
+  transform: translateX(calc(var(--widget-width, 56px) - var(--widget-peek, 28px)));
 }
 
 .widget-wrap.hidden.dock-left {
-  transform: translateX(calc(var(--widget-size, 56px) / -2));
+  transform: translateX(calc(var(--widget-peek, 28px) - var(--widget-width, 56px)));
 }
 
 .widget-wrap.revealed,
@@ -29,7 +44,9 @@
   width: 100%;
   height: 100%;
   object-fit: contain;
-  /* 原图按"右侧构图"：内容集中在图片右侧。始终让图片框右对齐，
+  /* 容器已与图片等大，contain 正常没有余量；这条只在素材自身不一致时兜底——
+     变化模式的 idle / hover 两张画布尺寸可能不同，而容器按 idle 那张定。
+     原图按"右侧构图"：内容集中在图片右侧。始终让图片框右对齐，
      内容即贴近框右；靠右时不翻转直接贴右，靠左时翻转(scaleX)后内容贴左。
      若用 left center，靠左翻转后会因原图左半空白而留出空隙。 */
   object-position: right center;

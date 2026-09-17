@@ -15,8 +15,11 @@ interface Props {
   onOpen: () => void;
   /** 拖动状态发生变化时回调（开始 / 结束），用于让 App 暂停或恢复 proximity 检测。 */
   onDraggingChange: (dragging: boolean) => void;
-  /** 悬浮挂件尺寸（逻辑像素），用于让图片按尺寸等比例缩放。 */
-  widgetSize: number;
+  /** 挂件容器尺寸（逻辑像素）：由 App 按素材比例算出，与窗口尺寸一致——容器比图片大出的那一圈会变成幽灵碰撞箱。 */
+  widgetWidth: number;
+  widgetHeight: number;
+  /** 隐藏态露出的那条缝宽度（逻辑像素）：滑出量 = 容器宽 - 它，与判定矩形同源（见 lib/window.ts 的 widgetBoxFor）。 */
+  widgetPeek: number;
   /** 闲置（隐藏态）时的不透明度（0.1~1）。 */
   idleOpacity: number;
   /** 当前选用的皮肤（决定渲染滑动模式还是变化模式）。 */
@@ -47,7 +50,9 @@ export default function FloatingWidget({
   windowCtl,
   onOpen,
   onDraggingChange,
-  widgetSize,
+  widgetWidth,
+  widgetHeight,
+  widgetPeek,
   idleOpacity,
   skin,
   passthrough,
@@ -127,7 +132,9 @@ export default function FloatingWidget({
     <div
       className={cls}
       style={{
-        ["--widget-size" as string]: `${widgetSize}px`,
+        ["--widget-width" as string]: `${widgetWidth}px`,
+        ["--widget-height" as string]: `${widgetHeight}px`,
+        ["--widget-peek" as string]: `${widgetPeek}px`,
         ["--idle-opacity" as string]: `${idleOpacity}`,
       }}
       onMouseDown={handleMouseDown}

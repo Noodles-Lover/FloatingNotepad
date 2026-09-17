@@ -2,7 +2,8 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import { listen, type UnlistenFn } from "@tauri-apps/api/event";
 import { Menu, MenuItem, CheckMenuItem } from "@tauri-apps/api/menu";
-import { WindowController, type Edge } from "./lib/window";
+import { WindowController, widgetBoxFor, type Edge } from "./lib/window";
+import { readMonitorScreen } from "./lib/screen";
 import { NoteWindow } from "./lib/noteWindow";
 import { loadState, saveTabs, setActiveTab, loadCategories, saveCategories, setActiveCategory } from "./lib/db";
 import { ProximitySensor } from "./lib/proximity";
@@ -130,6 +131,8 @@ export default function App() {
   const configRef = useRef<AppConfig>(config); // 最新配置，供 proximity 读取 autoCloseDelay
   configRef.current = config;
   const appHiddenRef = useRef(false); // 托盘“隐藏挂件”后整窗隐藏，期间 proximity 不响应
+  /** 启动首次定位（拿到真实屏幕尺寸之后）是否已完成。未完成前只记录尺寸、不动窗口（见下方尺寸下发 effect）。 */
+  const widgetPlacedRef = useRef(false);
   /** 覆盖层面板（皮肤/设置）是否打开。用于 resize 判断，见 applyConfigToCtl。 */
   const modalOpenRef = useRef(false);
   // 标签页/分类的状态管理收敛到 useEntityList；此处的 ref 供 scheduleSave 在不产生
@@ -254,21 +257,12 @@ export default function App() {
     [doClose],
   );
 
-  /** 把配置应用到控制器：挂件尺寸实时重排、面板尺寸下次展开生效、自动关闭时间即时生效。 */
+  /** 把配置应用到控制器：面板尺寸下次展开生效（挂件尺寸由下面的尺寸下发 effect 统一处理）。 */
   const applyConfigToCtl = useCallback(
     (cfg: AppConfig) => {
       noteWin.applyConfig(cfg);
-      // 始终同步挂件尺寸到控制器内部状态，避免设置期间跳过导致窗口与 DOM 尺寸脱节（截断/空隙）。
-      windowCtl.syncWidgetSize(cfg.widgetSize);
-      // 面板已展开（或设置面板打开）时，禁止把整窗 resize 成挂件尺寸，否则面板会瞬间缩小/被卸载；
-      // 挂件尺寸留到收起后由 showWidget/dockHidden 自然应用。
-      const panelActive = modeRef.current === "expanded" || modalOpenRef.current;
-      if (panelActive) return;
-      // 鼠标穿透（WS_EX_TRANSPARENT）由 Rust 的 toggle_passthrough 单独控制，
-      // 这里只负责尺寸重排，不在 resize 时切换交互性。
-      windowCtl.setWidgetSize(cfg.widgetSize).catch((e) => console.error("[setWidgetSize] 失败:", e));
     },
-    [noteWin, windowCtl],
+    [noteWin],
   );
 
   /** 设置面板改动：更新状态、应用到控制器并持久化到 localStorage。 */
@@ -440,23 +434,72 @@ export default function App() {
 
 
 
-  // 加载皮肤清单并解析当前选用皮肤；变化模式对应 solidMode=true（整颗停靠、不滑出），
-  // 滑动模式/无皮肤对应 solidMode=false（CSS 滑出半掩）。提升到 App 级避免重挂载闪现。
+  /**
+   * 挂件容器尺寸：长边 = 配置的挂件大小，短边按素材比例收缩，宽度再加固定留白。
+   * 映射规则全在 widgetBoxFor 里；窗口与 CSS 容器都取这一个结果——不一致就会出现
+   * “看着有但摸不到”（容器大于窗口）或“摸得到但看不见”（容器小于窗口）。
+   */
+  const widgetBox = widgetBoxFor(config.widgetSize, (skin ?? defaultSkin()).ratio);
+
+  /**
+   * 尺寸一变就下发：窗口的宽高只能由 JS 给，而它同时是悬停判定的依据，必须与容器同尺寸。
+   * 两种情况只记录、不动窗口：
+   * - 启动首次定位前：真实屏幕尺寸还没拿到，此刻 resize 会拿兜底屏幕尺寸把窗口放歪
+   *   （见 LOGIC.md「停靠位置持久化」）；尺寸已记进控制器，随后的 showWidget 会带上它。
+   * - 面板打开时：resize 会把面板挤成挂件大小。
+   */
+  useEffect(() => {
+    if (!widgetPlacedRef.current || modeRef.current === "expanded" || modalOpenRef.current) {
+      windowCtl.syncWidgetBox(widgetBox);
+      return;
+    }
+    windowCtl.setWidgetBox(widgetBox).catch((e) => console.error("[setWidgetBox] 失败:", e));
+  }, [widgetBox.width, widgetBox.height, widgetBox.peek, windowCtl]);
+
+  /**
+   * 屏幕逻辑尺寸的唯一读入口：读一次喂给两个控制器（一次读取，两处共用）。
+   * 尺寸没变就直接返回——换显示器/改缩放的回调可能频繁触发，但不常有真实变化。
+   */
+  const screenRef = useRef<{ w: number; h: number } | null>(null);
+  const syncScreen = useCallback(async () => {
+    const size = await readMonitorScreen();
+    if (!size) return;
+    const prev = screenRef.current;
+    if (prev && prev.w === size.w && prev.h === size.h) return;
+    screenRef.current = size;
+    windowCtl.applyScreen(size);
+    noteWin.applyScreen(size);
+    // 尺寸真的变了：停靠 X 与 dockY 都要按新屏幕重算。
+    // 启动首次定位前 / 面板打开时都不重排（前者由随后的 showWidget 带上，后者收起时由 dockHidden 带上）。
+    if (!widgetPlacedRef.current || modeRef.current === "expanded" || modalOpenRef.current) return;
+    windowCtl
+      .placeWidget(windowCtl.currentEdge())
+      .catch((e) => console.error("[placeWidget] 失败:", e));
+  }, [noteWin, windowCtl]);
+
+  // 皮肤清单只跟皮肤目录有关，与“当前选了哪个”无关，因此只在启动加载一次
+  // （依赖里带上当前皮肤名会让每次换皮肤都重跑一遍目录 IPC 与逐张图片加载）。
   useEffect(() => {
     let alive = true;
     loadSkins()
       .then((list) => {
-        if (!alive) return;
-        setSkins(list);
-        const cur = resolveSkin(list, skinName);
-        setSkin(cur);
-        windowCtl.setSolidMode(cur.mode === "transform");
+        if (alive) setSkins(list);
       })
       .catch((e) => console.error("[loadSkins] 失败:", e));
     return () => {
       alive = false;
     };
-  }, [windowCtl, skinName]);
+  }, []);
+
+  // 当前选用皮肤由「清单 + 选中的名字」推出；变化模式对应 solidMode=true（整颗停靠、不滑出），
+  // 滑动模式对应 solidMode=false（CSS 滑出半掩）。提升到 App 级避免重挂载闪现。
+  useEffect(() => {
+    // 清单还没到：先不动（挂件此时按内置 default 渲染）。
+    if (skins.length === 0) return;
+    const cur = resolveSkin(skins, skinName);
+    setSkin(cur);
+    windowCtl.setSolidMode(cur.mode === "transform");
+  }, [skins, skinName, windowCtl]);
 
   // 注册“拖动结束”回调：挂件被 OS 拖动松手后，WindowController 会贴边并回调这里。
   useEffect(() => {
@@ -471,18 +514,20 @@ export default function App() {
 
   // 初始化：默认展示挂件、启动全局鼠标监听、恢复上次标签页。
   useEffect(() => {
-    // 先用真实显示器尺寸刷新屏幕，否则 window.screen 在 Tauri 下不可靠，
-    // 会把挂件/面板定位到屏幕外（表现为“点一下挂件就消失、窗口看不见”）。
-    noteWin.refreshScreen().catch((e) => console.error("[refreshScreen] 失败:", e));
-    // 先拿到真实显示器尺寸再定位：refreshScreen 会把上次记录的停靠 Y 夹回可见范围，
+    // 先拿到真实显示器尺寸再定位：applyScreen 会把上次记录的停靠 Y 夹回可见范围，
     // 之后同步 UI 的贴边方向（决定挂件翻转与面板展开侧），最后才显示窗口。
-    windowCtl
-      .refreshScreen()
-      .catch((e) => console.error("[refreshScreen] 失败:", e))
+    syncScreen()
+      .catch((e) => console.error("[screen] 读取失败:", e))
       .then(() => {
         setEdge(windowCtl.currentEdge());
         windowCtl.showWidget();
+        // 首次定位完成：此后才允许尺寸变化重排窗口（尺寸已记在控制器里，showWidget 用它定位）。
+        widgetPlacedRef.current = true;
       });
+    // 换显示器 / 改缩放（DPI）后重读屏幕尺寸，否则停靠坐标会一直按旧屏幕算。
+    const unwatchScreen = windowCtl.watchScreenChange(() => {
+      void syncScreen();
+    });
     invoke("start_mouse_watch").catch((e) => {
       console.error("[start_mouse_watch] 调用失败:", e);
     });
@@ -631,10 +676,11 @@ export default function App() {
     return () => {
       cancelled = true;
       unlisteners.forEach((fn) => fn());
+      unwatchScreen();
       sensor.stop();
       clearTimers();
     };
-  }, [windowCtl, beginClose, noteWin, scheduleSave, doClose]);
+  }, [windowCtl, beginClose, noteWin, scheduleSave, doClose, syncScreen]);
 
   /** 打开笔记面板。 */
   const openPanel = useCallback(() => {
@@ -654,18 +700,12 @@ export default function App() {
     setDragging(next);
   }, []);
 
-  /** 切换皮肤：更新状态、下发 solidMode、永久保存到 localStorage（独立 key）。 */
-  const onSelectSkin = useCallback(
-    (name: string) => {
-      const cur = resolveSkin(skins, name);
-      setSkinName(name);
-      setSkin(cur);
-      windowCtl.setSolidMode(cur.mode === "transform");
-      saveSkinName(name);
-      setSkinOpen(false);
-    },
-    [skins, windowCtl],
-  );
+  /** 切换皮肤：只改名字并持久化；皮肤对象、solidMode、尺寸都由名字驱动的 effect 跟上。 */
+  const onSelectSkin = useCallback((name: string) => {
+    setSkinName(name);
+    saveSkinName(name);
+    setSkinOpen(false);
+  }, []);
 
   /** 确认弹窗“确定”：执行真正删除并关闭弹窗。 */
   const confirmDelete = useCallback(() => {
@@ -845,7 +885,9 @@ export default function App() {
           windowCtl={windowCtl}
           onOpen={openPanel}
           onDraggingChange={onDraggingChange}
-          widgetSize={config.widgetSize}
+          widgetWidth={widgetBox.width}
+          widgetHeight={widgetBox.height}
+          widgetPeek={widgetBox.peek}
           idleOpacity={config.idleOpacity}
           skin={skin ?? defaultSkin()}
           passthrough={passthrough}

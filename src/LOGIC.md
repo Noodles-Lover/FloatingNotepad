@@ -21,7 +21,7 @@
 - **`WindowController`**（`src/lib/window.ts`）：悬浮挂件形态。负责贴边（left/right）、垂直位置、拖动、停靠、碰撞箱外扩、`dockHidden()` / `showWidget()` 等窗口定位。
 - **`NoteWindow`**（`src/lib/noteWindow.ts`）：速记面板形态。负责 `expand(dockEdge, dockY)`（紧贴停靠侧向外弹出、垂直中心对齐挂件、与屏幕边沿留 `MARGIN`）、`collapse()`（还原回挂件隐藏态，经注入的 `windowCtl.dockHidden()`）、`bounds()`（读窗口真实 outerPosition/outerSize 换算逻辑像素，供 proximity 判定鼠标是否在面板内）。
 
-`WindowController` 与 `NoteWindow` 的 `refreshScreen()` 共用 `src/lib/screen.ts` 的 `readMonitorScreen()`（读 `currentMonitor()` 的真实尺寸转逻辑像素）覆盖内部 `screen`，避免窗口被放到屏幕外——多显示器/热插拔场景由这层保证。
+屏幕逻辑尺寸由 `App.syncScreen()` **统一读一次**（`src/lib/screen.ts` 的 `readMonitorScreen()`，读 `currentMonitor()` 的真实尺寸转逻辑像素），再 `applyScreen()` 分发给两个控制器（一次读取，两处共用）；尺寸没变就直接返回。`WindowController.watchScreenChange()` 订阅 `onScaleChanged`（改缩放/DPI）与 `onMoved`（换显示器）并在去抖后触发重读，所以中途换显示器不必重启。
 
 ### 停靠位置持久化
 
@@ -29,9 +29,17 @@
 
 位置与皮肤名一样**独立于 `AppConfig`**——它由拖动产生，属于运行时状态而非设置项，拖动时不需要走配置的 `sanitize`。
 
-`refreshScreen()` 拿到真实显示器尺寸后会 `clampY(dockY)`：换显示器或改分辨率后，旧坐标可能落在屏幕外，夹回可见范围。启动时也因此**必须先 `refreshScreen()` 再 `showWidget()`**，否则会用 `window.screen` 的兜底尺寸定位。
+`applyScreen()` 拿到真实显示器尺寸后会 `clampY(dockY)`：换显示器或改分辨率后，旧坐标可能落在屏幕外，夹回可见范围。启动时也因此**必须先把屏幕尺寸喂进去（`syncScreen()`）再 `showWidget()`**，否则会用 `window.screen` 的兜底尺寸定位。
 
-`App` 的 `edge` state 在 `refreshScreen()` 完成后从 `windowCtl.currentEdge()` 同步——挂件的翻转与面板展开方向都依赖它，不同步会出现「窗口贴左、样式按右」的错位。
+`App` 的 `edge` state 在 `syncScreen()` 完成后从 `windowCtl.currentEdge()` 同步——挂件的翻转与面板展开方向都依赖它，不同步会出现「窗口贴左、样式按右」的错位。
+
+### 挂件容器尺寸（素材比例）
+
+挂件容器**跟着素材图片的实际大小走**，不是正方形。“配置尺寸 → 素材实际大小”的映射规则只写在 `widgetBoxFor(size, ratio)`（`src/lib/window.ts`）一处：素材按 `size × size` 的方框等比缩放（长边 = 配置的挂件大小，短边按素材宽高比收缩），宽度再额外留 `WIDGET_BOX_PAD_X`（20px）。图片始终贴着停靠边，那段留白落在朝屏幕内侧。`WindowController`（窗口矩形、停靠坐标、碰撞箱）与挂件 CSS 容器（`FloatingWidget`）取的是同一个函数的结果，尺寸不会各算一遍；**隐藏态露出多少（`peek`）也在这个函数里定**——CSS 的滑出量 = 容器宽 − `peek`，proximity 在隐藏态的判定矩形用的也是这个数，两处取同一份。
+
+这条必须成立：碰撞箱（窗口矩形 + proximity 判定）按容器算，容器比图片大出的那一圈就是「幽灵区」——鼠标落在图片外的空处仍判定为「在挂件内」，`mouseleave` 也不会触发。`object-fit: contain` 恰好会造出这一圈（图片按短边缩进方框，两侧或上下留下空走），所以容器的宽高必须严格等于图片尺寸加上面那段刻意留的宽度。
+
+比例在 `loadSkins()` 加载图片时量出（`Skin.ratio`，变化模式取 `idle.png`）；App 里算一次 `widgetBoxFor(config.widgetSize, skin.ratio)`，再由一个 effect 下发给窗口（`setWidgetBox`，面板打开或首次定位完成前退化为只记录的 `syncWidgetBox`）。**尺寸一变就下发**——窗口不会停在旧尺寸上，容器也不会比窗口宽或窄（这两者不一致就是“看着有但摸不到”或“摸得到但看不见”）。
 
 ---
 
@@ -86,10 +94,11 @@ App 端判定**始终基于 UI 当前真实 bounds**：
 ## 5. 皮肤系统（skins.ts）
 
 - **物理结构**：`public/skin/<name>/` 每个文件夹一套皮肤，文件夹名即皮肤名。
-- **发现**：前端不能列目录，先 `invoke("list_skins")` 拿文件夹名列表，再逐文件夹 `fetch(HEAD)` 探测图片并校验 `content-type` 以跳过 Vite dev 下「404 回退 index.html」的误判。
+- **发现**：前端不能列目录，先 `invoke("list_skins")` 拿文件夹名列表，再逐文件夹用 `<img>` 加载约定文件名下的图片：解码成功即视为存在，同时量出宽高比。用 `<img>` 而非 `fetch(HEAD)`——Vite dev 下缺失的 `.png` 会回退返回 `index.html`（200 + `text/html`），只看状态码会误判，而解码失败天然把 HTML 挡掉；顺带取到的比例本来也必须知道。清单只跟**皮肤目录**有关，与“当前选了哪个”无关，所以**只在启动加载一次**；当前皮肤由「清单 + 选中的名字」推出，换皮肤只做本地解析。
 - **模式判定**：
   - `slide`：存在 `widget.png` 单张（整颗停靠，CSS 滑出半掩）。
   - `transform`：同时存在 `idle.png`（半掩）+ `hover.png`（伸出）两张。
+- **宽高比（`Skin.ratio`）**：挂件容器与窗口按它收缩到图片实际大小（长边 = 配置的挂件大小，宽度另加固定留白），见第 1 节「挂件容器尺寸」；变化模式以 `idle.png` 定尺寸——两张画布未必等大。
 - **回落**：无任何有效皮肤或 `list_skins` 失败时回落到内置 `default`。
 - **持久化**：选择存 `localStorage["floating-notepad.skin"]`，跨会话保留。
 

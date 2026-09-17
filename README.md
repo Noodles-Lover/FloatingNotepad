@@ -109,6 +109,8 @@
 文件夹内既无 `widget.png` 也无 `idle.png`/`hover.png` 时会被忽略。
 名为 `default` 的皮肤为出厂默认，未选择过时自动使用。
 
+图片的**画布比例就是挂件的形状**（长边缩放到「挂件尺寸」，短边按比例收缩），因此画布边缘别留透明空白——整块画布都算挂件的可点范围。
+
 详细说明可见 **[public/skin/README.txt](public/skin/README.txt)**。
 
 ---
