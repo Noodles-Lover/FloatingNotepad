@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { invoke } from "@tauri-apps/api/core";
+import { isEnabled, enable, disable } from "@tauri-apps/plugin-autostart";
 import { listen, type UnlistenFn } from "@tauri-apps/api/event";
 import { Menu, MenuItem, CheckMenuItem } from "@tauri-apps/api/menu";
 import { WindowController, widgetBoxFor, type Edge } from "./lib/window";
@@ -103,6 +104,7 @@ export default function App() {
   const sortTimerRef = useRef<number | null>(null); // 800ms 重排定时器
   const [config, setConfig] = useState<AppConfig>(DEFAULT_CONFIG); // 用户配置（挂件大小/窗口/自动关闭）
   const [passthrough, setPassthroughState] = useState<boolean>(false); // 穿透模式
+  const [autostartOn, setAutostartOn] = useState<boolean>(false); // 开机自启（状态由 OS 维护）
   const passthroughRef = useRef(false); // 最新穿透态，供 proximity / 点击早退读取
   const [skins, setSkins] = useState<Skin[]>([]); // 可用皮肤清单（运行时从 skin 目录自动读取）
   // 当前选用皮肤名（永久保存）。
@@ -406,6 +408,10 @@ export default function App() {
     // 穿透是 Rust 维护的运行时态，启动恒为关（见 lib.rs 的 PassthroughState）。
     setPassthroughState(false);
     passthroughRef.current = false;
+    // 开机自启状态由 OS 维护，启动即从系统读取真实值（不缓存进 localStorage）。
+    isEnabled()
+      .then(setAutostartOn)
+      .catch((e) => console.error("[autostart] 读取失败:", e));
     applyConfigToCtl(cfg);
     syncLockDelay(cfg.autoCloseDelay);
     syncFullscreenPassthrough(cfg.fullscreenPassthrough);
@@ -807,6 +813,13 @@ export default function App() {
     onConfigChange({ ...configRef.current, muted: !configRef.current.muted });
   }, [onConfigChange]);
 
+  /** 切换开机自启：真相在 OS，前端只同步显示并写入系统启动项。 */
+  const onAutostartChange = useCallback((on: boolean) => {
+    setAutostartOn(on);
+    (on ? enable() : disable())
+      .catch((e) => console.error("[autostart] 设置失败:", e));
+  }, []);
+
   // 渲染时按优先级降序排列（高优先级在前），不修改底层存储顺序。
   const activeCategory: Category | undefined =
     catsApi.list.find((c) => c.id === catsApi.activeId) ?? catsApi.list[0];
@@ -950,6 +963,8 @@ export default function App() {
         <FeaturePanel
           config={config}
           onChange={onConfigChange}
+          autostart={autostartOn}
+          onAutostartChange={onAutostartChange}
           onClose={() => setFeaturesOpen(false)}
         />
       )}

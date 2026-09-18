@@ -39,6 +39,7 @@ public/skin/*
 
 # Local-only dev & release notes
 docs/DEV_GUIDE.md
+docs/optimizations.md
 
 # Signing keys (private keys must never be committed)
 *.key

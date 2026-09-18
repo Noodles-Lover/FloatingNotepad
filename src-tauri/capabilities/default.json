@@ -42,6 +42,9 @@
     "allow-show-lock-window",
     "allow-hide-lock-window",
     "allow-set-lock-hide-delay",
-    "allow-quit-app"
+    "allow-quit-app",
+    "autostart:allow-enable",
+    "autostart:allow-disable",
+    "autostart:allow-is-enabled"
   ]
 }

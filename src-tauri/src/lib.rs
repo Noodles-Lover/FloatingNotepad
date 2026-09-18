@@ -787,6 +787,10 @@ pub fn run() {
         .plugin(tauri_plugin_updater::Builder::new().build())
         .plugin(tauri_plugin_process::init())
         // 任务提醒走系统通知：是否在全屏/游戏里打扰用户由系统决定。
+        .plugin(tauri_plugin_autostart::init(
+            tauri_plugin_autostart::MacosLauncher::LaunchAgent,
+            None,
+        ))
         .plugin(tauri_plugin_notification::init())
         .setup(|app| {
             app.manage(MouseWatcher::new());

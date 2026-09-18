@@ -37,6 +37,7 @@ tauri-plugin-updater = "2.11.0"
 tauri-plugin-process = "2.3.1"
 # 任务提醒走系统通知：全屏/游戏时是否打扰用户交给系统判断，比自己画弹窗稳妥。
 tauri-plugin-notification = "2"
+tauri-plugin-autostart = "2"
 
 [profile.release]
 panic = "abort"
