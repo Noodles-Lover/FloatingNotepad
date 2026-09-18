@@ -2,8 +2,8 @@
 //!
 //! 每 10 秒看一眼前台窗口，把「连续使用某个应用」记成一条会话（起止时间）写进本地 SQLite。
 //! 只有前台切换、跨天、明确离开（锁屏 / 屏保 / 系统睡眠，外加长时间无输入兜底）
-//! 或关闭功能时才会结束会话，其余时候只做一次 UPDATE 续期，
-//! 因此进程被强杀也只丢一个轮询间隔。
+//! 或关闭功能时才会结束会话；会话进行中结束时间只攒在内存里，按 [`FLUSH_INTERVAL`]
+//! 的节奏才写一次盘，因此进程被强杀最多丢一个落库间隔（手动退出前会补一次，见 [`flush`]）。
 //!
 //! 数据全部留在本机 notes.db，面板只展示当天（凌晨 4 点为界）。
 
@@ -35,6 +35,12 @@ const AWAY_PROCESSES: &[&str] = &["LockApp.exe", "LogonUI.exe"];
 /// 两次轮询之间的墙上时钟跳变超过这个值，即认为系统睡过一觉（合盖 / 休眠）。
 /// 远大于轮询间隔，正常调度抖动不会误判。
 const SLEEP_GAP_MS: i64 = 60_000;
+/// 续期落库的间隔：会话进行中每隔这么久把结束时间写一次盘。
+///
+/// 采样（10 秒）与落库分开：时长最终以分钟呈现，没必要跟着采样频率写盘——
+/// 按采样频率写就是每条会话每 10 秒一次 UPDATE，一天数千次。
+/// 这个值同时也是「进程被强杀最多丢多少时长」的上界。
+const FLUSH_INTERVAL_MS: i64 = 3 * 60_000;
 
 /// 使用统计的运行时状态。
 pub struct UsageState {
@@ -50,6 +56,10 @@ struct Session {
     id: i64,
     app: String,
     day: String,
+    /// 最新已知的结束时间（内存），落盘时才写进库。
+    end_ms: i64,
+    /// 上次落盘的结束时间，用于判断是否到了该续期写盘的时刻。
+    flushed_ms: i64,
 }
 
 impl UsageState {
@@ -73,6 +83,20 @@ pub fn start(app: AppHandle) {
 /// 当前本地日期（"YYYY-MM-DD"），供统计命令按天查询。
 pub fn today() -> String {
     db::local_clock().0
+}
+
+/// 把进行中会话的最新结束时间落盘（手动退出前调用）。
+///
+/// 会话进行中的结束时间是攒在内存里的（见 [`FLUSH_INTERVAL_MS`]），退出前不补这一次
+/// 就会丢掉最后那一段。不结束会话——调用之后进程就该没了。
+pub fn flush(app: &AppHandle) {
+    let state = app.state::<UsageState>();
+    let Ok(guard) = state.session.lock() else {
+        return;
+    };
+    if let Some(s) = guard.as_ref() {
+        db::touch_session(s.id, s.end_ms);
+    }
 }
 
 /// 单次轮询：把「此刻在用哪个应用」并入进行中的会话。
@@ -115,11 +139,23 @@ fn poll_once(app: &AppHandle) {
     let Ok(mut guard) = state.session.lock() else {
         return;
     };
-    match (current, guard.as_ref()) {
-        // 同一个应用、同一天：只续期，不开新会话。
-        (Some(name), Some(s)) if s.app == name && s.day == now.day => {
-            db::touch_session(s.id, now.ms);
+    // 同一个应用、同一天：只续期，不开新会话。结束时间攒在内存里，
+    // 按落库间隔才写一次盘（时长以分钟呈现，没必要跟着 10 秒的采样频率写）。
+    let same = matches!(
+        (&current, guard.as_ref()),
+        (Some(name), Some(s)) if s.app == *name && s.day == now.day
+    );
+    if same {
+        if let Some(s) = guard.as_mut() {
+            s.end_ms = now.ms;
+            if now.ms - s.flushed_ms >= FLUSH_INTERVAL_MS {
+                db::touch_session(s.id, s.end_ms);
+                s.flushed_ms = s.end_ms;
+            }
         }
+        return;
+    }
+    match (current, guard.as_ref()) {
         // 应用切换或跨天：先收尾旧的，再开新的。
         (Some(name), _) => {
             let prev = guard.take();
@@ -141,6 +177,9 @@ fn poll_once(app: &AppHandle) {
                             id: kept,
                             app: name,
                             day: now.day,
+                            // 合并时库里的结束时间已续到现在，视为已落盘。
+                            end_ms: now.ms,
+                            flushed_ms: now.ms,
                         });
                         return;
                     }
@@ -151,6 +190,8 @@ fn poll_once(app: &AppHandle) {
                 id,
                 app: name,
                 day: now.day,
+                end_ms: now.ms,
+                flushed_ms: now.ms,
             });
         }
         // 空闲或前台是浮笺自己：没有在用的应用，收尾即可。

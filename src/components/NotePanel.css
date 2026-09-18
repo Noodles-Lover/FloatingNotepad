@@ -236,6 +236,64 @@
 /* 日期印章行：头栏（panel-head）里的换行行，占满整行、靠右对齐。
    不单独占一个面板 flex 项——那样面板的 8px gap 会在它上下各加一条，
    和速记区就会隔得很开。 */
+/* 最近一项日程：一枚小胶囊，占日期行左侧的空白（零额外高度）；点击跳到日程标签页。
+   min-width: 0 是关键：flex 项默认不会收缩到内容宽度以下，不加这条，
+   长文本会把右侧的日期时间顶出去，而不是被省略号截断。 */
+.seal-plan {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  flex: 0 1 auto;
+  min-width: 0;
+  max-width: 58%;
+  margin-right: auto;
+  padding: 1px 7px 1px 6px;
+  border: 1px solid var(--border);
+  border-radius: 9px;
+  background: var(--paper);
+  font-size: 11px;
+  line-height: 15px;
+  color: var(--ink-soft);
+  cursor: pointer;
+  transition:
+    border-color 160ms ease,
+    color 160ms ease;
+}
+
+.seal-plan:hover {
+  border-color: var(--gold);
+  color: var(--ink);
+}
+
+/* 朱砂小点：一眼看出这是"有件事"而不是普通文字。 */
+.seal-plan-dot {
+  flex: 0 0 auto;
+  width: 5px;
+  height: 5px;
+  border-radius: 50%;
+  background: var(--cinnabar);
+}
+
+.seal-plan-when {
+  flex: 0 0 auto;
+  color: var(--ink-soft);
+}
+
+.seal-plan-time {
+  flex: 0 0 auto;
+  color: var(--cinnabar);
+  font-variant-numeric: tabular-nums;
+}
+
+.seal-plan-text {
+  flex: 0 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--ink);
+}
+
 .note-seal-row {
   flex: 0 0 100%;
   display: flex;

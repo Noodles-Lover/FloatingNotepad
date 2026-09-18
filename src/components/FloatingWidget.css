@@ -1,7 +1,9 @@
 /* ---------- Floating widget ---------- */
 .widget-wrap {
-  width: var(--widget-size, 56px);
-  height: var(--widget-size, 56px);
+  /* 尺寸由 App 按素材比例算出（lib/window.ts 的 widgetBoxFor），与窗口严格同尺寸：
+     容器等于图片实际大小，多出来的那一圈会成为碰撞箱外的空走一条。 */
+  width: var(--widget-width, 56px);
+  height: var(--widget-height, 56px);
   display: flex;
   align-items: center;
   justify-content: center;
@@ -10,12 +12,25 @@
   transition: transform 160ms ease-out;
 }
 
+/* 滑出半个容器宽度（= 半个图片），露出的一条缝即隐藏态的可见范围。 */
+/* 容器在窗口里贴住停靠边：万一窗口与容器尺寸一时不一致（下发慢了一拍），
+   图片也始终贴着屏幕边，多出来的窗口部分落在朝屏幕内侧——而不是把图片顶到屏幕外。 */
+.widget-wrap.dock-right {
+  margin-left: auto;
+}
+
+.widget-wrap.dock-left {
+  margin-right: auto;
+}
+
+/* 滑出到只剩一条缝：滑出量 = 容器宽 − 缝宽。缝宽 App 传下来（--widget-peek），
+   与 proximity 判定矩形用的是同一个数。 */
 .widget-wrap.hidden.dock-right {
-  transform: translateX(calc(var(--widget-size, 56px) / 2));
+  transform: translateX(calc(var(--widget-width, 56px) - var(--widget-peek, 28px)));
 }
 
 .widget-wrap.hidden.dock-left {
-  transform: translateX(calc(var(--widget-size, 56px) / -2));
+  transform: translateX(calc(var(--widget-peek, 28px) - var(--widget-width, 56px)));
 }
 
 .widget-wrap.revealed,
@@ -29,7 +44,9 @@
   width: 100%;
   height: 100%;
   object-fit: contain;
-  /* 原图按"右侧构图"：内容集中在图片右侧。始终让图片框右对齐，
+  /* 容器已与图片等大，contain 正常没有余量；这条只在素材自身不一致时兜底——
+     变化模式的 idle / hover 两张画布尺寸可能不同，而容器按 idle 那张定。
+     原图按"右侧构图"：内容集中在图片右侧。始终让图片框右对齐，
      内容即贴近框右；靠右时不翻转直接贴右，靠左时翻转(scaleX)后内容贴左。
      若用 left center，靠左翻转后会因原图左半空白而留出空隙。 */
   object-position: right center;
@@ -72,20 +89,60 @@
   opacity: 0;
 }
 
-.widget-wrap.passthrough .widget-img-single {
+/* 挂件上「闲置半透明、展开时不透明」的元素共用这一类（挂件图、待办角标）。
+   新元素只要带上 .widget-fade 就自动跟随，不必再抄一遍 opacity 规则——
+   透明度只有一个来源，改闲置透明度时所有元素一起变。 */
+.widget-fade {
   opacity: var(--idle-opacity, 0.7);
+  transition: opacity 180ms ease-out;
 }
 
-.widget-img-single {
-  opacity: var(--idle-opacity, 0.7);
-}
-
-.widget-wrap.revealed .widget-img-single {
+.widget-wrap.revealed .widget-fade,
+.widget-wrap.dragging .widget-fade {
   opacity: 1;
+}
+
+/* 穿透态即使展开也保持闲置透明度：挂件此时只是静态展示，不该变亮。
+   放在 revealed 之后——两者特异性相同，靠顺序取胜。 */
+.widget-wrap.passthrough .widget-fade {
+  opacity: var(--idle-opacity, 0.7);
 }
 
 /* 贴左侧时水平翻转，让"探出"方向朝右（滑动模式单张图）。 */
 .widget-wrap.flipped .widget-img-single {
   transform: scaleX(-1);
+}
+
+/* 待办角标：朱砂小圆点 + 条数，贴在朝屏幕内侧的那个上角
+   （挂件靠左放右上、靠右放左上）。整体收进挂件范围内：
+   挂件尺寸是用户可调的，贴边放会被窗口/挂件的边界裁掉。 */
+.widget-badge {
+  position: absolute;
+  top: 4px;
+  z-index: 2;
+  min-width: 16px;
+  height: 16px;
+  padding: 0 4px;
+  box-sizing: border-box;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 8px;
+  background: var(--cinnabar);
+  color: #fffdf5;
+  font-size: 10px;
+  font-weight: 700;
+  line-height: 1;
+  font-variant-numeric: tabular-nums;
+  pointer-events: none;
+  box-shadow: 0 1px 3px rgba(80, 60, 20, 0.4);
+}
+
+.widget-badge.at-right {
+  right: 4px;
+}
+
+.widget-badge.at-left {
+  left: 4px;
 }
 

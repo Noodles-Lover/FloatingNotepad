@@ -1,7 +1,9 @@
 import { useEffect, useRef, useState } from "react";
 import type { Category, Tab, Todo } from "../types";
 import type { Edge } from "../lib/window";
+import { PLANS_TAB_ID, type NearestInfo, type Plan } from "../lib/plans";
 import { TabBar } from "./TabBar";
+import PlansView from "./PlansView";
 
 interface Props {
   note: string;
@@ -36,8 +38,14 @@ interface Props {
   edge: Edge; // 当前贴附的边，决定面板动画从哪侧飘出
   idleOpacity: number; // 挂件闲置不透明度：面板开合动画的起始/结束不透明度
   onOpenSkin: () => void; // 打开皮肤选择面板
+  onOpenFeatures: () => void; // 打开功能面板
   onOpenSettings: () => void; // 打开设置面板
   onOpenUsage: () => void; // 打开使用统计面板
+  onOpenPlans: () => void; // 打开新增日程面板
+  plans: Plan[]; // 全部日程（待办栏「日程」标签页的内容）
+  onPlansChange: (plans: Plan[]) => void; // 日程增删改后同步给 App
+  /** 最近一项日程（主页面日期行左侧显示）；无近期日程时为 null，整段隐藏。 */
+  nearest: NearestInfo | null;
 }
 
 /** 回形针图标（品牌装饰）。 */
@@ -94,6 +102,16 @@ function ChartIcon() {
   );
 }
 
+/** 功能（星芒）图标。 */
+function SparkleIcon() {
+  return (
+    <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+      <path d="M12 3l1.9 5.1L19 10l-5.1 1.9L12 17l-1.9-5.1L5 10l5.1-1.9L12 3z" />
+      <path d="M18 16l.8 2.2L21 19l-2.2.8L18 22l-.8-2.2L15 19l2.2-.8L18 16z" />
+    </svg>
+  );
+}
+
 /** 音量图标：静音时在喇叭右侧画一个叉，开启时画声波。 */
 function VolumeIcon({ muted }: { muted: boolean }) {
   return (
@@ -110,6 +128,16 @@ function VolumeIcon({ muted }: { muted: boolean }) {
           <path d="M18.5 5.5a9 9 0 0 1 0 13" />
         </>
       )}
+    </svg>
+  );
+}
+
+/** 日历图标（新增日程入口）。 */
+function CalendarIcon() {
+  return (
+    <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+      <rect width="18" height="18" x="3" y="4" rx="2" />
+      <path d="M8 2v4M16 2v4M3 10h18" />
     </svg>
   );
 }
@@ -155,9 +183,16 @@ export default function NotePanel({
   muted,
   onToggleMute,
   onOpenSkin,
+  onOpenFeatures,
   onOpenSettings,
   onOpenUsage,
+  onOpenPlans,
+  plans,
+  onPlansChange,
+  nearest,
 }: Props) {
+  // 「日程」是待办栏里的系统标签页：选中时待办清单换成日程清单，速记区不动。
+  const plansActive = activeCategoryId === PLANS_TAB_ID;
   const taRef = useRef<HTMLTextAreaElement>(null);
   const todoInputRef = useRef<HTMLInputElement>(null);
   // 打开面板时取一次当前时间（日期印章 + 时钟），后台驻留期间不刷新。
@@ -221,13 +256,19 @@ export default function NotePanel({
           <button className="icon-btn" onClick={onOpenSkin} title="皮肤">
             <PaletteIcon />
           </button>
+          <button className="icon-btn" onClick={onOpenFeatures} title="功能">
+            <SparkleIcon />
+          </button>
           <button className="icon-btn" onClick={onOpenUsage} title="使用统计">
             <ChartIcon />
+          </button>
+          <button className="icon-btn" onClick={onOpenPlans} title="日程">
+            <CalendarIcon />
           </button>
           <button
             className={`icon-btn mute-btn ${muted ? "active" : ""}`}
             onClick={onToggleMute}
-            title={muted ? "已静音（点此恢复音效）" : "静音（关闭穿透与面板音效）"}
+            title={muted ? "已静音（点此恢复音效）" : "静音（关闭音效）"}
           >
             <VolumeIcon muted={muted} />
           </button>
@@ -243,6 +284,20 @@ export default function NotePanel({
             若单独占一个面板 flex 项，面板的 8px gap 会在它上下各加一条，
             和速记区就会隔得很开。 */}
         <div className="note-seal-row">
+          {/* 最近一项日程：借日期行左侧的空白显示，零额外高度；
+              没有近期日程时整段不渲染，把这一行还给日期。 */}
+          {nearest && (
+            <span
+              className="seal-plan"
+              title={`${nearest.when}${nearest.time ? ` ${nearest.time}` : ""} ${nearest.text}（点击查看日程）`}
+              onClick={() => onSwitchCategory(PLANS_TAB_ID)}
+            >
+              <span className="seal-plan-dot" aria-hidden />
+              <span className="seal-plan-when">{nearest.when}</span>
+              {nearest.time && <span className="seal-plan-time">{nearest.time}</span>}
+              <span className="seal-plan-text">{nearest.text}</span>
+            </span>
+          )}
           <span className="date-seal">
             {sealTime.getFullYear()}.
             {String(sealTime.getMonth() + 1).padStart(2, "0")}.
@@ -281,9 +336,10 @@ export default function NotePanel({
         onChange={(e) => onContentChange(e.target.value)}
       />
 
-      {/* 待办分类：同样复用通用 TabBar，数据与速记完全独立存储 */}
+      {/* 待办分类：同样复用通用 TabBar，数据与速记完全独立存储。
+          其中「日程」是系统标签页，与分类并列但不可改名/删除。 */}
       <TabBar
-        items={categories}
+        items={categories.map((c) => ({ ...c, system: c.id === PLANS_TAB_ID }))}
         activeId={activeCategoryId}
         onSwitch={onSwitchCategory}
         onAdd={onAddCategory}
@@ -295,7 +351,13 @@ export default function NotePanel({
         title="待办"
       />
 
-      <div className="todo-list">
+      {/* 选中「日程」系统标签页时，这块区域换成日程清单（只看与删）；
+          速记区照常在上面，切标签不会像换页一样把整块内容换掉。 */}
+      {plansActive ? (
+        <PlansView plans={plans} onChange={onPlansChange} />
+      ) : (
+        <>
+          <div className="todo-list">
         {todos.map((t) => {
           const color = priorityColor(t.priority);
           const editing = editingNotes.has(t.id);
@@ -392,7 +454,9 @@ export default function NotePanel({
         >
           添加
         </button>
-      </div>
+          </div>
+        </>
+      )}
 
       {/* 备注气泡：fixed 定位，脱离列表裁切，显示在任务行上方 */}
       {hoverNote && (

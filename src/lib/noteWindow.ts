@@ -1,7 +1,7 @@
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import { LogicalPosition, LogicalSize } from "@tauri-apps/api/dpi";
 import { WindowController, type Edge, type Rect } from "./window";
-import { readMonitorScreen } from "./screen";
+import type { ScreenSize } from "./screen";
 import type { AppConfig } from "./config";
 
 /** 展开后面板与屏幕边界保留的最小间距。 */
@@ -16,14 +16,13 @@ const MARGIN = 6;
  */
 export class NoteWindow {
   private readonly win = getCurrentWindow();
-  /** 屏幕逻辑尺寸，启动后由 refreshScreen() 用真实显示器尺寸覆盖。 */
+  /** 屏幕逻辑尺寸，启动后由 App 读到真实显示器尺寸经 applyScreen() 覆盖。 */
   private screen = { w: window.screen.width, h: window.screen.height };
   private panelW: number;
   private panelH: number;
-  private widgetSize: number;
 
   /**
-   * 注入悬浮挂件控制器（收起时还原挂件）与当前配置（决定面板尺寸、挂件大小）。
+   * 注入悬浮挂件控制器（收起时还原挂件）与当前配置（决定面板尺寸）。
    */
   constructor(
     private readonly windowCtl: WindowController,
@@ -31,20 +30,20 @@ export class NoteWindow {
   ) {
     this.panelW = cfg.windowWidth;
     this.panelH = cfg.windowHeight;
-    this.widgetSize = cfg.widgetSize;
   }
 
   /** 应用新的配置（尺寸变化时立即生效，下次展开即使用新尺寸）。 */
   applyConfig(cfg: AppConfig): void {
     this.panelW = cfg.windowWidth;
     this.panelH = cfg.windowHeight;
-    this.widgetSize = cfg.widgetSize;
   }
 
-  /** 用 Tauri 真实显示器尺寸刷新内部 screen（逻辑像素），避免窗口被放到屏幕外。 */
-  async refreshScreen(): Promise<void> {
-    const size = await readMonitorScreen();
-    if (size) this.screen = size;
+  /**
+   * 更新屏幕逻辑尺寸（逻辑像素），避免面板被放到屏幕外。
+   * 由 App 统一读一次后下发，两个控制器共用这一次读取。
+   */
+  applyScreen(size: ScreenSize): void {
+    this.screen = size;
   }
 
   /**
@@ -55,11 +54,11 @@ export class NoteWindow {
   async expand(dockEdge: Edge, dockY: number): Promise<void> {
     // 窗口交互性由 Rust 的 toggle_passthrough 控制 WS_EX_TRANSPARENT。
     await this.win.setSize(new LogicalSize(this.panelW, this.panelH));
-    const widgetTop = Math.round(dockY - this.widgetSize / 2);
-    const widgetCy = widgetTop + this.widgetSize / 2;
+    // dockY 本身就是挂件中心的 Y，直接拿它对面板中心。
+    // 挂件高度由素材比例决定、不等于配置的挂件尺寸，所以不能拿配置尺寸反推中心。
     const y = Math.max(
       MARGIN,
-      Math.min(widgetCy - this.panelH / 2, this.screen.h - this.panelH - MARGIN),
+      Math.min(dockY - this.panelH / 2, this.screen.h - this.panelH - MARGIN),
     );
     // 与屏幕边沿也留 MARGIN：右贴时面板贴右边但内缩 MARGIN；左贴时贴左边内缩 MARGIN。
     const x = dockEdge === "left" ? MARGIN : this.screen.w - this.panelW - MARGIN;

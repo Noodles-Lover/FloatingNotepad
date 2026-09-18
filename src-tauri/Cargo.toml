@@ -26,10 +26,18 @@ windows = { version = "0.58", features = [
   "Win32_System_Threading",
   "Win32_System_SystemInformation",
   "Win32_UI_Shell",
+  # 系统通知要求调用方的 AppUserModelID 在开始菜单里有快捷方式，
+  # 未安装时得自己写一个 .lnk（IShellLink + IPropertyStore）。
+  "Win32_UI_Shell_PropertiesSystem",
+  "Win32_System_Com",
+  "Win32_System_Com_StructuredStorage",
   "Win32_Graphics_Gdi",
 ] }
 tauri-plugin-updater = "2.11.0"
 tauri-plugin-process = "2.3.1"
+# 任务提醒走系统通知：全屏/游戏时是否打扰用户交给系统判断，比自己画弹窗稳妥。
+tauri-plugin-notification = "2"
+tauri-plugin-autostart = "2"
 
 [profile.release]
 panic = "abort"

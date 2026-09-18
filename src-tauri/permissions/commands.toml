@@ -78,6 +78,46 @@ description = "Allow reading all-time per-app usage totals from the local SQLite
 commands.allow = ["load_usage_all"]
 
 [[permission]]
+identifier = "allow-set-chime"
+description = "Allow syncing the hourly chime switch and its opacity from the features panel."
+commands.allow = ["set_chime"]
+
+[[permission]]
+identifier = "allow-ring-chime"
+description = "Allow showing the hourly chime popup on demand."
+commands.allow = ["ring_chime"]
+
+[[permission]]
+identifier = "allow-popup-state"
+description = "Allow reading the current popup content and opacity."
+commands.allow = ["popup_state"]
+
+[[permission]]
+identifier = "allow-load-plans"
+description = "Allow reading the schedule entries (one-off and weekly plans)."
+commands.allow = ["load_plans"]
+
+[[permission]]
+identifier = "allow-add-plan"
+description = "Allow adding a schedule entry for a date or a weekday."
+commands.allow = ["add_plan"]
+
+[[permission]]
+identifier = "allow-delete-plan"
+description = "Allow removing a schedule entry."
+commands.allow = ["delete_plan"]
+
+[[permission]]
+identifier = "allow-set-plan-notify"
+description = "Allow switching the global schedule reminder on or off."
+commands.allow = ["set_plan_notify"]
+
+[[permission]]
+identifier = "allow-test-notify"
+description = "Allow sending a test reminder to check that notifications appear."
+commands.allow = ["test_notify"]
+
+[[permission]]
 identifier = "allow-show-lock-window"
 description = "Allow showing the passthrough unlock lock window at a given position."
 commands.allow = ["show_lock_window"]

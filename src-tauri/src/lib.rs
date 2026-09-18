@@ -1,3 +1,9 @@
+mod chime;
+mod log;
+mod notify;
+mod popup;
+mod shortcut;
+mod plans;
 mod db;
 mod foreground;
 mod tracker;
@@ -36,6 +42,77 @@ pub struct MouseWatcher {
     running: AtomicBool,
 }
 
+/// 光标广播的关注范围：离挂件/面板所在窗口这么近的移动才值得唤醒前端。
+/// 前端自己会按精确碰撞箱判定，这里只是别把屏幕另一头的移动也发过去。
+const CURSOR_MARGIN_PX: i32 = 48;
+
+/// 光标广播的门槛。
+///
+/// 前端只用这个坐标判断「鼠标是否靠近挂件/面板」，所以只有几件事值得跨进程发一次：
+/// 状态刚变成需要关心（穿透关闭、窗口重新显示）、刚进入关注范围、范围内坐标变了；
+/// 离开范围时补发一次，前端才知道该开始收起计时。
+struct CursorEmit {
+    /// 上一次广播的坐标（物理像素）。坐标没变就没有新信息。
+    last: Mutex<Option<(i32, i32)>>,
+    /// 上一拍是否在关注范围内（用于补发「离开」）。
+    near: AtomicBool,
+    /// 上一拍是否处于需要前端关心的状态：窗口可见且未穿透。
+    interested: AtomicBool,
+}
+
+impl CursorEmit {
+    fn new() -> Self {
+        Self {
+            last: Mutex::new(None),
+            near: AtomicBool::new(false),
+            interested: AtomicBool::new(false),
+        }
+    }
+
+    /// 这一拍的坐标要不要广播给前端。
+    fn should_emit(&self, app: &AppHandle, x: i32, y: i32) -> bool {
+        let interested = main_window_visible(app) && !PassthroughState::read_current(app);
+        if self.interested.swap(interested, Ordering::SeqCst) != interested {
+            // 状态翻转：坐标可能没动，但前端需要重新判一次——清掉记忆，强制发一次。
+            if let Ok(mut last) = self.last.lock() {
+                *last = None;
+            }
+        }
+        if !interested {
+            self.near.store(false, Ordering::SeqCst);
+            return false;
+        }
+
+        let near = main_window_rect(app).is_some_and(|(left, top, right, bottom)| {
+            point_in_rect(
+                x,
+                y,
+                (
+                    left - CURSOR_MARGIN_PX,
+                    top - CURSOR_MARGIN_PX,
+                    right + CURSOR_MARGIN_PX,
+                    bottom + CURSOR_MARGIN_PX,
+                ),
+            )
+        });
+        let was_near = self.near.swap(near, Ordering::SeqCst);
+        if !near {
+            // 已经在外：只在刚离开的那一拍补一次（前端据此开始收起计时），之后不再打扰。
+            return was_near;
+        }
+        if !was_near {
+            return true; // 刚进入：立刻发一次
+        }
+
+        let Ok(mut last) = self.last.lock() else {
+            return false;
+        };
+        let changed = *last != Some((x, y));
+        *last = Some((x, y));
+        changed
+    }
+}
+
 impl MouseWatcher {
     pub fn new() -> Self {
         Self {
@@ -49,13 +126,18 @@ impl MouseWatcher {
             return;
         }
         thread::spawn(move || {
+            // 采样频率固定：锁窗口的 hover 判定依赖它，前端的弹出判定也靠这个时间分辨率。
+            // 广播出去的次数则按需过滤，见 CursorEmit。
+            let emit = CursorEmit::new();
             loop {
                 if let Some((x, y)) = current_cursor() {
                     // 解锁锁的 hover 检测同样跑在 Rust 的轮询里：
                     // 穿透时主窗口被 EnableWindow(FALSE) 禁用，其 webview 内的
                     // JS 不保证继续推进，因此不能依赖前端来判断鼠标是否靠近。
                     update_lock_hover(&app, x, y);
-                    let _ = app.emit("cursor-move", CursorMove { x, y });
+                    if emit.should_emit(&app, x, y) {
+                        let _ = app.emit("cursor-move", CursorMove { x, y });
+                    }
                 }
                 thread::sleep(Duration::from_millis(100));
             }
@@ -515,6 +597,9 @@ const QUIT_FLUSH_MS: u64 = 250;
 /// 主窗口，既与托盘的退出行为不一致，又依赖前端权限，容易出现「右键退出无效」。
 fn do_quit_app(app: &AppHandle) {
     let _ = app.emit("before-quit", ());
+    // 使用统计的结束时间是攒在内存里的（见 usage.rs 的落库间隔），退出前补一次，
+    // 否则最后一段时长会随进程一起消失。
+    usage::flush(app);
     let app = app.clone();
     thread::spawn(move || {
         thread::sleep(Duration::from_millis(QUIT_FLUSH_MS));
@@ -632,6 +717,60 @@ fn set_usage_tracking(app: AppHandle, enabled: bool) {
         .store(enabled, Ordering::SeqCst);
 }
 
+/// 同步「整点报时」开关与闲置透明度（功能面板控制）。
+#[tauri::command]
+fn set_chime(app: AppHandle, enabled: bool, opacity: f64) {
+    chime::apply(&app, enabled, opacity);
+}
+
+/// 立刻弹一次报时小窗：等不到整点时用它验证外观与音效（挂件右键菜单调用）。
+#[tauri::command]
+fn ring_chime(app: AppHandle) -> Result<(), String> {
+    chime::ring(&app)
+}
+
+/// 取弹窗当前应显示的内容（文本 + 副文本 + 不透明度）。
+/// 小窗挂载时主动取一次，避免错过事件后空白或显示启动时刻。
+#[tauri::command]
+fn popup_state(app: AppHandle) -> popup::Payload {
+    popup::current(&app)
+}
+
+/// 取全部日程（一次性与周常混在一起，排序交给前端——它要按日期/时刻展开周常）。
+#[tauri::command]
+fn load_plans() -> Vec<db::Plan> {
+    db::load_plans()
+}
+
+/// 新增一条日程：`kind` 为 `once`（用 date）或 `weekly`（用 weekday）；time 可为空。
+#[tauri::command]
+fn add_plan(
+    kind: String,
+    date: Option<String>,
+    weekday: Option<i64>,
+    time: Option<String>,
+    text: String,
+) -> Result<db::Plan, String> {
+    db::add_plan(&kind, date.as_deref(), weekday, time.as_deref(), &text)
+}
+
+#[tauri::command]
+fn delete_plan(id: i64) -> Result<(), String> {
+    db::delete_plan(id)
+}
+
+/// 同步「任务提醒」总开关（日程面板控制，作用于全部日程）。
+#[tauri::command]
+fn set_plan_notify(app: AppHandle, enabled: bool) {
+    plans::apply(&app, enabled);
+}
+
+/// 立刻发一条测试提醒（挂件右键菜单）：不用等到点就能确认通知弹不弹得出来。
+#[tauri::command]
+fn test_notify(app: AppHandle) -> Result<(), String> {
+    plans::test(&app)
+}
+
 /// 同步「全屏自动穿透」开关（设置面板控制，前端在加载配置与改动时调用）。
 #[tauri::command]
 fn set_fullscreen_passthrough(app: AppHandle, enabled: bool) {
@@ -647,6 +786,12 @@ pub fn run() {
     tauri::Builder::default()
         .plugin(tauri_plugin_updater::Builder::new().build())
         .plugin(tauri_plugin_process::init())
+        // 任务提醒走系统通知：是否在全屏/游戏里打扰用户由系统决定。
+        .plugin(tauri_plugin_autostart::init(
+            tauri_plugin_autostart::MacosLauncher::LaunchAgent,
+            None,
+        ))
+        .plugin(tauri_plugin_notification::init())
         .setup(|app| {
             app.manage(MouseWatcher::new());
             // 穿透状态服务：穿透模式的唯一真相源，由 Rust 维护并执行 Win32 样式切换。
@@ -659,6 +804,12 @@ pub fn run() {
             app.manage(tracker::FullscreenState::new());
             // 应用使用统计的运行时状态（开关默认关，由前端加载配置后同步）。
             app.manage(usage::UsageState::new());
+            // 整点报时的运行时状态（开关默认关，由前端加载配置后同步）。
+            app.manage(chime::ChimeState::new());
+            // 通用弹窗的运行时状态（不透明度 + 内容）。
+            app.manage(popup::PopupState::new());
+            // 日程提醒的运行时状态（开关默认关，由前端加载配置后同步）。
+            app.manage(plans::PlanState::new());
             // Create the schema up front; fail loudly if storage is unavailable.
             db::init_db(app);
 
@@ -668,10 +819,25 @@ pub fn run() {
             // 启动应用使用统计轮询（内部按开关决定是否采样）。
             usage::start(app.handle().clone());
 
+            // 启动整点报时（内部按开关决定是否弹窗）。
+            chime::start(app.handle().clone());
+
+            // 启动日程提醒（内部按开关决定是否弹窗）。
+            plans::start(app.handle().clone());
+
             // 预创建锁窗口（隐藏常驻），首次 hover 出现时无需等待 webview 加载。
             if let Err(e) = ensure_lock_window(app.handle()) {
                 eprintln!("[lock] 预创建锁窗口失败: {e}");
             }
+
+            // 预创建弹窗（隐藏常驻）：它靠事件刷新内容，
+            // 若等首次弹出时才创建，前端还没挂载，第一次事件就丢了。
+            if let Err(e) = popup::ensure(app.handle()) {
+                eprintln!("[popup] 预创建弹窗失败: {e}");
+            }
+
+            // 准备系统通知环境（补 AppUserModelID 快捷方式，见 notify.rs）。
+            notify::prepare(app.handle());
 
             // 系统托盘：右键菜单显示 / 隐藏挂件 / 切换穿透模式（带勾选）/ 退出。
             let show_item = MenuItem::with_id(app, "show", "显示挂件", true, None::<&str>)?;
@@ -727,6 +893,14 @@ pub fn run() {
             set_usage_tracking,
             load_usage,
             load_usage_all,
+            set_chime,
+            ring_chime,
+            popup_state,
+            load_plans,
+            add_plan,
+            delete_plan,
+            set_plan_notify,
+            test_notify,
             show_lock_window,
             hide_lock_window,
             set_lock_hide_delay,

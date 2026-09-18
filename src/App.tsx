@@ -1,12 +1,14 @@
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { invoke } from "@tauri-apps/api/core";
+import { isEnabled, enable, disable } from "@tauri-apps/plugin-autostart";
 import { listen, type UnlistenFn } from "@tauri-apps/api/event";
 import { Menu, MenuItem, CheckMenuItem } from "@tauri-apps/api/menu";
-import { WindowController, type Edge } from "./lib/window";
+import { WindowController, widgetBoxFor, type Edge } from "./lib/window";
+import { readMonitorScreen } from "./lib/screen";
 import { NoteWindow } from "./lib/noteWindow";
 import { loadState, saveTabs, setActiveTab, loadCategories, saveCategories, setActiveCategory } from "./lib/db";
 import { ProximitySensor } from "./lib/proximity";
-import { playSound, setMuted } from "./lib/sounds";
+import { sounds } from "./lib/sounds";
 import { loadConfig, saveConfig, DEFAULT_CONFIG, type AppConfig } from "./lib/config";
 import {
   loadSkins,
@@ -17,13 +19,17 @@ import {
   type Skin,
 } from "./lib/skins";
 import { useEntityList, type EntityListApi } from "./lib/useEntityList";
+import { loadPlans, nearestInfo, nextRefreshAt, pendingCount, setPlanNotify, type Plan } from "./lib/plans";
 import type { Category, Tab, Todo } from "./types";
 import FloatingWidget from "./components/FloatingWidget";
 import NotePanel from "./components/NotePanel";
 import SkinPanel from "./components/SkinPanel";
 import SettingsPanel from "./components/SettingsPanel";
 import UsagePanel from "./components/UsagePanel";
+import FeaturePanel from "./components/FeaturePanel";
+import PlansPanel from "./components/PlansPanel";
 import ConfirmDialog from "./components/ConfirmDialog";
+import PopupToast from "./components/PopupToast";
 /** 窗口的三种显示模式。 */
 
 type Mode = "hidden" | "revealed" | "expanded";
@@ -56,6 +62,18 @@ function syncUsageTracking(enabled: boolean): void {
   );
 }
 
+/** 把「整点报时」开关与闲置透明度同步给 Rust（小窗按此透明度显示）。 */
+function syncChime(enabled: boolean, opacity: number): void {
+  invoke("set_chime", { enabled, opacity }).catch((e) =>
+    console.error("[chime] 同步失败:", e),
+  );
+}
+
+/** 同步「任务提醒」总开关给 Rust（到点由它弹小窗）。 */
+function syncPlanNotify(enabled: boolean): void {
+  setPlanNotify(enabled).catch((e) => console.error("[plans] 同步开关失败:", e));
+}
+
 /** 新建一个空白标签页。 */
 function newTab(seq: number): Tab {
   return { id: Date.now() + seq, title: `浮笺 ${seq}`, note: "" };
@@ -86,6 +104,7 @@ export default function App() {
   const sortTimerRef = useRef<number | null>(null); // 800ms 重排定时器
   const [config, setConfig] = useState<AppConfig>(DEFAULT_CONFIG); // 用户配置（挂件大小/窗口/自动关闭）
   const [passthrough, setPassthroughState] = useState<boolean>(false); // 穿透模式
+  const [autostartOn, setAutostartOn] = useState<boolean>(false); // 开机自启（状态由 OS 维护）
   const passthroughRef = useRef(false); // 最新穿透态，供 proximity / 点击早退读取
   const [skins, setSkins] = useState<Skin[]>([]); // 可用皮肤清单（运行时从 skin 目录自动读取）
   // 当前选用皮肤名（永久保存）。
@@ -95,6 +114,8 @@ export default function App() {
   const [skinOpen, setSkinOpen] = useState(false); // 皮肤面板是否打开
   const [settingsOpen, setSettingsOpen] = useState(false); // 设置面板是否打开
   const [usageOpen, setUsageOpen] = useState(false); // 使用统计面板是否打开
+  const [featuresOpen, setFeaturesOpen] = useState(false); // 功能面板是否打开
+  const [plansOpen, setPlansOpen] = useState(false); // 新增日程面板是否打开
   // 删除确认弹窗：pendingDelete 非空时弹出，用户确认才真正删除（避免误删不可恢复）。
   const [pendingDelete, setPendingDelete] = useState<{
     kind: "tab" | "category";
@@ -112,6 +133,8 @@ export default function App() {
   const configRef = useRef<AppConfig>(config); // 最新配置，供 proximity 读取 autoCloseDelay
   configRef.current = config;
   const appHiddenRef = useRef(false); // 托盘“隐藏挂件”后整窗隐藏，期间 proximity 不响应
+  /** 启动首次定位（拿到真实屏幕尺寸之后）是否已完成。未完成前只记录尺寸、不动窗口（见下方尺寸下发 effect）。 */
+  const widgetPlacedRef = useRef(false);
   /** 覆盖层面板（皮肤/设置）是否打开。用于 resize 判断，见 applyConfigToCtl。 */
   const modalOpenRef = useRef(false);
   // 标签页/分类的状态管理收敛到 useEntityList；此处的 ref 供 scheduleSave 在不产生
@@ -120,7 +143,7 @@ export default function App() {
   const catsApiRef = useRef<EntityListApi<Category> | null>(null);
 
   modeRef.current = mode;
-  modalOpenRef.current = skinOpen || settingsOpen || usageOpen;
+  modalOpenRef.current = skinOpen || settingsOpen || usageOpen || featuresOpen || plansOpen;
 
   // WindowController 等控制器都是“只创建一次”的实例。
   const windowCtlRef = useRef<WindowController | null>(null);
@@ -175,6 +198,48 @@ export default function App() {
   const activeTab: Tab | undefined =
     tabsApi.list.find((t) => t.id === tabsApi.activeId) ?? tabsApi.list[0];
 
+  // ---- 日程：待办系统标签页的内容，主页面那一行与挂件角标都从它派生 ----
+  const [plans, setPlans] = useState<Plan[]>([]);
+  const nearest = useMemo(() => nearestInfo(plans), [plans]);
+  const planCount = useMemo(() => pendingCount(plans), [plans]);
+
+  const reloadPlans = useCallback(() => {
+    loadPlans()
+      .then(setPlans)
+      .catch((e) => console.error("[plans] 加载失败:", e));
+  }, []);
+
+  // 启动取一次
+  useEffect(() => {
+    reloadPlans();
+  }, [reloadPlans]);
+
+  // 之后不做定时轮询：日程只由本应用改（增删改即时重算），真正需要重取的是
+  // 「派生值随时刻过期」的边界——今天某条日程的时刻走完、以及跨过 00:00。
+  useEffect(() => {
+    const at = new Date();
+    const delay = Math.max(1_000, nextRefreshAt(plans, at) - at.getTime());
+    const timer = window.setTimeout(reloadPlans, delay);
+    return () => window.clearTimeout(timer);
+  }, [plans, reloadPlans]);
+
+  // 日程到点后派生值随之变化（角标少一个、最近一项往后挪），不必等下一个边界。
+  useEffect(() => {
+    const pending: Promise<UnlistenFn> = listen("plan-due", reloadPlans);
+    return () => {
+      pending.then((fn) => fn()).catch(() => {});
+    };
+  }, [reloadPlans]);
+
+  // 窗口被隐藏期间定时器会被 webview 节流，重新可见时补一次，别停在过期画面上。
+  useEffect(() => {
+    const onVisible = () => {
+      if (document.visibilityState === "visible") reloadPlans();
+    };
+    document.addEventListener("visibilitychange", onVisible);
+    return () => document.removeEventListener("visibilitychange", onVisible);
+  }, [reloadPlans]);
+
   // ---- 定时器管理 ----
   const clearTimers = () => {
     if (hideTimer.current) {
@@ -208,30 +273,23 @@ export default function App() {
       setSkinOpen(false);
       setSettingsOpen(false);
       setUsageOpen(false);
+      setFeaturesOpen(false);
+      setPlansOpen(false);
       // 只有笔记面板收起才响。挂件从 hover 回到 idle 同样走这个入口，
       // 但那是挂件行为，不该有音效。
-      if (modeRef.current === "expanded") playSound("paperClose");
+      if (modeRef.current === "expanded") sounds.play("paperClose");
       setClosing(true);
       closeTimer.current = window.setTimeout(doClose, CLOSE_ANIM);
     },
     [doClose],
   );
 
-  /** 把配置应用到控制器：挂件尺寸实时重排、面板尺寸下次展开生效、自动关闭时间即时生效。 */
+  /** 把配置应用到控制器：面板尺寸下次展开生效（挂件尺寸由下面的尺寸下发 effect 统一处理）。 */
   const applyConfigToCtl = useCallback(
     (cfg: AppConfig) => {
       noteWin.applyConfig(cfg);
-      // 始终同步挂件尺寸到控制器内部状态，避免设置期间跳过导致窗口与 DOM 尺寸脱节（截断/空隙）。
-      windowCtl.syncWidgetSize(cfg.widgetSize);
-      // 面板已展开（或设置面板打开）时，禁止把整窗 resize 成挂件尺寸，否则面板会瞬间缩小/被卸载；
-      // 挂件尺寸留到收起后由 showWidget/dockHidden 自然应用。
-      const panelActive = modeRef.current === "expanded" || modalOpenRef.current;
-      if (panelActive) return;
-      // 鼠标穿透（WS_EX_TRANSPARENT）由 Rust 的 toggle_passthrough 单独控制，
-      // 这里只负责尺寸重排，不在 resize 时切换交互性。
-      windowCtl.setWidgetSize(cfg.widgetSize).catch((e) => console.error("[setWidgetSize] 失败:", e));
     },
-    [noteWin, windowCtl],
+    [noteWin],
   );
 
   /** 设置面板改动：更新状态、应用到控制器并持久化到 localStorage。 */
@@ -243,7 +301,9 @@ export default function App() {
       syncLockDelay(next.autoCloseDelay);
       syncFullscreenPassthrough(next.fullscreenPassthrough);
       syncUsageTracking(next.usageTracking);
-      setMuted(next.muted);
+      syncChime(next.chime, next.idleOpacity);
+      syncPlanNotify(next.planNotify);
+      sounds.setMuted(next.muted);
     },
     [applyConfigToCtl],
   );
@@ -265,34 +325,7 @@ export default function App() {
     [windowCtl],
   );
 
-  /** 在挂件上右键：弹出原生菜单（隐藏 / 开关穿透）。 */
-  const openContextMenu = useCallback(async () => {
-    const hideItem = await MenuItem.new({
-      text: "隐藏挂件",
-      action: () => {
-        appHiddenRef.current = true;
-        setMode("hidden");
-        windowCtl.hideApp().catch((e) => console.error("[hideApp] 失败:", e));
-      },
-    });
-    const passItem = await CheckMenuItem.new({
-      text: "穿透模式",
-      checked: passthroughRef.current,
-      action: () => {
-        // 请求 Rust 切换；状态由 passthrough-state 广播同步（挂件在穿透态无法接收右键，属正常）。
-        setPassthrough(!passthroughRef.current);
-      },
-    });
-    const quitItem = await MenuItem.new({
-      text: "退出",
-      action: () => {
-        // 与系统托盘「退出」共用 Rust 的 quit_app，避免两端各写一套导致行为不一致。
-        invoke("quit_app").catch((e) => console.error("[退出] 失败:", e));
-      },
-    });
-    const menu = await Menu.new({ items: [hideItem, passItem, quitItem] });
-    await menu.popup();
-  }, [windowCtl, setPassthrough]);
+
 
   /** 鼠标离开挂件即收起（穿透态/拖拽中除外）。
    *  竞态说明：鼠标快速掠过挂件时，mouseleave 可能先于 cursor-move 的
@@ -313,11 +346,59 @@ export default function App() {
     }, 0);
   }, [beginClose]);
 
+  /** 在挂件上右键：弹出原生菜单（隐藏 / 穿透 / 试一下报时 / 退出）。 */
+  const openContextMenu = useCallback(async () => {
+    const hideItem = await MenuItem.new({
+      text: "隐藏挂件",
+      action: () => {
+        appHiddenRef.current = true;
+        setMode("hidden");
+        windowCtl.hideApp().catch((e) => console.error("[hideApp] 失败:", e));
+      },
+    });
+    const passItem = await CheckMenuItem.new({
+      text: "穿透模式",
+      checked: passthroughRef.current,
+      action: () => {
+        // 请求 Rust 切换；状态由 passthrough-state 广播同步（挂件在穿透态无法接收右键，属正常）。
+        setPassthrough(!passthroughRef.current);
+      },
+    });
+    // 临时调试项：等整点太慢，右键即可立刻弹一次报时小窗看效果。
+    const chimeItem = await MenuItem.new({
+      text: "试一下报时",
+      action: () => {
+        invoke("ring_chime").catch((e) => console.error("[chime] 触发失败:", e));
+      },
+    });
+    const notifyItem = await MenuItem.new({
+      text: "试一下提醒",
+      action: () => {
+        invoke("test_notify").catch((e) => console.error("[plans] 测试提醒失败:", e));
+      },
+    });
+    const quitItem = await MenuItem.new({
+      text: "退出",
+      action: () => {
+        // 与系统托盘「退出」共用 Rust 的 quit_app，避免两端各写一套导致行为不一致。
+        invoke("quit_app").catch((e) => console.error("[退出] 失败:", e));
+      },
+    });
+    const menu = await Menu.new({
+      items: [hideItem, passItem, chimeItem, notifyItem, quitItem],
+    });
+    await menu.popup();
+    // 菜单期间指针被菜单接管，挂件收不到 mouseleave，会一直卡在展开态。
+    // 菜单关闭等同于鼠标离开：走同一条收起路径；若指针确实还停在挂件上，
+    // 光标采样会在冷却结束后把它再展开回来。
+    onWidgetLeave();
+  }, [windowCtl, setPassthrough, onWidgetLeave]);
+
   // 打开覆盖层面板时重置收起倒计时：让每次打开都能用满一个完整延时周期，
   // 不会被上一次计时顺手收走。鼠标移开后仍会照常自动收起（收起时面板一并关闭）。
   useEffect(() => {
-    if (skinOpen || settingsOpen || usageOpen) clearTimers();
-  }, [skinOpen, settingsOpen, usageOpen]);
+    if (skinOpen || settingsOpen || usageOpen || featuresOpen || plansOpen) clearTimers();
+  }, [skinOpen, settingsOpen, usageOpen, featuresOpen, plansOpen]);
 
   // 加载用户配置（出厂默认 <- localStorage 覆盖），
   // 拿到后既要刷新 React 状态，也要立刻应用到窗口控制器（否则挂件大小/窗口尺寸不生效）。
@@ -327,30 +408,129 @@ export default function App() {
     // 穿透是 Rust 维护的运行时态，启动恒为关（见 lib.rs 的 PassthroughState）。
     setPassthroughState(false);
     passthroughRef.current = false;
+    // 开机自启状态由 OS 维护，启动即从系统读取真实值（不缓存进 localStorage）。
+    isEnabled()
+      .then(setAutostartOn)
+      .catch((e) => console.error("[autostart] 读取失败:", e));
     applyConfigToCtl(cfg);
     syncLockDelay(cfg.autoCloseDelay);
     syncFullscreenPassthrough(cfg.fullscreenPassthrough);
     syncUsageTracking(cfg.usageTracking);
-    setMuted(cfg.muted);
+    syncChime(cfg.chime, cfg.idleOpacity);
+    syncPlanNotify(cfg.planNotify);
+    // 静音状态要在播放启动提示音之前就位，否则静音也会被响到。
+    sounds.setMuted(cfg.muted);
+    sounds.play("notification");
   }, [applyConfigToCtl]);
 
-  // 加载皮肤清单并解析当前选用皮肤；变化模式对应 solidMode=true（整颗停靠、不滑出），
-  // 滑动模式/无皮肤对应 solidMode=false（CSS 滑出半掩）。提升到 App 级避免重挂载闪现。
+  // 弹窗与任务提醒的音效都由主窗口代播：那些窗口从没被用户点过，
+  // Chromium 会拦掉无用户交互的自动播放——这个判断在 sounds.playOnEvent 里。
+  // 弹出（目前是报时）用专门的钟声，任务提醒用通用提示音。
+  useEffect(() => sounds.playOnEvent("popup-show", "bell"), []);
+  useEffect(() => sounds.playOnEvent("plan-due", "notification"), []);
+
+  // 面板展开时弹出改在面板内显示（由 Rust 按窗口几何判断后只广播内容），
+  // 这里把内容画在面板顶部，停留时长与独立小窗一致。
+  const [popupToast, setPopupToast] = useState<{
+    text: string;
+    sub: string | null;
+    leaving: boolean;
+  } | null>(null);
+
+  /** 关掉面板内提示：先播消失动画，动画结束再卸载（直接卸载就看不到动画了）。 */
+  const dismissToast = useCallback(() => {
+    setPopupToast((prev) => (prev ? { ...prev, leaving: true } : null));
+    window.setTimeout(() => setPopupToast(null), 180);
+  }, []);
+
+  useEffect(() => {
+    const unlisten: Promise<UnlistenFn> = listen<{
+      text: string;
+      sub: string | null;
+    }>("popup-show", (ev) => {
+      if (modeRef.current !== "expanded") return; // 没开面板时看独立小窗
+      setPopupToast({ text: ev.payload.text, sub: ev.payload.sub, leaving: false });
+    });
+    return () => {
+      unlisten.then((fn) => fn()).catch(() => undefined);
+    };
+  }, []);
+
+  // 停留时长与独立小窗一致（Rust 的 VISIBLE = 5 秒）。
+  useEffect(() => {
+    if (!popupToast || popupToast.leaving) return;
+    const timer = window.setTimeout(dismissToast, 5000);
+    return () => window.clearTimeout(timer);
+  }, [popupToast, dismissToast]);
+
+
+
+  /**
+   * 挂件容器尺寸：长边 = 配置的挂件大小，短边按素材比例收缩，宽度再加固定留白。
+   * 映射规则全在 widgetBoxFor 里；窗口与 CSS 容器都取这一个结果——不一致就会出现
+   * “看着有但摸不到”（容器大于窗口）或“摸得到但看不见”（容器小于窗口）。
+   */
+  const widgetBox = widgetBoxFor(config.widgetSize, (skin ?? defaultSkin()).ratio);
+
+  /**
+   * 尺寸一变就下发：窗口的宽高只能由 JS 给，而它同时是悬停判定的依据，必须与容器同尺寸。
+   * 两种情况只记录、不动窗口：
+   * - 启动首次定位前：真实屏幕尺寸还没拿到，此刻 resize 会拿兜底屏幕尺寸把窗口放歪
+   *   （见 LOGIC.md「停靠位置持久化」）；尺寸已记进控制器，随后的 showWidget 会带上它。
+   * - 面板打开时：resize 会把面板挤成挂件大小。
+   */
+  useEffect(() => {
+    if (!widgetPlacedRef.current || modeRef.current === "expanded" || modalOpenRef.current) {
+      windowCtl.syncWidgetBox(widgetBox);
+      return;
+    }
+    windowCtl.setWidgetBox(widgetBox).catch((e) => console.error("[setWidgetBox] 失败:", e));
+  }, [widgetBox.width, widgetBox.height, widgetBox.peek, windowCtl]);
+
+  /**
+   * 屏幕逻辑尺寸的唯一读入口：读一次喂给两个控制器（一次读取，两处共用）。
+   * 尺寸没变就直接返回——换显示器/改缩放的回调可能频繁触发，但不常有真实变化。
+   */
+  const screenRef = useRef<{ w: number; h: number } | null>(null);
+  const syncScreen = useCallback(async () => {
+    const size = await readMonitorScreen();
+    if (!size) return;
+    const prev = screenRef.current;
+    if (prev && prev.w === size.w && prev.h === size.h) return;
+    screenRef.current = size;
+    windowCtl.applyScreen(size);
+    noteWin.applyScreen(size);
+    // 尺寸真的变了：停靠 X 与 dockY 都要按新屏幕重算。
+    // 启动首次定位前 / 面板打开时都不重排（前者由随后的 showWidget 带上，后者收起时由 dockHidden 带上）。
+    if (!widgetPlacedRef.current || modeRef.current === "expanded" || modalOpenRef.current) return;
+    windowCtl
+      .placeWidget(windowCtl.currentEdge())
+      .catch((e) => console.error("[placeWidget] 失败:", e));
+  }, [noteWin, windowCtl]);
+
+  // 皮肤清单只跟皮肤目录有关，与“当前选了哪个”无关，因此只在启动加载一次
+  // （依赖里带上当前皮肤名会让每次换皮肤都重跑一遍目录 IPC 与逐张图片加载）。
   useEffect(() => {
     let alive = true;
     loadSkins()
       .then((list) => {
-        if (!alive) return;
-        setSkins(list);
-        const cur = resolveSkin(list, skinName);
-        setSkin(cur);
-        windowCtl.setSolidMode(cur.mode === "transform");
+        if (alive) setSkins(list);
       })
       .catch((e) => console.error("[loadSkins] 失败:", e));
     return () => {
       alive = false;
     };
-  }, [windowCtl, skinName]);
+  }, []);
+
+  // 当前选用皮肤由「清单 + 选中的名字」推出；变化模式对应 solidMode=true（整颗停靠、不滑出），
+  // 滑动模式对应 solidMode=false（CSS 滑出半掩）。提升到 App 级避免重挂载闪现。
+  useEffect(() => {
+    // 清单还没到：先不动（挂件此时按内置 default 渲染）。
+    if (skins.length === 0) return;
+    const cur = resolveSkin(skins, skinName);
+    setSkin(cur);
+    windowCtl.setSolidMode(cur.mode === "transform");
+  }, [skins, skinName, windowCtl]);
 
   // 注册“拖动结束”回调：挂件被 OS 拖动松手后，WindowController 会贴边并回调这里。
   useEffect(() => {
@@ -365,18 +545,20 @@ export default function App() {
 
   // 初始化：默认展示挂件、启动全局鼠标监听、恢复上次标签页。
   useEffect(() => {
-    // 先用真实显示器尺寸刷新屏幕，否则 window.screen 在 Tauri 下不可靠，
-    // 会把挂件/面板定位到屏幕外（表现为“点一下挂件就消失、窗口看不见”）。
-    noteWin.refreshScreen().catch((e) => console.error("[refreshScreen] 失败:", e));
-    // 先拿到真实显示器尺寸再定位：refreshScreen 会把上次记录的停靠 Y 夹回可见范围，
+    // 先拿到真实显示器尺寸再定位：applyScreen 会把上次记录的停靠 Y 夹回可见范围，
     // 之后同步 UI 的贴边方向（决定挂件翻转与面板展开侧），最后才显示窗口。
-    windowCtl
-      .refreshScreen()
-      .catch((e) => console.error("[refreshScreen] 失败:", e))
+    syncScreen()
+      .catch((e) => console.error("[screen] 读取失败:", e))
       .then(() => {
         setEdge(windowCtl.currentEdge());
         windowCtl.showWidget();
+        // 首次定位完成：此后才允许尺寸变化重排窗口（尺寸已记在控制器里，showWidget 用它定位）。
+        widgetPlacedRef.current = true;
       });
+    // 换显示器 / 改缩放（DPI）后重读屏幕尺寸，否则停靠坐标会一直按旧屏幕算。
+    const unwatchScreen = windowCtl.watchScreenChange(() => {
+      void syncScreen();
+    });
     invoke("start_mouse_watch").catch((e) => {
       console.error("[start_mouse_watch] 调用失败:", e);
     });
@@ -420,7 +602,7 @@ export default function App() {
         const on = ev.payload;
         // 穿透音效挂在这里而非各切换入口：Rust 的 set_passthrough 无论被谁调用
         // （用户切换 / 托盘 / 解锁按钮 / 全屏自动）都会广播本事件，音效自动覆盖全部路径。
-        playSound(on ? "lock" : "unlock");
+        sounds.play(on ? "lock" : "unlock");
         passthroughRef.current = on;
         setPassthroughState(on);
         appHiddenRef.current = false;
@@ -525,10 +707,11 @@ export default function App() {
     return () => {
       cancelled = true;
       unlisteners.forEach((fn) => fn());
+      unwatchScreen();
       sensor.stop();
       clearTimers();
     };
-  }, [windowCtl, beginClose, noteWin, scheduleSave, doClose]);
+  }, [windowCtl, beginClose, noteWin, scheduleSave, doClose, syncScreen]);
 
   /** 打开笔记面板。 */
   const openPanel = useCallback(() => {
@@ -537,7 +720,7 @@ export default function App() {
     clearTimers();
     setClosing(false);
     setMode("expanded");
-    playSound("paperOpen");
+    sounds.play("paperOpen");
     // 面板由 NoteWindow 负责窗口形态；挂件当前的 dockEdge/dockY 决定对齐与弹出方向。
     noteWin.expand(windowCtl.currentEdge(), windowCtl.getDockY());
   }, [noteWin, windowCtl]);
@@ -548,18 +731,12 @@ export default function App() {
     setDragging(next);
   }, []);
 
-  /** 切换皮肤：更新状态、下发 solidMode、永久保存到 localStorage（独立 key）。 */
-  const onSelectSkin = useCallback(
-    (name: string) => {
-      const cur = resolveSkin(skins, name);
-      setSkinName(name);
-      setSkin(cur);
-      windowCtl.setSolidMode(cur.mode === "transform");
-      saveSkinName(name);
-      setSkinOpen(false);
-    },
-    [skins, windowCtl],
-  );
+  /** 切换皮肤：只改名字并持久化；皮肤对象、solidMode、尺寸都由名字驱动的 effect 跟上。 */
+  const onSelectSkin = useCallback((name: string) => {
+    setSkinName(name);
+    saveSkinName(name);
+    setSkinOpen(false);
+  }, []);
 
   /** 确认弹窗“确定”：执行真正删除并关闭弹窗。 */
   const confirmDelete = useCallback(() => {
@@ -635,6 +812,13 @@ export default function App() {
   const onToggleMute = useCallback(() => {
     onConfigChange({ ...configRef.current, muted: !configRef.current.muted });
   }, [onConfigChange]);
+
+  /** 切换开机自启：真相在 OS，前端只同步显示并写入系统启动项。 */
+  const onAutostartChange = useCallback((on: boolean) => {
+    setAutostartOn(on);
+    (on ? enable() : disable())
+      .catch((e) => console.error("[autostart] 设置失败:", e));
+  }, []);
 
   // 渲染时按优先级降序排列（高优先级在前），不修改底层存储顺序。
   const activeCategory: Category | undefined =
@@ -722,18 +906,26 @@ export default function App() {
           edge={edge}
           idleOpacity={config.idleOpacity}
           onOpenSkin={() => setSkinOpen(true)}
+          onOpenFeatures={() => setFeaturesOpen(true)}
           onOpenSettings={() => setSettingsOpen(true)}
           onOpenUsage={() => setUsageOpen(true)}
+          onOpenPlans={() => setPlansOpen(true)}
+          plans={plans}
+          onPlansChange={setPlans}
+          nearest={nearest}
         />
       ) : (
         <FloatingWidget
           revealed={mode === "revealed" || dragging}
           dragging={dragging}
           edge={edge}
+          planCount={config.planBadge ? planCount : 0}
           windowCtl={windowCtl}
           onOpen={openPanel}
           onDraggingChange={onDraggingChange}
-          widgetSize={config.widgetSize}
+          widgetWidth={widgetBox.width}
+          widgetHeight={widgetBox.height}
+          widgetPeek={widgetBox.peek}
           idleOpacity={config.idleOpacity}
           skin={skin ?? defaultSkin()}
           passthrough={passthrough}
@@ -764,6 +956,37 @@ export default function App() {
           config={config}
           onChange={onConfigChange}
           onClose={() => setUsageOpen(false)}
+        />
+      )}
+
+      {featuresOpen && (
+        <FeaturePanel
+          config={config}
+          onChange={onConfigChange}
+          autostart={autostartOn}
+          onAutostartChange={onAutostartChange}
+          onClose={() => setFeaturesOpen(false)}
+        />
+      )}
+
+      {plansOpen && (
+        <PlansPanel
+          onChange={setPlans}
+          notify={config.planNotify}
+          onNotifyChange={(on) => onConfigChange({ ...config, planNotify: on })}
+          badge={config.planBadge}
+          onBadgeChange={(on) => onConfigChange({ ...config, planBadge: on })}
+          onClose={() => setPlansOpen(false)}
+        />
+      )}
+
+      {/* 只在面板展开时显示：收起面板后提示不该继续飘在挂件上方，
+          但状态留着——下次打开面板若还没过停留时长，它还在。 */}
+      {mode === "expanded" && popupToast && (
+        <PopupToast
+          text={popupToast.text}
+          sub={popupToast.sub}
+          leaving={popupToast.leaving}
         />
       )}
 

@@ -1,6 +1,7 @@
 import { getCurrentWindow } from "@tauri-apps/api/window";
+import type { UnlistenFn } from "@tauri-apps/api/event";
 import { LogicalPosition, LogicalSize } from "@tauri-apps/api/dpi";
-import { readMonitorScreen } from "./screen";
+import type { ScreenSize } from "./screen";
 
 /** 贴附的边：只在左右两边之间切换。 */
 export type Edge = "left" | "right";
@@ -39,6 +40,47 @@ export function saveDock(edge: Edge, y: number): void {
   }
 }
 
+/** 容器在素材宽度之外额外留出的宽度（逻辑像素）。图片贴着停靠边，这段留白落在朝屏幕内侧。 */
+export const WIDGET_BOX_PAD_X = 20;
+
+/** 「隐藏态露出多少」在这个比例上定：滑出后剩下的那条缝 = 宽度的 45%。 */
+const HIDDEN_PEEK_RATIO = 0.5;
+
+/** 显示器变化事件的去抖时长（毫秒）：拖动窗口时 onMoved 很密集。 */
+const SCREEN_CHANGE_DEBOUNCE_MS = 300;
+
+/**
+ * 挂件尺寸策略的结果。宽高给容器/窗口，peek 给“隐藏态露出多少”这一件事——
+ * CSS 的滑出量与 proximity 的判定矩形都取这一个值。
+ */
+export interface WidgetBox {
+  /** 容器（= 窗口）宽度，逻辑像素 */
+  width: number;
+  /** 容器（= 窗口）高度，逻辑像素 */
+  height: number;
+  /** 隐藏态露出的那条缝的宽度：容器滑出 `width - peek`，判定矩形也用它 */
+  peek: number;
+}
+
+/**
+ * 挂件容器与窗口的尺寸（逻辑像素），也就是“配置尺寸 → 素材实际大小”的全部映射规则：
+ * 素材按 `size × size` 的方框等比缩放，长边恰好等于配置的挂件大小，短边按素材比例收缩，
+ * 宽度再额外留出 `WIDGET_BOX_PAD_X`。
+ *
+ * 容器尺寸必须与图片严格对上（除了那段刻意留的宽度）：窗口矩形与 proximity 判定都按容器算，
+ * 容器比图片大出的那一圈会变成「幽灵碰撞箱」——鼠标落在图片外的空处依然判定为“在挂件内”。
+ */
+export function widgetBoxFor(size: number, ratio: number): WidgetBox {
+  // 比例非法（素材尚未探测出来）时按方形兜底。
+  const r = Number.isFinite(ratio) && ratio > 0 ? ratio : 1;
+  const long = Math.max(1, Math.round(size));
+  const short = Math.max(1, Math.round(long * Math.min(r, 1 / r)));
+  // 长边随素材朝向落在宽或高上；宽度统一加留白，图片本身仍贴着停靠边。
+  const width = (r >= 1 ? long : short) + WIDGET_BOX_PAD_X;
+  const height = r >= 1 ? short : long;
+  return { width, height, peek: Math.max(1, Math.round(width * HIDDEN_PEEK_RATIO)) };
+}
+
 /**
  * 窗口控制器：封装所有与 Tauri 窗口相关的操作。
  * - 挂件停靠在左或右边沿的任意垂直高度；
@@ -48,7 +90,7 @@ export function saveDock(edge: Edge, y: number): void {
  */
 export class WindowController {
   private readonly win = getCurrentWindow(); // 当前窗口
-  /** 屏幕逻辑尺寸。初始用 window.screen 兜底，启动后由 refreshScreen() 用真实显示器尺寸覆盖。 */
+  /** 屏幕逻辑尺寸。初始用 window.screen 兜底，App 读到真实显示器尺寸后由 applyScreen() 覆盖。 */
   private screen = { w: window.screen.width, h: window.screen.height };
   private dockEdge: Edge = "right"; // 当前贴附的边
   private dockY: number; // 当前停靠高度的“中心 Y”（逻辑像素）
@@ -56,11 +98,16 @@ export class WindowController {
   private dragPoll: number | null = null; // 拖动松手检测的定时器
   /** 是否使用整颗停靠模式：变化模式（idle/hover 两张）下“半掩”由素材自身表现，挂件不再做 CSS 滑出。 */
   private solidMode = false;
-  /** 悬浮挂件尺寸（逻辑像素），由用户配置驱动。 */
-  private widgetSize: number;
+  /**
+   * 挂件容器（= 窗口）的实际尺寸与隐藏态露出宽度。由 App 用 `widgetBoxFor(配置尺寸, 素材比例)`
+   * 算好后下发（见 setWidgetBox）——控制器不自己算：窗口与 CSS 容器必须取同一个值，
+   * 各算一遍或其中一方跟不上，就会出现“看着有但摸不到”或“摸得到但看不见”。
+   */
+  private box: WidgetBox;
 
   constructor(widgetSize: number = 56) {
-    this.widgetSize = widgetSize;
+    // 先按方形占位，App 挂载后立刻用真实尺寸覆盖。
+    this.box = widgetBoxFor(widgetSize, 1);
     const saved = loadDock();
     if (saved) {
       this.dockEdge = saved.edge;
@@ -77,45 +124,69 @@ export class WindowController {
   }
 
   /**
-   * 用 Tauri 真实显示器尺寸刷新内部 screen（逻辑像素）。
-   * window.screen 在 Tauri WebView 里不可靠（多屏/缩放下会错位，导致窗口被放到屏幕外），
-   * 必须用 currentMonitor() 获取当前窗口所在显示器的真实尺寸。
+   * 更新屏幕逻辑尺寸。由 App 统一读一次后下发（两个控制器共用），
+   * 同时把停靠 Y 夹回可见范围：换显示器/改分辨率后，旧坐标可能已落到屏幕外。
+   * 注意：window.screen 在 Tauri WebView 里不可靠，只有 currentMonitor() 的尺寸能用（见 lib/screen.ts）。
    */
-  async refreshScreen(): Promise<void> {
-    const size = await readMonitorScreen();
-    if (size) {
-      this.screen = size;
-      // 换显示器或改分辨率后，上次记录的 Y 可能落到屏幕外，夹回可见范围。
-      this.dockY = this.clampY(this.dockY);
-    }
+  applyScreen(size: ScreenSize): void {
+    this.screen = size;
+    this.dockY = this.clampY(this.dockY);
   }
 
-  /** 设置悬浮挂件尺寸（逻辑像素），并立即按新尺寸重新停靠。 */
-  async setWidgetSize(size: number): Promise<void> {
-    this.widgetSize = size;
+  /**
+   * 订阅“当前显示器可能变了”：改缩放（DPI）与窗口移动（换显示器）都会触发。
+   * 只做订阅 + 去抖（拖动期间 onMoved 很密集），是否重读屏幕尺寸、是否重排由调用方决定。
+   * 不订阅的话，中途插拔显示器/改缩放会一直按旧屏幕尺寸算坐标，窗口可能跑到屏幕外。
+   * @returns 取消订阅函数
+   */
+  watchScreenChange(cb: () => void): () => void {
+    let timer: number | null = null;
+    const fire = () => {
+      if (timer !== null) window.clearTimeout(timer);
+      timer = window.setTimeout(cb, SCREEN_CHANGE_DEBOUNCE_MS);
+    };
+    const unlisteners: UnlistenFn[] = [];
+    const bind = (p: Promise<UnlistenFn>) =>
+      p.then((fn) => unlisteners.push(fn)).catch((e) => console.error("[screen-watch] 注册失败:", e));
+    bind(this.win.onScaleChanged(fire));
+    bind(this.win.onMoved(fire));
+    return () => {
+      if (timer !== null) window.clearTimeout(timer);
+      unlisteners.forEach((fn) => fn());
+    };
+  }
+
+  /** 更新挂件容器尺寸并立即重新停靠（面板打开时应改用 syncWidgetBox）。 */
+  async setWidgetBox(box: WidgetBox): Promise<void> {
+    this.syncWidgetBox(box);
     await this.placeWidget(this.dockEdge);
   }
 
   /**
-   * 仅同步内部挂件尺寸，不触发任何窗口 resize/重排。
-   * 面板（笔记/设置）打开时调用：避免把整窗缩成挂件大小导致面板被卸载/留下小圆点，
-   * 真正应用尺寸留到收起后由 showWidget/dockHidden 自然处理。
+   * 仅记录容器尺寸，不触发窗口 resize/重排：
+   * 面板（笔记/设置）打开时调用——避免把整窗缩成挂件大小导致面板被卸载、留下一个小圆点；
+   * 真正应用留到收起后由 showWidget/dockHidden 自然带上。
    */
-  syncWidgetSize(size: number): void {
-    this.widgetSize = size;
+  syncWidgetBox(box: WidgetBox): void {
+    const nums = [box.width, box.height, box.peek];
+    if (!nums.every((n) => Number.isFinite(n) && n > 0)) return;
+    this.box = {
+      width: Math.round(box.width),
+      height: Math.round(box.height),
+      peek: Math.round(box.peek),
+    };
   }
 
   /** 把任意垂直中心 Y 限制在屏幕可见范围内。 */
   private clampY(cy: number): number {
-    const min = this.widgetSize / 2;
-    const max = this.screen.h - this.widgetSize / 2;
-    return Math.max(min, Math.min(max, cy));
+    const half = this.box.height / 2;
+    return Math.max(half, Math.min(this.screen.h - half, cy));
   }
 
   /** 计算“完全停靠（无 CSS 滑出）”时挂件的左上角坐标。 */
   private widgetPosFor(edge: Edge): LogicalPosition {
-    const x = edge === "left" ? 0 : this.screen.w - this.widgetSize;
-    const y = Math.round(this.dockY - this.widgetSize / 2);
+    const x = edge === "left" ? 0 : this.screen.w - this.box.width;
+    const y = Math.round(this.dockY - this.box.height / 2);
     return new LogicalPosition(x, y);
   }
 
@@ -125,7 +196,7 @@ export class WindowController {
     // 先移动再缩放：setSize 以窗口左上角为锚点，若先缩后移，窗口会瞬间收缩到旧（面板）位置的
     // 左上角再跳到挂件位，视觉上出现“闪到面板角落再回正”的闪烁。先定位到挂件位再缩即可消除。
     await this.win.setPosition(this.widgetPosFor(edge));
-    await this.win.setSize(new LogicalSize(this.widgetSize, this.widgetSize));
+    await this.win.setSize(new LogicalSize(this.box.width, this.box.height));
   }
 
   /** 当前贴附的边。 */
@@ -178,10 +249,11 @@ export class WindowController {
     const phys = await this.win.outerPosition();
     // outerPosition 返回的是物理像素，转成逻辑像素才能和 screen 比较。
     const pos = phys.toLogical(dpr);
-    const cx = pos.x + this.widgetSize / 2; // 挂件的中心 X（逻辑像素）
+    const { width, height } = this.box;
+    const cx = pos.x + width / 2; // 挂件的中心 X（逻辑像素）
     const edge: Edge = cx < this.screen.w / 2 ? "left" : "right";
     // 保持释放高度，并把它记进 dockY，避免下次被拉回旧高度。
-    this.dockY = this.clampY(pos.y + this.widgetSize / 2);
+    this.dockY = this.clampY(pos.y + height / 2);
     this.dockEdge = edge;
     await this.win.setPosition(this.widgetPosFor(edge));
     // 记住这次停靠，下次启动从同一处出现。
@@ -226,9 +298,8 @@ export class WindowController {
    * 只处理 hidden / revealed 两种挂件形态；expanded（笔记面板）由 NoteWindow 负责。
    */
   async boundsForMode(mode: "hidden" | "revealed"): Promise<Rect> {
-    const top = Math.round(this.dockY - this.widgetSize / 2);
-    // 隐藏态只露出的“缝”宽度：随挂件大小，但不超过一半。
-    const peek = Math.round(this.widgetSize * 0.45);
+    const { width, height, peek } = this.box;
+    const top = Math.round(this.dockY - height / 2);
     if (mode === "revealed") {
       // revealed：窗口已真实停在停靠位，直接读真实位置。
       const dpr = window.devicePixelRatio || 1;
@@ -236,20 +307,21 @@ export class WindowController {
       const pos = physPos.toLogical(dpr);
       return {
         left: pos.x,
-        right: pos.x + this.widgetSize,
+        right: pos.x + width,
         top: pos.y,
-        bottom: pos.y + this.widgetSize,
+        bottom: pos.y + height,
       };
     }
-    // hidden：滑动模式下 CSS 把挂件滑出，只露 PEEK 宽的“缝”，碰撞箱只算那条缝。
+    // hidden：滑动模式下 CSS 把挂件滑出，只露 peek 宽的“缝”，碰撞箱只算那条缝
+    // （peek 与 CSS 的滑出量同源，见 widgetBoxFor）。
     // 变化模式下挂件不滑出（半掩由素材表现），碰撞箱为整颗挂件。
     if (this.solidMode) {
       return this.dockEdge === "right"
-        ? { left: this.screen.w - this.widgetSize, right: this.screen.w, top, bottom: top + this.widgetSize }
-        : { left: 0, right: this.widgetSize, top, bottom: top + this.widgetSize };
+        ? { left: this.screen.w - width, right: this.screen.w, top, bottom: top + height }
+        : { left: 0, right: width, top, bottom: top + height };
     }
     return this.dockEdge === "right"
-      ? { left: this.screen.w - peek, right: this.screen.w, top, bottom: top + this.widgetSize }
-      : { left: 0, right: peek, top, bottom: top + this.widgetSize };
+      ? { left: this.screen.w - peek, right: this.screen.w, top, bottom: top + height }
+      : { left: 0, right: peek, top, bottom: top + height };
   }
 }

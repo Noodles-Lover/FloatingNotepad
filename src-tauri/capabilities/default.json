@@ -1,8 +1,8 @@
 {
   "$schema": "../gen/schemas/desktop-schema.json",
   "identifier": "default",
-  "description": "Capability for the floating notepad main window and the passthrough lock window",
-  "windows": ["main", "widget-lock"],
+  "description": "Capability for the floating notepad main window, the passthrough lock window and the generic popup window",
+  "windows": ["main", "widget-lock", "popup"],
   "permissions": [
     "core:default",
     "core:app:allow-version",
@@ -31,9 +31,20 @@
     "allow-set-usage-tracking",
     "allow-load-usage",
     "allow-load-usage-all",
+    "allow-set-chime",
+    "allow-ring-chime",
+    "allow-popup-state",
+    "allow-load-plans",
+    "allow-add-plan",
+    "allow-delete-plan",
+    "allow-set-plan-notify",
+    "allow-test-notify",
     "allow-show-lock-window",
     "allow-hide-lock-window",
     "allow-set-lock-hide-delay",
-    "allow-quit-app"
+    "allow-quit-app",
+    "autostart:allow-enable",
+    "autostart:allow-disable",
+    "autostart:allow-is-enabled"
   ]
 }

@@ -15,8 +15,11 @@ interface Props {
   onOpen: () => void;
   /** 拖动状态发生变化时回调（开始 / 结束），用于让 App 暂停或恢复 proximity 检测。 */
   onDraggingChange: (dragging: boolean) => void;
-  /** 悬浮挂件尺寸（逻辑像素），用于让图片按尺寸等比例缩放。 */
-  widgetSize: number;
+  /** 挂件容器尺寸（逻辑像素）：由 App 按素材比例算出，与窗口尺寸一致——容器比图片大出的那一圈会变成幽灵碰撞箱。 */
+  widgetWidth: number;
+  widgetHeight: number;
+  /** 隐藏态露出的那条缝宽度（逻辑像素）：滑出量 = 容器宽 - 它，与判定矩形同源（见 lib/window.ts 的 widgetBoxFor）。 */
+  widgetPeek: number;
   /** 闲置（隐藏态）时的不透明度（0.1~1）。 */
   idleOpacity: number;
   /** 当前选用的皮肤（决定渲染滑动模式还是变化模式）。 */
@@ -27,6 +30,8 @@ interface Props {
   onContextMenu: (e: React.MouseEvent) => void;
   /** 鼠标真正离开挂件时回调（用于可靠收起，避免 proximity 漏采样导致 hover 卡住）。 */
   onLeave: () => void;
+  /** 今天该做的事的条数（含逾期）；为 0 时不显示角标。 */
+  planCount: number;
 }
 
 /** 判定为“拖动”的最小位移（像素），小于此值视为点击。 */
@@ -45,12 +50,15 @@ export default function FloatingWidget({
   windowCtl,
   onOpen,
   onDraggingChange,
-  widgetSize,
+  widgetWidth,
+  widgetHeight,
+  widgetPeek,
   idleOpacity,
   skin,
   passthrough,
   onContextMenu,
   onLeave,
+  planCount,
 }: Props) {
   // 记录鼠标按下的起点，用于区分“点击”与“拖动”。
   const downPosRef = useRef<{ x: number; y: number } | null>(null);
@@ -124,7 +132,9 @@ export default function FloatingWidget({
     <div
       className={cls}
       style={{
-        ["--widget-size" as string]: `${widgetSize}px`,
+        ["--widget-width" as string]: `${widgetWidth}px`,
+        ["--widget-height" as string]: `${widgetHeight}px`,
+        ["--widget-peek" as string]: `${widgetPeek}px`,
         ["--idle-opacity" as string]: `${idleOpacity}`,
       }}
       onMouseDown={handleMouseDown}
@@ -140,9 +150,23 @@ export default function FloatingWidget({
       }}
       title={passthrough ? "" : "点击记一笔 · 拖动可贴边 · 右键打开菜单"}
     >
+      {/* 待办角标：贴在朝向屏幕内侧的上角——挂件靠左时放右上，靠右时放左上，
+          这样它始终落在可视范围里，不会被屏幕边缘切掉。 */}
+      {planCount > 0 && (
+        <span
+          className={`widget-badge widget-fade ${edge === "left" ? "at-right" : "at-left"}`}
+        >
+          {planCount}
+        </span>
+      )}
       {skin.mode === "slide" ? (
         /* 滑动模式：单张 widget.png，整颗挂件；隐藏态由 CSS 滑出半掩。 */
-        <img className="widget-img widget-img-single" src={skin.widget} alt="" draggable={false} />
+        <img
+          className="widget-img widget-img-single widget-fade"
+          src={skin.widget}
+          alt=""
+          draggable={false}
+        />
       ) : (
         <>
           {/* 默认图（半掩）：隐藏态显示，hover 时淡出 */}
