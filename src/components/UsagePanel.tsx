@@ -39,8 +39,6 @@ const MIN_SPAN_MS = 30 * 60 * 1000;
 const GRID_STEPS_MS = [5, 10, 15, 30, 60, 120, 180, 360].map((m) => m * 60 * 1000);
 /** 相邻刻度标签的最小像素间距：小于它就不显示，避免文字互相压住。 */
 const MIN_LABEL_GAP_PX = 44;
-/** 面板打开期间的自动刷新间隔（毫秒）。 */
-const REFRESH_MS = 30_000;
 
 /** 去掉 .exe 后缀，只显示程序名。 */
 const appLabel = (app: string): string => app.replace(/\.exe$/i, "");
@@ -307,11 +305,10 @@ export default function UsagePanel({ config, onChange, onClose }: Props) {
     }
   }, [scope]);
 
-  // 打开（或切换口径）即读一次，之后定时刷新：采样在后台持续进行，面板停留时需要跟上。
+  // 打开（或切换口径）即读一次；不做定时刷新——采样虽在后台持续进行，
+  // 但面板是开着看一眼的东西，重新打开拿到的就是最新的。
   useEffect(() => {
     refresh();
-    const timer = window.setInterval(refresh, REFRESH_MS);
-    return () => window.clearInterval(timer);
   }, [refresh]);
 
   const totals = scope === "all" ? (allData?.totals ?? []) : (data?.totals ?? []);

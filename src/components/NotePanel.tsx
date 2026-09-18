@@ -262,13 +262,13 @@ export default function NotePanel({
           <button className="icon-btn" onClick={onOpenUsage} title="使用统计">
             <ChartIcon />
           </button>
-          <button className="icon-btn" onClick={onOpenPlans} title="新增日程">
+          <button className="icon-btn" onClick={onOpenPlans} title="日程">
             <CalendarIcon />
           </button>
           <button
             className={`icon-btn mute-btn ${muted ? "active" : ""}`}
             onClick={onToggleMute}
-            title={muted ? "已静音（点此恢复音效）" : "静音（关闭穿透与面板音效）"}
+            title={muted ? "已静音（点此恢复音效）" : "静音（关闭音效）"}
           >
             <VolumeIcon muted={muted} />
           </button>

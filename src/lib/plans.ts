@@ -177,6 +177,33 @@ export function pendingCount(plans: Plan[], at: Date = new Date()): number {
   return plans.filter((p) => isPending(p, at)).length;
 }
 
+/**
+ * 下一次「派生值会变」的时刻（Unix 毫秒）。
+ *
+ * 日程数据只由本应用改（增删即时重算），但 [`nearest`] 与 [`pendingCount`] 的结果会
+ * 随时刻自然过期：今天的某条日程走过它的时刻，就不再算「最近」、也不该再计入角标；
+ * 跨过 00:00 时「今天」整体前移。所以只在这两种时刻各重算一次，不必定时轮询。
+ */
+export function nextRefreshAt(plans: Plan[], at: Date = new Date()): number {
+  const now = clock(at);
+  const midnight = new Date(at);
+  midnight.setHours(24, 0, 0, 0); // 次日 00:00
+  let next = midnight.getTime();
+
+  for (const p of plans) {
+    if (p.time === null) continue;
+    const isToday = p.kind === "once" ? p.date === now.day : p.weekday === now.weekday;
+    if (!isToday) continue;
+    const m = toMinutes(p.time);
+    if (m < now.minutes) continue; // 今天的这个时刻已经过去，影响已经发生过了
+    // 判定用的是「时刻 >= 当前分钟」，所以要等这一分钟走完才翻转。
+    const t = new Date(at);
+    t.setHours(Math.floor(m / 60), m % 60, 0, 0);
+    next = Math.min(next, t.getTime() + 60_000);
+  }
+  return next;
+}
+
 // ---- 命令（与 usage.ts 同样的薄封装）----
 
 export const loadPlans = (): Promise<Plan[]> => invoke<Plan[]>("load_plans");

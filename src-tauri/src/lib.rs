@@ -42,6 +42,77 @@ pub struct MouseWatcher {
     running: AtomicBool,
 }
 
+/// 光标广播的关注范围：离挂件/面板所在窗口这么近的移动才值得唤醒前端。
+/// 前端自己会按精确碰撞箱判定，这里只是别把屏幕另一头的移动也发过去。
+const CURSOR_MARGIN_PX: i32 = 48;
+
+/// 光标广播的门槛。
+///
+/// 前端只用这个坐标判断「鼠标是否靠近挂件/面板」，所以只有几件事值得跨进程发一次：
+/// 状态刚变成需要关心（穿透关闭、窗口重新显示）、刚进入关注范围、范围内坐标变了；
+/// 离开范围时补发一次，前端才知道该开始收起计时。
+struct CursorEmit {
+    /// 上一次广播的坐标（物理像素）。坐标没变就没有新信息。
+    last: Mutex<Option<(i32, i32)>>,
+    /// 上一拍是否在关注范围内（用于补发「离开」）。
+    near: AtomicBool,
+    /// 上一拍是否处于需要前端关心的状态：窗口可见且未穿透。
+    interested: AtomicBool,
+}
+
+impl CursorEmit {
+    fn new() -> Self {
+        Self {
+            last: Mutex::new(None),
+            near: AtomicBool::new(false),
+            interested: AtomicBool::new(false),
+        }
+    }
+
+    /// 这一拍的坐标要不要广播给前端。
+    fn should_emit(&self, app: &AppHandle, x: i32, y: i32) -> bool {
+        let interested = main_window_visible(app) && !PassthroughState::read_current(app);
+        if self.interested.swap(interested, Ordering::SeqCst) != interested {
+            // 状态翻转：坐标可能没动，但前端需要重新判一次——清掉记忆，强制发一次。
+            if let Ok(mut last) = self.last.lock() {
+                *last = None;
+            }
+        }
+        if !interested {
+            self.near.store(false, Ordering::SeqCst);
+            return false;
+        }
+
+        let near = main_window_rect(app).is_some_and(|(left, top, right, bottom)| {
+            point_in_rect(
+                x,
+                y,
+                (
+                    left - CURSOR_MARGIN_PX,
+                    top - CURSOR_MARGIN_PX,
+                    right + CURSOR_MARGIN_PX,
+                    bottom + CURSOR_MARGIN_PX,
+                ),
+            )
+        });
+        let was_near = self.near.swap(near, Ordering::SeqCst);
+        if !near {
+            // 已经在外：只在刚离开的那一拍补一次（前端据此开始收起计时），之后不再打扰。
+            return was_near;
+        }
+        if !was_near {
+            return true; // 刚进入：立刻发一次
+        }
+
+        let Ok(mut last) = self.last.lock() else {
+            return false;
+        };
+        let changed = *last != Some((x, y));
+        *last = Some((x, y));
+        changed
+    }
+}
+
 impl MouseWatcher {
     pub fn new() -> Self {
         Self {
@@ -55,13 +126,18 @@ impl MouseWatcher {
             return;
         }
         thread::spawn(move || {
+            // 采样频率固定：锁窗口的 hover 判定依赖它，前端的弹出判定也靠这个时间分辨率。
+            // 广播出去的次数则按需过滤，见 CursorEmit。
+            let emit = CursorEmit::new();
             loop {
                 if let Some((x, y)) = current_cursor() {
                     // 解锁锁的 hover 检测同样跑在 Rust 的轮询里：
                     // 穿透时主窗口被 EnableWindow(FALSE) 禁用，其 webview 内的
                     // JS 不保证继续推进，因此不能依赖前端来判断鼠标是否靠近。
                     update_lock_hover(&app, x, y);
-                    let _ = app.emit("cursor-move", CursorMove { x, y });
+                    if emit.should_emit(&app, x, y) {
+                        let _ = app.emit("cursor-move", CursorMove { x, y });
+                    }
                 }
                 thread::sleep(Duration::from_millis(100));
             }
@@ -521,6 +597,9 @@ const QUIT_FLUSH_MS: u64 = 250;
 /// 主窗口，既与托盘的退出行为不一致，又依赖前端权限，容易出现「右键退出无效」。
 fn do_quit_app(app: &AppHandle) {
     let _ = app.emit("before-quit", ());
+    // 使用统计的结束时间是攒在内存里的（见 usage.rs 的落库间隔），退出前补一次，
+    // 否则最后一段时长会随进程一起消失。
+    usage::flush(app);
     let app = app.clone();
     thread::spawn(move || {
         thread::sleep(Duration::from_millis(QUIT_FLUSH_MS));

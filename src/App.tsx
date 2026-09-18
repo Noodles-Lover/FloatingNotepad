@@ -18,7 +18,7 @@ import {
   type Skin,
 } from "./lib/skins";
 import { useEntityList, type EntityListApi } from "./lib/useEntityList";
-import { loadPlans, nearestInfo, pendingCount, setPlanNotify, type Plan } from "./lib/plans";
+import { loadPlans, nearestInfo, nextRefreshAt, pendingCount, setPlanNotify, type Plan } from "./lib/plans";
 import type { Category, Tab, Todo } from "./types";
 import FloatingWidget from "./components/FloatingWidget";
 import NotePanel from "./components/NotePanel";
@@ -201,17 +201,42 @@ export default function App() {
   const nearest = useMemo(() => nearestInfo(plans), [plans]);
   const planCount = useMemo(() => pendingCount(plans), [plans]);
 
-  // 启动取一次，之后每 5 分钟重取：跨过 04:00 日界后「今天」会变，
-  // 时刻流逝也会让"最近一项"过期，后台驻留期间同样要跟上。数据量很小，全量取即可。
-  useEffect(() => {
-    const load = () =>
-      loadPlans()
-        .then(setPlans)
-        .catch((e) => console.error("[plans] 加载失败:", e));
-    load();
-    const timer = window.setInterval(load, 300_000);
-    return () => window.clearInterval(timer);
+  const reloadPlans = useCallback(() => {
+    loadPlans()
+      .then(setPlans)
+      .catch((e) => console.error("[plans] 加载失败:", e));
   }, []);
+
+  // 启动取一次
+  useEffect(() => {
+    reloadPlans();
+  }, [reloadPlans]);
+
+  // 之后不做定时轮询：日程只由本应用改（增删改即时重算），真正需要重取的是
+  // 「派生值随时刻过期」的边界——今天某条日程的时刻走完、以及跨过 00:00。
+  useEffect(() => {
+    const at = new Date();
+    const delay = Math.max(1_000, nextRefreshAt(plans, at) - at.getTime());
+    const timer = window.setTimeout(reloadPlans, delay);
+    return () => window.clearTimeout(timer);
+  }, [plans, reloadPlans]);
+
+  // 日程到点后派生值随之变化（角标少一个、最近一项往后挪），不必等下一个边界。
+  useEffect(() => {
+    const pending: Promise<UnlistenFn> = listen("plan-due", reloadPlans);
+    return () => {
+      pending.then((fn) => fn()).catch(() => {});
+    };
+  }, [reloadPlans]);
+
+  // 窗口被隐藏期间定时器会被 webview 节流，重新可见时补一次，别停在过期画面上。
+  useEffect(() => {
+    const onVisible = () => {
+      if (document.visibilityState === "visible") reloadPlans();
+    };
+    document.addEventListener("visibilitychange", onVisible);
+    return () => document.removeEventListener("visibilitychange", onVisible);
+  }, [reloadPlans]);
 
   // ---- 定时器管理 ----
   const clearTimers = () => {
