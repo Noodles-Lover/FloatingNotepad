@@ -34,7 +34,7 @@ pub fn start(app: AppHandle) {
             continue;
         }
         if let Err(e) = ring(&app) {
-            eprintln!("[chime] 显示失败: {e}");
+            crate::log::write(&app, "chime", &format!("显示失败: {e}"));
         }
     });
 }

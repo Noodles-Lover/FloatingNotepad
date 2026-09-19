@@ -136,3 +136,8 @@ commands.allow = ["quit_app"]
 identifier = "allow-set-lock-hide-delay"
 description = "Allow syncing the auto-collapse delay used by the passthrough unlock lock."
 commands.allow = ["set_lock_hide_delay"]
+
+[[permission]]
+identifier = "allow-log-event"
+description = "Allow the frontend to report key UI actions (panel open/close, widget hide/show) to the unified diagnostic log."
+commands.allow = ["log_event"]

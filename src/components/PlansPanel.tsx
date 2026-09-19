@@ -86,7 +86,7 @@ export default function PlansPanel({
         <div className="skin-body">
           <label
             className="set-switch-row"
-            title="到点时弹小窗显示任务内容（与整点报时同一套机制）；时间为空的日程不提醒"
+            title="到点时调用系统弹窗提醒；时间为空的日程不提醒"
           >
             <span className="set-label">任务提醒</span>
             <input

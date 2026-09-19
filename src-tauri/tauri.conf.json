@@ -34,6 +34,11 @@
     "active": true,
     "targets": "nsis",
     "createUpdaterArtifacts": true,
+    "windows": {
+      "webviewInstallMode": {
+        "type": "embedBootstrapper"
+      }
+    },
     "resources": {
       "../public/skin/default": "skin/default",
       "../public/skin/fubuki": "skin/fubuki",

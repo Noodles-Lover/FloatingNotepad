@@ -94,26 +94,49 @@ fn poll_once(app: &AppHandle) {
         return;
     }
 
+    crate::log::write(
+        app,
+        "fullscreen",
+        &format!(
+            "{}全屏 (via={}, app={})",
+            if snap.fullscreen { "进入" } else { "退出" },
+            snap.via,
+            process_of(snap.hwnd)
+        ),
+    );
+
     if snap.fullscreen {
         // 进入全屏：穿透未开才开启（已开则不动，避免重复广播与音效）。
         if !PassthroughState::read_current(app) {
             // 先让前端收起面板：穿透生效后主窗口被禁用，面板上的关闭按钮点不到。
             let _ = app.emit("collapse-panel", ());
             if let Err(e) = set_passthrough(app, true) {
-                eprintln!("[fullscreen] 自动开启穿透失败: {e}");
+                crate::log::write(app, "fullscreen", &format!("自动开启穿透失败: {e}"));
             }
         }
     } else if PassthroughState::read_current(app) {
         // 退出全屏：穿透开着才关闭。只在这一刻动作一次，之后用户手动开的
         // 非全屏穿透不会被反复关掉。
         if let Err(e) = set_passthrough(app, false) {
-            eprintln!("[fullscreen] 自动关闭穿透失败: {e}");
+            crate::log::write(app, "fullscreen", &format!("自动关闭穿透失败: {e}"));
         }
     }
 
     state.was_fullscreen.store(snap.fullscreen, Ordering::SeqCst);
     // 广播给前端，便于将来在界面上展示全屏状态。
     let _ = app.emit("fullscreen-changed", snap.fullscreen);
+}
+
+/// 取窗口所属进程名：只在全屏翻转的那一拍取一次，用于日志（频率极低）。
+#[cfg(target_os = "windows")]
+fn process_of(hwnd: isize) -> String {
+    use windows::Win32::Foundation::HWND;
+    crate::foreground::process_name(HWND(hwnd as *mut _))
+}
+
+#[cfg(not(target_os = "windows"))]
+fn process_of(_hwnd: isize) -> String {
+    String::new()
 }
 
 /// 单次轮询采集到的前台窗口信息。

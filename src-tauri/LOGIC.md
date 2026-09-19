@@ -244,7 +244,7 @@ setup 阶段构建，菜单项：
 - **新窗口必须登记能力**：`capabilities/default.json` 的 `windows` 数组决定了哪些窗口拥有这套权限。漏登记的窗口**一条权限都没有**——连 `core:event:allow-listen` 也被拒，于是收不到 `popup-show`，窗口渲染成一片空白（而音效由主窗口播放，听起来像"响了但没弹窗"）。新增窗口时务必把 label 加进 `windows`，并把新命令加进 `permissions/commands.toml` + `default.json`。
 - **内容不依赖事件**：`popup-show` 在**显示之后**发（载荷含文本与不透明度）；窗口挂载时还会主动取一次 `popup_state`，万一事件错过也不会空白。
 - **音效不在弹窗里播**：该窗口从没被用户点过，Chromium 会拦掉无用户交互的 audio；因此内容广播给所有窗口，由主窗口播放。
-- **留痕**：与系统通知相关的路径都写 `<数据目录>/app.log`（见 `log.rs`，超过 128KB 自动重头写）。位置、可见性、系统是否接受通知都是运行时事实，出问题时看日志比读代码快。
+- **留痕**：与系统通知相关的路径都写进诊断日志（见第 11 节 `log.rs`）。位置、可见性、系统是否接受通知都是运行时事实，出问题时看日志比读代码快。
 - 命令：`popup_state`（窗口挂载时取当前内容）。
 
 **整点报时（`chime.rs`）**只负责「什么时候报」：睡到下一个整点调 `popup::show`；`set_chime` 写开关与不透明度。整点判定复用 `db::local_clock()` 的「自当日 4 点起已过毫秒数」，加 4 小时对一小时取余；末尾多等 250ms，避免本地时钟只精确到秒而提前弹窗。
@@ -264,7 +264,7 @@ setup 阶段构建，菜单项：
 - **画面交给系统通知**：自己画弹窗在全屏/游戏里打扰不打扰用户，得自己判断（还得判断是不是游戏）；系统通知把这层交给系统——它知道当前是不是全屏、要不要静默、进不进通知中心。音效仍由主窗口播放（`plan-due` 事件），系统通知自带的提示音是系统行为。
 - **通知只对已安装的应用生效**：Tauri 官方插件文档在 Windows 一行写得很直白——"Only works for installed apps"，开发态会显示成 PowerShell 的名称与图标。原因是 Windows 要求调用方的 AppUserModelID 在开始菜单里有对应快捷方式，没有的话通知会被系统直接丢掉（`tauri-winrt-notification` 的原话：程序若未安装，请先用 `POWERSHELL_APP_ID`）。安装版由安装器建快捷方式，开发/绿色版没有，于是 `notify::prepare` 启动时让 `shortcut.rs` 写一个 `.lnk`（IShellLink + IPropertyStore 写 `PKEY_AppUserModel_ID`），每次启动重写以修正被移动的 exe。
 - **模块分工**：`notify.rs` 只管"发一条通知"（`send` + 启动准备 `prepare`），`shortcut.rs` 只管"给应用准备 AppUserModelID"（Windows 平台细节），`plans.rs` 只决定"到点发什么"。
-- **排查入口**：挂件右键菜单「试一下提醒」立刻走一遍提醒路径（不用等到点）；开关状态、命中条数、发送结果都写进 `app.log`。之前"没弹通知"卡了很久，就是因为日志里连"尝试发送"都没有——开关关着和系统丢弃在界面上完全一样。
+- **排查入口**：挂件右键菜单「试一下提醒」立刻走一遍提醒路径（不用等到点）；开关状态、命中条数、发送结果都写进诊断日志（见第 11 节）。之前"没弹通知"卡了很久，就是因为日志里连"尝试发送"都没有——开关关着和系统丢弃在界面上完全一样。
 - **一分钟最多弹一次**：`last_fire_min` 记上次提醒的 Unix 分钟。睡眠唤醒后线程可能在同一分钟被唤醒多次，没有它通知会连发两回。
 - **总开关，不逐条设置**：`set_plan_notify` 由功能面板的「任务提醒」控制，作用于全部日程；时间为空的任务自然不参与（比不出时刻）。
 - 命令：`load_plans` / `add_plan`（返回带 id 的完整记录，省一次全量拉取）/ `delete_plan` / `set_plan_notify`。
@@ -289,3 +289,34 @@ Alt+Tab 切换器、任务视图、开始菜单这类系统 UI 由 explorer 提�
 - **全屏检测**：排除只作用于几何层。d3d 层是系统级判定（`SHQueryUserNotificationState`），
   独占全屏的真游戏不受影响。
 - **使用统计**：覆盖层期间返回「无前台应用」，会话暂停，切换的那段时间不计入任何应用。
+
+---
+
+## 11. 诊断日志（log.rs）
+
+统一入口 `log::write(app, tag, msg)`：**一处调用、双输出**——同时打到 stderr 与文件。
+
+- **位置**：`<数据目录>/logs/floatingnotepad-YYYY-MM-DD.log`，按**天**分文件。
+- **保留**：启动时 `log::prune` 删除修改时间早于 7 天（`LOG_KEEP_DAYS`）的文件；单文件超过 256KB 就从头写，避免一天内无限增长。
+- **不依赖数据库与日期库**：时间用 `windows` crate 的 `GetLocalTime`（自包含）。数据库起不来时，日志反而更该写得出来。
+- **panic 钩子**（`install_panic_hook`）：release 用 `panic = "abort"`，进程会直接终止、不留界面提示；钩子仍在 abort 前把 panic 信息写进日志——「静默关闭」时唯一能留下的线索。在 setup 起始处安装。
+- **留痕点**（低频、关键；轮询类**不记**，避免淹没日志）：
+  - `[app]` 启动（含版本）/ 初始化完成 / 退出；
+  - `[passthrough]` 开启 / 关闭（在 `set_passthrough` 唯一入口，覆盖用户切换、全屏自动、解锁）；
+  - `[fullscreen]` 进入 / 退出（含判定路径 `via` 与前台应用，在状态翻转那一拍）；
+  - `[popup]` 显示 / 隐藏、`[plans]` 到点命中、`[notify]` 发送结果、`[widget]` 托盘显示 / 隐藏挂件。
+- **前端事件桥接**：日志文件由 Rust 管理，前端纯 UI 操作（面板开合、右键隐藏）经命令 `log_event(tag, msg)` 上报，走同一个 `log::write`。命令权限：`permissions/commands.toml` 的 `allow-log-event`，`capabilities/default.json` 引用。
+- **运行期错误也留痕**：锁显隐失败、全屏自动穿透失败、报时 / 提醒失败、穿透切换失败等都走 `log::write`（release 下没有控制台，`eprintln!` 等于丢失）。
+- **启动报错也留痕**：setup 阶段的失败（如预创建窗口）由 `log::write` 写出；更早或更严重的启动错误（数据库初始化失败、托盘构建失败等）会 panic，由 panic 钩子落盘——启动失败时日志里必定有线索。
+- **只在值变化时留痕**：`plans::apply` 这类设置同步函数会被前端「全量同步配置」在每次改动时调用（拖动尺寸滑块会高频触发），因此只在值与上次不同时才写日志，避免刷屏。
+- **判定用法**：有「启动 / 初始化完成」却无「退出」也无 `[panic]` → 进程被外部结束；有「启动」无「初始化完成」→ 初始化阶段即失败。
+
+---
+
+## 12. 开机自启（tauri-plugin-autostart）
+
+用官方 `tauri-plugin-autostart`，**真相源在系统**（Windows 下写 `HKCU\...\Run`），前端只同步显示。
+
+- 注册：`run()` 里 `.plugin(tauri_plugin_autostart::init(MacosLauncher::LaunchAgent, None))`（`MacosLauncher` 参数在 Windows 下被忽略）。
+- 权限：`capabilities/default.json` 的 `autostart:allow-enable` / `allow-disable` / `allow-is-enabled`（插件自带权限，非 app 自定义命令）。
+- 前端：功能面板开关 → `isEnabled()` 读真实状态、`enable()` / `disable()` 切换（见 `src/LOGIC.md` 第 11 节）；**不写进 `AppConfig`**。

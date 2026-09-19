@@ -44,7 +44,7 @@ pub fn start(app: AppHandle) {
             continue;
         }
         if let Err(e) = fire_due(&app) {
-            eprintln!("[plans] 提醒失败: {e}");
+            log::write(&app, "plans", &format!("提醒失败: {e}"));
         }
     });
 }
@@ -114,12 +114,17 @@ fn now_millis() -> i64 {
 /// 写入提醒开关（日程面板在加载配置与改动时调用）。留痕：开关状态看不出来，
 /// 而「没弹通知」最常见的原因就是它其实是关的。
 pub fn apply(app: &AppHandle, enabled: bool) {
-    app.state::<PlanState>()
+    // 只在真正变化时留痕：本函数在每次设置改动时都会被调用（前端全量同步配置），
+    // 无条件写日志会被拖动滑块之类的高频改动刷屏。
+    let prev = app
+        .state::<PlanState>()
         .notify
-        .store(enabled, Ordering::SeqCst);
-    log::write(
-        app,
-        "plans",
-        &format!("任务提醒开关: {}", if enabled { "开" } else { "关" }),
-    );
+        .swap(enabled, Ordering::SeqCst);
+    if prev != enabled {
+        log::write(
+            app,
+            "plans",
+            &format!("任务提醒开关: {}", if enabled { "开" } else { "关" }),
+        );
+    }
 }

@@ -231,6 +231,12 @@
           "markdownDescription": "Allow reading all-time per-app usage totals from the local SQLite database."
         },
         {
+          "description": "Allow the frontend to report key UI actions (panel open/close, widget hide/show) to the unified diagnostic log.",
+          "type": "string",
+          "const": "allow-log-event",
+          "markdownDescription": "Allow the frontend to report key UI actions (panel open/close, widget hide/show) to the unified diagnostic log."
+        },
+        {
           "description": "Allow revealing the app data directory in the file manager, for backup and migration.",
           "type": "string",
           "const": "allow-open-data-dir",
