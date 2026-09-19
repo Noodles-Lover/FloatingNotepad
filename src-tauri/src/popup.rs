@@ -187,6 +187,7 @@ pub fn hide(app: &AppHandle) -> Result<(), String> {
     if let Some(window) = app.get_webview_window("popup") {
         let hwnd = crate::main_hwnd(&window)?;
         let _ = unsafe { ShowWindow(hwnd, SW_HIDE) };
+        trace(app, "隐藏");
     }
     Ok(())
 }

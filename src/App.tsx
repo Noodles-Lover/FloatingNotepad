@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import { isEnabled, enable, disable } from "@tauri-apps/plugin-autostart";
+import { logEvent } from "./lib/log";
 import { listen, type UnlistenFn } from "@tauri-apps/api/event";
 import { Menu, MenuItem, CheckMenuItem } from "@tauri-apps/api/menu";
 import { WindowController, widgetBoxFor, type Edge } from "./lib/window";
@@ -265,6 +266,8 @@ export default function App() {
     (fromUser = false) => {
       clearTimers();
       if (modeRef.current === "hidden") return;
+      // 只有面板收起才留痕；挂件随鼠标收起属高频行为，不记（轮询类不写日志）。
+      if (modeRef.current === "expanded") logEvent("panel", fromUser ? "关闭面板" : "自动收起面板");
       // 关闭后进入短暂冷却，避免鼠标恰在隐藏缝里导致刚关又立刻弹出。
       suppressUntil.current = Date.now() + 500;
       if (fromUser) userMustLeaveRef.current = true;
@@ -353,6 +356,7 @@ export default function App() {
       action: () => {
         appHiddenRef.current = true;
         setMode("hidden");
+        logEvent("widget", "隐藏挂件");
         windowCtl.hideApp().catch((e) => console.error("[hideApp] 失败:", e));
       },
     });
@@ -720,6 +724,7 @@ export default function App() {
     clearTimers();
     setClosing(false);
     setMode("expanded");
+    logEvent("panel", "打开面板");
     sounds.play("paperOpen");
     // 面板由 NoteWindow 负责窗口形态；挂件当前的 dockEdge/dockY 决定对齐与弹出方向。
     noteWin.expand(windowCtl.currentEdge(), windowCtl.getDockY());

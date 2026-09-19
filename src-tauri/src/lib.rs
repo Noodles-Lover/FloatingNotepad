@@ -433,7 +433,7 @@ fn hide_lock_if_visible(app: &AppHandle) {
     s.left_at = None;
     drop(s); // 释放锁后再操作窗口，避免窗口回调重入时死锁。
     if let Err(e) = hide_lock_now(app) {
-        eprintln!("[lock] 隐藏失败: {e}");
+        log::write(app, "lock", &format!("隐藏失败: {e}"));
     }
 }
 
@@ -466,7 +466,7 @@ fn update_lock_hover(app: &AppHandle, x: i32, y: i32) {
             s.visible = true;
             drop(s); // 释放锁后再操作窗口，避免窗口回调重入时死锁。
             if let Err(e) = show_lock_at(app, lock_x, lock_y) {
-                eprintln!("[lock] 显示失败: {e}");
+                log::write(app, "lock", &format!("显示失败: {e}"));
             }
         }
     } else if s.visible {
@@ -478,7 +478,7 @@ fn update_lock_hover(app: &AppHandle, x: i32, y: i32) {
                     s.left_at = None;
                     drop(s);
                     if let Err(e) = hide_lock_now(app) {
-                        eprintln!("[lock] 隐藏失败: {e}");
+                        log::write(app, "lock", &format!("隐藏失败: {e}"));
                     }
                 }
             }
@@ -596,6 +596,7 @@ const QUIT_FLUSH_MS: u64 = 250;
 /// 退出应用。托盘菜单与挂件右键菜单必须共用这一入口——若前端自行 close()
 /// 主窗口，既与托盘的退出行为不一致，又依赖前端权限，容易出现「右键退出无效」。
 fn do_quit_app(app: &AppHandle) {
+    log::write(app, "app", "退出");
     let _ = app.emit("before-quit", ());
     // 使用统计的结束时间是攒在内存里的（见 usage.rs 的落库间隔），退出前补一次，
     // 否则最后一段时长会随进程一起消失。
@@ -610,6 +611,15 @@ fn do_quit_app(app: &AppHandle) {
 #[tauri::command]
 fn quit_app(app: AppHandle) {
     do_quit_app(&app);
+}
+
+/// 前端关键操作（面板开合、隐藏出现等）转交 Rust 统一留痕。
+///
+/// 日志文件由 Rust 管理（见 `log.rs`），前端只上报事件；`log::write` 会一并写入
+/// 文件与 stderr，所以控制台与文件始终一致。
+#[tauri::command]
+fn log_event(app: AppHandle, tag: String, msg: String) {
+    log::write(&app, &tag, &msg);
 }
 
 /// 穿透状态：作为托管状态在命令间共享，是穿透模式的唯一真相源。
@@ -642,7 +652,7 @@ pub fn set_passthrough(app: &AppHandle, on: bool) -> Result<(), String> {
         Some(w) => match main_hwnd(w) {
             Ok(h) => Some(h),
             Err(e) => {
-                eprintln!("[passthrough] 取 HWND 失败，仅切换状态: {e}");
+                log::write(app, "passthrough", &format!("取 HWND 失败，仅切换状态: {e}"));
                 None
             }
         },
@@ -654,6 +664,7 @@ pub fn set_passthrough(app: &AppHandle, on: bool) -> Result<(), String> {
         unsafe { set_input_enabled(h, !on) };
     }
     PassthroughState::write_current(app, on);
+    log::write(app, "passthrough", if on { "开启穿透" } else { "关闭穿透" });
     // 广播给前端用于同步显示（FloatingWidget 的 passthrough 标记、proximity 早退等）。
     let _ = app.emit("passthrough-state", on);
     // 关闭穿透时锁必然要收起，由 Rust 统一兜底，不依赖前端热区状态。
@@ -793,6 +804,11 @@ pub fn run() {
         ))
         .plugin(tauri_plugin_notification::init())
         .setup(|app| {
+            // 诊断留痕：先清旧日志、装 panic 钩子，再记启动——顺序保证启动那一行必然落盘。
+            log::prune(app.handle());
+            log::install_panic_hook(app.handle().clone());
+            log::write(app.handle(), "app", &format!("启动 v{}", app.package_info().version));
+
             app.manage(MouseWatcher::new());
             // 穿透状态服务：穿透模式的唯一真相源，由 Rust 维护并执行 Win32 样式切换。
             app.manage(Mutex::new(PassthroughState::new()));
@@ -827,13 +843,13 @@ pub fn run() {
 
             // 预创建锁窗口（隐藏常驻），首次 hover 出现时无需等待 webview 加载。
             if let Err(e) = ensure_lock_window(app.handle()) {
-                eprintln!("[lock] 预创建锁窗口失败: {e}");
+                log::write(app.handle(), "lock", &format!("预创建锁窗口失败: {e}"));
             }
 
             // 预创建弹窗（隐藏常驻）：它靠事件刷新内容，
             // 若等首次弹出时才创建，前端还没挂载，第一次事件就丢了。
             if let Err(e) = popup::ensure(app.handle()) {
-                eprintln!("[popup] 预创建弹窗失败: {e}");
+                log::write(app.handle(), "popup", &format!("预创建弹窗失败: {e}"));
             }
 
             // 准备系统通知环境（补 AppUserModelID 快捷方式，见 notify.rs）。
@@ -858,15 +874,17 @@ pub fn run() {
                 .menu(&menu)
                 .on_menu_event(move |app, event| match event.id().as_ref() {
                     "show" => {
+                        log::write(app, "widget", "托盘显示挂件");
                         let _ = app.emit("show-widget", ());
                     }
                     "hide" => {
+                        log::write(app, "widget", "托盘隐藏挂件");
                         let _ = app.emit("hide-widget", ());
                     }
                     "toggle_passthrough" => {
                         // 直接执行切换（穿透逻辑在 Rust，托盘、挂件右键、解锁锁统一走此入口）。
                         if let Err(e) = do_toggle_passthrough(app) {
-                            eprintln!("[passthrough] 切换失败: {e}");
+                            log::write(app, "passthrough", &format!("切换失败: {e}"));
                         }
                     }
                     "quit" => {
@@ -875,6 +893,10 @@ pub fn run() {
                     _ => {}
                 })
                 .build(app)?;
+
+            // 走到这里 = 各服务与窗口都已就位；若此后只见启动、不见退出或 panic，
+            // 说明进程是在运行途中被外部结束的。
+            log::write(app.handle(), "app", "初始化完成");
 
             Ok(())
         })
@@ -905,6 +927,7 @@ pub fn run() {
             hide_lock_window,
             set_lock_hide_delay,
             quit_app,
+            log_event,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

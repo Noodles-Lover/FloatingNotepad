@@ -83,9 +83,11 @@ App 端判定**始终基于 UI 当前真实 bounds**：
 - `saveConfig(cfg)`：应用内「设置」面板调整后写 localStorage。
 - 出厂默认值集中在 `DEFAULT_CONFIG`。
 - 静音（`muted`）由速记面板**头栏的喇叭按钮**切换，设置面板里不再有开关——头栏要放固定、皮肤、统计、静音、设置、收起六个按钮，设置面板只留不与它们重复的项。
-- 配置项：`widgetSize`、`windowWidth`、`windowHeight`、`autoCloseDelay`、`idleOpacity`、`pinned`（面板固定）、`panelMargin`（面板碰撞箱外扩）、`fullscreenPassthrough`（全屏自动穿透）、`muted`（静音）、`usageTracking`（记录应用使用时间）。
+- 配置项：`widgetSize`、`windowWidth`、`windowHeight`、`autoCloseDelay`、`idleOpacity`、`pinned`（面板固定）、`panelMargin`（面板碰撞箱外扩）、`fullscreenPassthrough`（全屏自动穿透）、`muted`（静音）、`usageTracking`（记录应用使用时间）、`chime`（整点报时）、`planNotify`（任务提醒）、`planBadge`（挂件待办角标）。
 
 > 穿透状态是 Rust 维护的运行时态，由 `passthrough-state` 广播驱动，前端只同步显示、不自行持久化（见第 3 节）。
+
+> 开机自启同样**不进 `AppConfig`**：它属于系统状态（Windows 下是启动项），由 `@tauri-apps/plugin-autostart` 读写，启动时读真实值同步显示（见第 11 节）。
 
 **皮肤名**单独存在 `localStorage["floating-notepad.skin"]`（见第 5 节），不混在配置对象里。
 
@@ -175,3 +177,19 @@ App 内所有增删改都收敛到这几个封装，后端命令为纯数据读�
 - **挂件角标**显示**今天还没到点**的日程数（`isPending`：属于今天、且无时刻或时刻没到；今天已过时刻的不算）。列表里被标出来的行用的就是同一个 `isPending`——角标与高亮是同一批任务，口径只有一处。角标贴在朝屏幕内侧的上角（靠左放右上、靠右放左上），并整体收进挂件范围内——挂件尺寸用户可调，贴边放会被边界裁掉一截。
 - **刷新**：启动取一次，之后**不做定时轮询**。日程只由本应用改（增删改即时重算），需要重取的是「派生值随时刻过期」的时刻，共三类：今天某条日程的时刻走完（`nextRefreshAt()` 算出下一个这样的边界）、跨过 00:00、以及收到 `plan-due`（真到点了）。窗口被隐藏期间定时器会被 webview 节流，所以重新可见时也补一次。
 - **日界：只有使用统计用 04:00**。日程一律真实日历日（`clock()` 直接取本地日期、星期与自 00:00 起的分钟数），比较时刻与排序都用同一把尺子。
+
+---
+
+## 11. 开机自启与诊断留痕
+
+**开机自启**（`@tauri-apps/plugin-autostart`）：功能面板（`FeaturePanel`）的「开机自启」开关，真相源在系统（Windows 下是启动项），前端只同步显示。
+
+- 启动时 `isEnabled()` 读真实状态初始化开关；切换时 `enable()` / `disable()` 写入系统。
+- **不写 localStorage、不进 `AppConfig`**——它不该被缓存成第二个真相源（详见 `src-tauri/LOGIC.md` 第 12 节）。
+- 状态与回调由 `App.tsx` 持有（`autostartOn` / `onAutostartChange`），`FeaturePanel` 是受控组件。
+
+**诊断留痕**（`src/lib/log.ts`）：`logEvent(tag, msg)` 把关键 UI 操作上报给 Rust 的 `log_event` 命令，由 Rust 统一写日志（同时打到控制台）。
+
+- 只上报**低频关键事件**：面板打开 / 关闭（`panel`）、右键隐藏挂件（`widget`）。
+- **高频行为不记**：鼠标靠近滑出、自动收起、光标轮询——记了会淹没日志（所以 `beginClose` 里只在 `mode === "expanded"` 时留痕）。
+- 上报失败静默：留痕本身不该影响功能。
