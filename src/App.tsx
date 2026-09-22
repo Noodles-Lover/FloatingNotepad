@@ -253,38 +253,112 @@ export default function App() {
     }
   };
 
-  /** 真正执行“收起”：切回隐藏态并让窗口回到球隐藏态。窗口动作统一交给 NoteWindow。 */
-  const doClose = useCallback(() => {
-    setMode("hidden");
-    setClosing(false);
-    noteWin.collapse();
-  }, [noteWin]);
+  // ---- 窗口动作串行器 ----
+  // 窗口操作是异步的（show / setSize / setPosition 各一次 IPC）。多次形态切换接连发生时，
+  // 先发起的调用可能后完成，把窗口留在旧形态（例如窗口停在挂件尺寸、界面却已是面板）。
+  // 这里把窗口动作排成一条队列，并且只执行**最新目标**（中途过期的直接丢弃）：
+  // 无论请求怎么交错，窗口最终一定等于最后一次请求的形态。
+  const winOpRef = useRef<(() => Promise<void>) | null>(null);
+  const winOpBusyRef = useRef(false);
+  const runWindowOp = useCallback((op: () => Promise<void>) => {
+    winOpRef.current = op;
+    if (winOpBusyRef.current) return;
+    winOpBusyRef.current = true;
+    void (async () => {
+      while (winOpRef.current) {
+        const next = winOpRef.current;
+        winOpRef.current = null;
+        try {
+          await next();
+        } catch (e) {
+          console.error("[view] 窗口动作失败:", e);
+        }
+      }
+      winOpBusyRef.current = false;
+    })();
+  }, []);
 
-  /** 开始收起动画——自动隐藏（鼠标离开）和手动关闭（点叉）共用的入口。
-   * @param fromUser 是否由用户点叉触发；手动关闭时鼠标仍在窗口内，需等其离开后才允许再弹出。 */
-  const beginClose = useCallback(
-    (fromUser = false) => {
+  /** 形态的可读名（只给留痕用）。 */
+  const viewName = (m: Mode, hidden: boolean): string =>
+    hidden ? "整窗隐藏" : m === "expanded" ? "面板" : m === "revealed" ? "挂件展开" : "挂件待命";
+
+  /**
+   * 视图状态迁移的**唯一入口**。所有「窗口形态」变化都必须调用它。
+   *
+   * 不变量在这里统一强制，任何调用方都绕不过：
+   * - I1 覆盖层只在面板里存在：目标不是 expanded 时无条件关闭全部覆盖层；
+   * - I2 整窗隐藏 ⟹ 挂件形态；
+   * - I3 穿透中 ⟹ 挂件形态（穿透时窗口点击穿透，面板既无意义也点不到）。
+   *
+   * @param animate 是否播「面板收起」动画。只有鼠标离开 / 点叉这类需要视觉过度的场景传 true；
+   *   托盘显隐、穿透、全屏等一律默认立即落定——它们没有可视动画，延迟只会制造
+   *   「界面已变、窗口没变」的空窗。
+   * @param fromUser 用户主动关闭（点叉）——决定「需先离开热区才允许再弹出」。
+   */
+  const applyView = useCallback(
+    (target: { mode: Mode; appHidden?: boolean }, opts: { animate?: boolean; fromUser?: boolean } = {}) => {
+      const prevAppHidden = appHiddenRef.current;
+      const appHidden = target.appHidden ?? prevAppHidden;
+      // I2 / I3：整窗隐藏或穿透中，一律回到挂件隐藏态。
+      const mode: Mode = appHidden || passthroughRef.current ? "hidden" : target.mode;
+
       clearTimers();
-      if (modeRef.current === "hidden") return;
-      // 只有面板收起才留痕；挂件随鼠标收起属高频行为，不记（轮询类不写日志）。
-      if (modeRef.current === "expanded") logEvent("panel", fromUser ? "关闭面板" : "自动收起面板");
-      // 关闭后进入短暂冷却，避免鼠标恰在隐藏缝里导致刚关又立刻弹出。
-      suppressUntil.current = Date.now() + 500;
-      if (fromUser) userMustLeaveRef.current = true;
-      // 收起前先关闭覆盖层：皮肤/设置面板渲染在 App 级，不会随 NotePanel 卸载，
-      // 若留到窗口缩回挂件尺寸，460px 的面板会被挤进几十像素的窗口里。
-      setSkinOpen(false);
-      setSettingsOpen(false);
-      setUsageOpen(false);
-      setFeaturesOpen(false);
-      setPlansOpen(false);
-      // 只有笔记面板收起才响。挂件从 hover 回到 idle 同样走这个入口，
-      // 但那是挂件行为，不该有音效。
-      if (modeRef.current === "expanded") sounds.play("paperClose");
-      setClosing(true);
-      closeTimer.current = window.setTimeout(doClose, CLOSE_ANIM);
+      setClosing(false);
+      // appHidden 立即生效：proximity 依据它早退，不能等 commit——动画与异步窗口动作期间有空窗。
+      appHiddenRef.current = appHidden;
+      // 收起后进入短暂冷却，避免鼠标恰在隐藏缝里导致刚关又立刻弹出。
+      if (mode === "hidden") suppressUntil.current = Date.now() + 500;
+      if (opts.fromUser) userMustLeaveRef.current = true;
+
+      const prev = modeRef.current;
+      const leavingExpanded = prev === "expanded" && mode !== "expanded";
+      const enteringExpanded = prev !== "expanded" && mode === "expanded";
+
+      // I1：先关覆盖层再动窗口——覆盖层渲染在 App 级，晚关就会被压进挂件窗口。
+      if (mode !== "expanded") {
+        setSkinOpen(false);
+        setSettingsOpen(false);
+        setUsageOpen(false);
+        setFeaturesOpen(false);
+        setPlansOpen(false);
+      }
+
+      // 只记「面板开合 / 整窗显隐」这类低频关键变化；挂件的 hover 进出太频繁，不记。
+      if (leavingExpanded || enteringExpanded || appHidden !== prevAppHidden) {
+        logEvent("view", `${viewName(prev, prevAppHidden)} → ${viewName(mode, appHidden)}`);
+      }
+      if (leavingExpanded && !appHidden) sounds.play("paperClose");
+      if (enteringExpanded) sounds.play("paperOpen");
+
+      /** 落到目标形态：ref 先更新（同步可见），窗口动作交给串行器（最终收敛到最新目标）。 */
+      const commit = () => {
+        modeRef.current = mode;
+        setMode(mode);
+        runWindowOp(async () => {
+          if (appHidden) {
+            await windowCtl.hideApp();
+          } else if (mode === "expanded") {
+            await windowCtl.showOnly();
+            await noteWin.expand(windowCtl.currentEdge(), windowCtl.getDockY());
+          } else {
+            // hidden 与 revealed 的窗口形态相同：显示并停靠回挂件尺寸。
+            await windowCtl.showApp();
+          }
+        });
+      };
+
+      // 只有「面板收起」需要动画：延迟卸载才能播 CSS 滑出。
+      if (leavingExpanded && opts.animate === true) {
+        setClosing(true);
+        closeTimer.current = window.setTimeout(() => {
+          setClosing(false);
+          commit();
+        }, CLOSE_ANIM);
+        return;
+      }
+      commit();
     },
-    [doClose],
+    [runWindowOp, windowCtl, noteWin],
   );
 
   /** 把配置应用到控制器：面板尺寸下次展开生效（挂件尺寸由下面的尺寸下发 effect 统一处理）。 */
@@ -312,20 +386,14 @@ export default function App() {
   );
 
   /** 请求切换穿透模式：Rust 是状态的唯一真相源。这里只发出切换意图
-   * （invoke toggle_passthrough），实际状态由 Rust 广播的 passthrough-state 事件
-   * 驱动前端显示，托盘与右键菜单保持一致。 */
+   * （invoke toggle_passthrough），视图变化由 Rust 广播的 passthrough-state 事件
+   * 经 applyView 统一驱动——不在此处提前改形态，避免出现第二个真相源。 */
   const setPassthrough = useCallback(
     (on: boolean) => {
       if (on === passthroughRef.current) return;
-      // 进入穿透态时先只显示挂件（无内容面板、不检测鼠标）；其余交给 Rust 处理 WS_EX_TRANSPARENT。
-      if (on) {
-        setMode("hidden");
-        appHiddenRef.current = false;
-        windowCtl.showOnly().catch((e) => console.error("[showOnly] 失败:", e));
-      }
       invoke("toggle_passthrough").catch((e) => console.error("[passthrough] invoke 失败:", e));
     },
-    [windowCtl],
+    [],
   );
 
 
@@ -340,24 +408,22 @@ export default function App() {
     if (passthroughRef.current || draggingRef.current) return;
     suppressUntil.current = Math.max(suppressUntil.current, Date.now() + 200);
     if (modeRef.current === "revealed") {
-      beginClose();
+      applyView({ mode: "hidden" });
       return;
     }
     window.setTimeout(() => {
       if (passthroughRef.current || draggingRef.current) return;
-      if (modeRef.current === "revealed") beginClose();
+      if (modeRef.current === "revealed") applyView({ mode: "hidden" });
     }, 0);
-  }, [beginClose]);
+  }, [applyView]);
 
   /** 在挂件上右键：弹出原生菜单（隐藏 / 穿透 / 试一下报时 / 退出）。 */
   const openContextMenu = useCallback(async () => {
     const hideItem = await MenuItem.new({
       text: "隐藏挂件",
       action: () => {
-        appHiddenRef.current = true;
-        setMode("hidden");
         logEvent("widget", "隐藏挂件");
-        windowCtl.hideApp().catch((e) => console.error("[hideApp] 失败:", e));
+        applyView({ mode: "hidden", appHidden: true });
       },
     });
     const passItem = await CheckMenuItem.new({
@@ -542,10 +608,10 @@ export default function App() {
       setEdge(finalEdge);
       draggingRef.current = false;
       setDragging(false);
-      // 拖完恢复展示态（若正在展开面板则保持不变）。
-      setMode((m) => (m === "expanded" ? m : "revealed"));
+      // 拖完恢复展示态（面板打开时不动，避免把面板拽回挂件）。
+      if (modeRef.current !== "expanded") applyView({ mode: "revealed" });
     });
-  }, [windowCtl]);
+  }, [windowCtl, applyView]);
 
   // 初始化：默认展示挂件、启动全局鼠标监听、恢复上次标签页。
   useEffect(() => {
@@ -584,16 +650,12 @@ export default function App() {
     bind(
       listen("show-widget", () => {
         // 显示挂件后回到 idle 待命态（半掩、不 hover），由 proximity 检测鼠标靠近才 reveal。
-        appHiddenRef.current = false;
-        setMode("hidden");
-        windowCtl.showApp();
+        applyView({ mode: "hidden", appHidden: false });
       }),
     );
     bind(
       listen("hide-widget", () => {
-        appHiddenRef.current = true;
-        setMode("hidden");
-        windowCtl.hideApp();
+        applyView({ mode: "hidden", appHidden: true });
       }),
     );
     // 穿透状态由 Rust 统一维护并广播；前端只同步显示，不自己计算真相。
@@ -607,22 +669,11 @@ export default function App() {
         // 穿透音效挂在这里而非各切换入口：Rust 的 set_passthrough 无论被谁调用
         // （用户切换 / 托盘 / 解锁按钮 / 全屏自动）都会广播本事件，音效自动覆盖全部路径。
         sounds.play(on ? "lock" : "unlock");
+        // 先更新真相，再让 applyView 依不变量强制回到挂件形态（穿透时面板无意义且点不到）。
+        // appHidden 不显式传：穿透变化不该把托盘隐藏的窗口重新弹出来。
         passthroughRef.current = on;
         setPassthroughState(on);
-        appHiddenRef.current = false;
-        clearTimers();
-        setClosing(false);
-        if (on) {
-          // 进入穿透：与挂件右键菜单路径一致 —— 只保留挂件展示态，mode 归位 hidden。
-          // 面板（expanded）打开时保持原样，不打断用户正在编辑的内容。
-          if (modeRef.current !== "expanded") setMode("hidden");
-          windowCtl.showOnly().catch((e) => console.error("[passthrough] showOnly 失败:", e));
-        } else if (modeRef.current !== "expanded") {
-          // 退出穿透：回到 idle 半掩待命态，由 proximity 重新采样鼠标位置决定是否 reveal。
-          // 若鼠标此刻真的在挂件上，下一次 cursor-move（≤100ms）会立即把它再次 reveal。
-          setMode("hidden");
-          windowCtl.showApp().catch((e) => console.error("[passthrough] showApp 失败:", e));
-        }
+        applyView({ mode: "hidden" });
       }),
     );
     // 退出前 Rust 会广播 before-quit（见 src-tauri/LOGIC.md「退出」）：
@@ -632,7 +683,10 @@ export default function App() {
     // EnableWindow(FALSE) 禁用，面板上的关闭按钮就点不到了，所以先收起面板。
     bind(
       listen("collapse-panel", () => {
-        if (modeRef.current === "expanded") doClose();
+        // 全屏自动穿透前先收起面板（穿透生效后主窗口被禁用，关闭按钮点不到）。
+        // 目标不含面板，applyView 会连覆盖层一起关掉——这正是之前漏掉、导致
+        // 「二层面板被压缩进挂件尺寸窗口」的那一步。关动画：要抢在穿透生效前收完。
+        applyView({ mode: "hidden" }, { animate: false });
       }),
     );
 
@@ -684,26 +738,26 @@ export default function App() {
         // 前端事件不保证继续推进。
         if (passthroughRef.current) return;
         const isInside = await inside(x, y);
-        if (modeRef.current === "hidden") {
+        // await 期间状态可能已变，判定一律以最新形态为准。
+        const cur = modeRef.current;
+        if (cur === "hidden") {
           if (isInside) {
             // 手动关闭（点叉）后鼠标仍停在挂件上：必须等其先离开，才允许再次弹出，
             // 否则刚收起又会立刻弹回（自动关闭时鼠标已离开，不会触发此处）。
-            if (!userMustLeaveRef.current) {
-              setMode("revealed");
-              windowCtl.showWidget();
-            }
+            if (!userMustLeaveRef.current) applyView({ mode: "revealed" });
           } else {
             // 鼠标已离开一次，解除“必须离开”约束，后续可正常弹出。
             userMustLeaveRef.current = false;
           }
-        } else {
-          if (isInside) {
-            clearTimers();
-            setClosing(false);
-          } else if (!configRef.current.pinned && !hideTimer.current && !closeTimer.current) {
-            // 面板未固定时才随鼠标离开自动收起；固定后只有手动点叉能关闭。
-            hideTimer.current = window.setTimeout(beginClose, configRef.current.autoCloseDelay);
-          }
+        } else if (isInside) {
+          clearTimers();
+          setClosing(false);
+        } else if (!configRef.current.pinned && !hideTimer.current && !closeTimer.current) {
+          // 面板未固定时才随鼠标离开自动收起；固定后只有手动点叉能关闭。
+          hideTimer.current = window.setTimeout(
+            () => applyView({ mode: "hidden" }, { animate: true }),
+            configRef.current.autoCloseDelay,
+          );
         }
       })
       .catch((e) => console.error("[sensor.start] 失败:", e));
@@ -715,20 +769,14 @@ export default function App() {
       sensor.stop();
       clearTimers();
     };
-  }, [windowCtl, beginClose, noteWin, scheduleSave, doClose, syncScreen]);
+  }, [windowCtl, applyView, noteWin, scheduleSave, syncScreen]);
 
   /** 打开笔记面板。 */
   const openPanel = useCallback(() => {
-    // 穿透模式：点击不打开面板。
-    if (passthroughRef.current) return;
-    clearTimers();
-    setClosing(false);
-    setMode("expanded");
-    logEvent("panel", "打开面板");
-    sounds.play("paperOpen");
-    // 面板由 NoteWindow 负责窗口形态；挂件当前的 dockEdge/dockY 决定对齐与弹出方向。
-    noteWin.expand(windowCtl.currentEdge(), windowCtl.getDockY());
-  }, [noteWin, windowCtl]);
+    // 穿透 / 整窗隐藏下窗口不可交互，点不到；防御性早退。
+    if (passthroughRef.current || appHiddenRef.current) return;
+    applyView({ mode: "expanded" });
+  }, [applyView]);
 
   /** 悬浮挂件通知 App：拖动状态切换（开始 / 结束）。 */
   const onDraggingChange = useCallback((next: boolean) => {
@@ -906,7 +954,7 @@ export default function App() {
           onRenameTab={tabsApi.rename}
           onDeleteTab={tabsApi.requestDelete}
           onReorderTab={tabsApi.reorder}
-          onClose={() => beginClose(true)}
+          onClose={() => applyView({ mode: "hidden" }, { animate: true, fromUser: true })}
           closing={closing}
           edge={edge}
           idleOpacity={config.idleOpacity}
