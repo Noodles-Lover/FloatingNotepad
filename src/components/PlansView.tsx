@@ -1,3 +1,4 @@
+import { memo } from "react";
 import {
   deletePlan,
   isPending,
@@ -25,7 +26,7 @@ interface Props {
  * 今天还没到点的会标出来（`isPending`，与挂件角标同一口径），今天已过时刻的淡显——
  * 它们还在，只是不用再盯着看了。
  */
-export default function PlansView({ plans, onChange }: Props) {
+function PlansView({ plans, onChange }: Props) {
   const { once, weekly } = sortForDisplay(plans);
   const now = new Date();
   const day = today(now);
@@ -84,3 +85,5 @@ export default function PlansView({ plans, onChange }: Props) {
     </div>
   );
 }
+
+export default memo(PlansView);

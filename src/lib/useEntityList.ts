@@ -1,4 +1,4 @@
-import { useCallback, useRef, useState } from "react";
+import { useCallback, useMemo, useRef, useState } from "react";
 import { reorderById } from "./list";
 
 /**
@@ -64,6 +64,12 @@ export function useEntityList<T extends { id: number }>(
   activeIdRef.current = activeId;
   const loadedRef = useRef(false);
 
+  // 把最新 options 收进 ref：调用方每次渲染都传入新的 options 对象字面量，
+  // 若直接作为 useCallback 依赖，会让所有回调身份不断变化、下游 memo 全部失效。
+  // 收进 ref 后回调可依赖 []，身份稳定，派生值也稳定。
+  const optsRef = useRef(opts);
+  optsRef.current = opts;
+
   const load = useCallback((items: T[], active: number) => {
     loadedRef.current = true;
     if (items.length === 0) return;
@@ -80,34 +86,34 @@ export function useEntityList<T extends { id: number }>(
   const switchTo = useCallback((id: number) => {
     setActiveId(id);
     activeIdRef.current = id;
-    opts.persistActive(id);
-  }, [opts]);
+    optsRef.current.persistActive(id);
+  }, []);
 
   const add = useCallback(() => {
-    const item = opts.create(listRef.current.length + 1);
+    const item = optsRef.current.create(listRef.current.length + 1);
     const next = [...listRef.current, item];
     listRef.current = next;
     setList(next);
     setActiveId(item.id);
     activeIdRef.current = item.id;
-    opts.persistActive(item.id);
-    opts.persist(next);
-  }, [opts]);
+    optsRef.current.persistActive(item.id);
+    optsRef.current.persist(next);
+  }, []);
 
   const rename = useCallback((id: number, title: string) => {
     const next = listRef.current.map((i) => (i.id === id ? { ...i, title } : i));
     listRef.current = next;
     setList(next);
-    opts.schedulePersist();
-  }, [opts]);
+    optsRef.current.schedulePersist();
+  }, []);
 
   const reorder = useCallback((fromId: number, toId: number | null) => {
     const next = reorderById(listRef.current, fromId, toId);
     if (!next) return;
     listRef.current = next;
     setList(next);
-    opts.persist(next);
-  }, [opts]);
+    optsRef.current.persist(next);
+  }, []);
 
   const commitDelete = useCallback((id: number) => {
     const prev = listRef.current;
@@ -119,21 +125,21 @@ export function useEntityList<T extends { id: number }>(
       const fallback = next[Math.max(0, idx - 1)];
       setActiveId(fallback.id);
       activeIdRef.current = fallback.id;
-      opts.persistActive(fallback.id);
+      optsRef.current.persistActive(fallback.id);
     }
     listRef.current = next;
     setList(next);
     // 结构性变更：直接用最新列表落库，确保删除立即持久化。
-    opts.persist(next);
-  }, [opts]);
+    optsRef.current.persist(next);
+  }, []);
 
   const requestDelete = useCallback(
     (id: number) => {
       const item = listRef.current.find((i) => i.id === id);
-      if (item && opts.hasContent(item)) opts.onConfirmDelete(id);
+      if (item && optsRef.current.hasContent(item)) optsRef.current.onConfirmDelete(id);
       else commitDelete(id);
     },
-    [opts, commitDelete],
+    [commitDelete],
   );
 
   const updateActive = useCallback((patch: Partial<T>) => {
@@ -142,23 +148,27 @@ export function useEntityList<T extends { id: number }>(
     );
     listRef.current = next;
     setList(next);
-    opts.schedulePersist();
-  }, [opts]);
+    optsRef.current.schedulePersist();
+  }, []);
 
-  return {
-    list,
-    activeId,
-    loadedRef,
-    listRef,
-    activeIdRef,
-    load,
-    markLoaded,
-    switchTo,
-    add,
-    rename,
-    reorder,
-    requestDelete,
-    commitDelete,
-    updateActive,
-  };
+  // 仅当底层列表/激活项变化时才换身份；所有 CRUD 回调稳定，下游 memo 不会无谓重渲染。
+  return useMemo<EntityListApi<T>>(
+    () => ({
+      list,
+      activeId,
+      loadedRef,
+      listRef,
+      activeIdRef,
+      load,
+      markLoaded,
+      switchTo,
+      add,
+      rename,
+      reorder,
+      requestDelete,
+      commitDelete,
+      updateActive,
+    }),
+    [list, activeId, load, markLoaded, switchTo, add, rename, reorder, requestDelete, commitDelete, updateActive],
+  );
 }

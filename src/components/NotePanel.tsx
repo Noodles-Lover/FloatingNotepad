@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from "react";
+import { memo, useEffect, useRef, useState } from "react";
 import type { Category, Tab, Todo } from "../types";
 import type { Edge } from "../lib/window";
 import { PLANS_TAB_ID, type NearestInfo, type Plan } from "../lib/plans";
@@ -150,7 +150,7 @@ function priorityColor(p: number): string {
   return "#4caf6d";
 }
 
-export default function NotePanel({
+function NotePanel({
   note,
   todos,
   tabs,
@@ -474,3 +474,5 @@ export default function NotePanel({
     </div>
   );
 }
+
+export default memo(NotePanel);
