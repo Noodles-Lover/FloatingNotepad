@@ -613,6 +613,19 @@ fn quit_app(app: AppHandle) {
     do_quit_app(&app);
 }
 
+/// 重启应用：与退出同一条路——先让前端 flush、补写使用统计，再换进程。
+/// 直接 `AppHandle::restart()` 会跳过这些，丢掉防抖中的输入与最后一段统计。
+fn do_restart_app(app: &AppHandle) {
+    log::write(app, "app", "重启");
+    let _ = app.emit("before-quit", ());
+    usage::flush(app);
+    let app = app.clone();
+    thread::spawn(move || {
+        thread::sleep(Duration::from_millis(QUIT_FLUSH_MS));
+        app.restart();
+    });
+}
+
 /// 前端关键操作（面板开合、隐藏出现等）转交 Rust 统一留痕。
 ///
 /// 日志文件由 Rust 管理（见 `log.rs`），前端只上报事件；`log::write` 会一并写入
@@ -860,6 +873,7 @@ pub fn run() {
             let hide_item = MenuItem::with_id(app, "hide", "隐藏挂件", true, None::<&str>)?;
             let toggle_pt_item =
                 CheckMenuItem::with_id(app, "toggle_passthrough", "切换穿透模式", true, false, None::<&str>)?;
+            let restart_item = MenuItem::with_id(app, "restart", "重启", true, None::<&str>)?;
             let quit_item = MenuItem::with_id(app, "quit", "退出", true, None::<&str>)?;
             // 启动即非穿透，确保窗口正常可交互。
             let _ = toggle_pt_item.set_checked(false);
@@ -867,7 +881,7 @@ pub fn run() {
             if let Ok(mut r) = app.state::<TrayPassthroughRef>().inner().0.lock() {
                 *r = Some(toggle_pt_item.clone());
             }
-            let menu = Menu::with_items(app, &[&show_item, &hide_item, &toggle_pt_item, &quit_item])?;
+            let menu = Menu::with_items(app, &[&show_item, &hide_item, &toggle_pt_item, &restart_item, &quit_item])?;
             let _tray = TrayIconBuilder::with_id("main-tray")
                 .icon(app.default_window_icon().unwrap().clone())
                 .tooltip("浮窗便签")
@@ -876,6 +890,9 @@ pub fn run() {
                     "show" => {
                         log::write(app, "widget", "托盘显示挂件");
                         let _ = app.emit("show-widget", ());
+                    }
+                    "restart" => {
+                        do_restart_app(app);
                     }
                     "hide" => {
                         log::write(app, "widget", "托盘隐藏挂件");
