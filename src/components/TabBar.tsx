@@ -1,4 +1,4 @@
-import { useRef, useState } from "react";
+import { memo, useRef, useState } from "react";
 
 /** 一个可被 TabBar 渲染的条目（仅含 UI 所需的最小字段，业务数据由调用方持有）。 */
 export interface TabBarItem {
@@ -37,7 +37,7 @@ interface Props {
  * 组件与业务解耦——它只接收纯 id/title 列表与回调，不感知数据来自速记还是待办、
  * 也不感知底层如何持久化（调用方各自维护独立的 state 与存储）。
  */
-export function TabBar({
+function TabBarInner({
   items,
   activeId,
   onSwitch,
@@ -235,3 +235,5 @@ export function TabBar({
     </div>
   );
 }
+
+export const TabBar = memo(TabBarInner);

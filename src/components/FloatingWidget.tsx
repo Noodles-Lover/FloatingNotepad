@@ -1,4 +1,4 @@
-import { useRef } from "react";
+import { memo, useRef } from "react";
 import type { Edge, WindowController } from "../lib/window";
 import type { Skin } from "../lib/skins";
 
@@ -43,7 +43,7 @@ const DRAG_THRESHOLD = 6;
  * 渲染由 skin 决定：滑动模式用单张 widget.png 配合 CSS 滑出半掩（隐藏态滑出半截，revealed 时整颗伸出）；
  * 变化模式用 idle/hover 两张图切换（整颗停靠，由图片自身表现半掩/伸出）。
  */
-export default function FloatingWidget({
+function FloatingWidget({
   revealed,
   dragging,
   edge,
@@ -178,3 +178,5 @@ export default function FloatingWidget({
     </div>
   );
 }
+
+export default memo(FloatingWidget);
