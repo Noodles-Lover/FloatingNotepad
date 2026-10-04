@@ -13,6 +13,7 @@ import FloatingWidget from "./components/FloatingWidget";
 import NotePanel from "./components/NotePanel";
 import SkinPanel from "./components/SkinPanel";
 import SettingsPanel from "./components/SettingsPanel";
+import NotionPanel from "./components/NotionPanel";
 import UsagePanel from "./components/UsagePanel";
 import FeaturePanel from "./components/FeaturePanel";
 import PlansPanel from "./components/PlansPanel";
@@ -34,7 +35,6 @@ export default function App() {
     autostartOn,
     onAutostartChange,
     onTogglePin,
-    onToggleMute,
   } = useAppConfig(noteWin);
   // 日程数据与派生值（最近一项 / 未完成条数）。
   const { plans, setPlans, nearest, planCount } = usePlans();
@@ -83,7 +83,8 @@ export default function App() {
     [config, onConfigChange],
   );
 
-  const { skinOpen, settingsOpen, usageOpen, featuresOpen, plansOpen } = view.overlays;
+  const { skinOpen, settingsOpen, usageOpen, featuresOpen, plansOpen, notionOpen } =
+    view.overlays;
 
   return (
     <div className="app">
@@ -109,8 +110,7 @@ export default function App() {
           onReorderCategory={catsApi.reorder}
           pinned={config.pinned}
           onTogglePin={onTogglePin}
-          muted={config.muted}
-          onToggleMute={onToggleMute}
+          onOpenNotion={view.openNotion}
           onSwitchTab={tabsApi.switchTo}
           onAddTab={tabsApi.add}
           onRenameTab={tabsApi.rename}
@@ -161,6 +161,8 @@ export default function App() {
       {settingsOpen && (
         <SettingsPanel config={config} onChange={onConfigChange} onClose={view.closeSettings} />
       )}
+
+      {notionOpen && <NotionPanel onClose={view.closeNotion} />}
 
       {usageOpen && (
         <UsagePanel config={config} onChange={onConfigChange} onClose={view.closeUsage} />

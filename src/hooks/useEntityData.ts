@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { listen } from "@tauri-apps/api/event";
 import {
   loadState,
   saveTabs,
@@ -111,6 +112,22 @@ export function useEntityData() {
         console.error("[loadCategories] 失败:", e);
       });
   }, [scheduleSave]);
+
+  // Notion 同步完成后重载：拉回的新标签页/待办/勾选状态要立刻出现在界面上，
+  // 不能只改了数据库而停在旧画面。不做存回，避免把同步结果又原样写一遍。
+  useEffect(() => {
+    const pending = listen("notion-synced", () => {
+      loadState()
+        .then((state) => tabsApiRef.current?.load(state.tabs, state.activeTabId))
+        .catch((e) => console.error("[reload] 失败:", e));
+      loadCategories()
+        .then((state) => catsApiRef.current?.load(state.categories, state.activeCategoryId))
+        .catch((e) => console.error("[reloadCat] 失败:", e));
+    });
+    return () => {
+      pending.then((fn) => fn()).catch(() => {});
+    };
+  }, []);
 
   // 当前激活项（派生）。memo 化：无激活项时 `?? list[0]` 不会每帧造新引用。
   const activeTab = useMemo(

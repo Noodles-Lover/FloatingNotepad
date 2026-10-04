@@ -141,3 +141,13 @@ commands.allow = ["set_lock_hide_delay"]
 identifier = "allow-log-event"
 description = "Allow the frontend to report key UI actions (panel open/close, widget hide/show) to the unified diagnostic log."
 commands.allow = ["log_event"]
+
+[[permission]]
+identifier = "allow-notion-config"
+description = "Allow reading and writing the Notion sync settings (integration secret and container page)."
+commands.allow = ["notion_get_config", "notion_set_config"]
+
+[[permission]]
+identifier = "allow-notion-sync"
+description = "Allow setting up the Notion databases and running a sync round."
+commands.allow = ["notion_setup", "notion_sync"]

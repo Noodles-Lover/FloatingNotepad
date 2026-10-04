@@ -141,6 +141,22 @@ pub fn init_db(app: &tauri::App) {
     )
     .expect("create meta table failed");
 
+    // Notion 同步的映射表：记住「本地条目 ↔ Notion 页面」的对应关系，以及上次同步时
+    // 两边各自的内容签名。有了它，变更检测与删除检测都靠比对，不需要给业务表加字段。
+    // local_id 用 TEXT：速记/日程是自增整数，待办是 uuid 字符串。
+    conn.execute(
+        "CREATE TABLE IF NOT EXISTS notion_sync (
+            collection TEXT NOT NULL,
+            local_id TEXT NOT NULL,
+            page_id TEXT NOT NULL,
+            local_sig TEXT NOT NULL DEFAULT '',
+            remote_sig TEXT NOT NULL DEFAULT '',
+            PRIMARY KEY (collection, local_id)
+        )",
+        [],
+    )
+    .expect("create notion_sync table failed");
+
     // migrate legacy single note into the first tab (only once)
     let migrated: i64 = conn
         .query_row(
@@ -400,6 +416,247 @@ pub fn set_active_category(category_id: i64) {
     .expect("set active category failed");
 }
 
+// ---- Notion 同步：映射表与行级读写 ----
+
+/// 待办条目（与 categories.todos 里的元素、前端 Todo 形状一致）。
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct TodoItem {
+    pub id: String,
+    pub text: String,
+    pub done: bool,
+    pub priority: i64,
+    pub note: String,
+}
+
+/// 读 meta 键值（Notion 配置、数据库 ID 等零散状态存这里）。
+pub fn meta_get(key: &str) -> Option<String> {
+    let conn = db().lock().unwrap();
+    conn.query_row(
+        "SELECT value FROM meta WHERE key = ?1",
+        rusqlite::params![key],
+        |r| r.get(0),
+    )
+    .ok()
+}
+
+/// 写 meta 键值。
+pub fn meta_set(key: &str, value: &str) {
+    let conn = db().lock().unwrap();
+    conn.execute(
+        "INSERT INTO meta (key, value) VALUES (?1, ?2)
+         ON CONFLICT(key) DO UPDATE SET value=excluded.value",
+        rusqlite::params![key, value],
+    )
+    .expect("set meta failed");
+}
+
+/// 一条「本地条目 ↔ Notion 页面」映射：(page_id, local_sig, remote_sig)。
+pub fn notion_get(collection: &str, local_id: &str) -> Option<(String, String, String)> {
+    let conn = db().lock().unwrap();
+    conn.query_row(
+        "SELECT page_id, local_sig, remote_sig FROM notion_sync
+         WHERE collection = ?1 AND local_id = ?2",
+        rusqlite::params![collection, local_id],
+        |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?)),
+    )
+    .ok()
+}
+
+pub fn notion_put(
+    collection: &str,
+    local_id: &str,
+    page_id: &str,
+    local_sig: &str,
+    remote_sig: &str,
+) {
+    let conn = db().lock().unwrap();
+    conn.execute(
+        "INSERT INTO notion_sync (collection, local_id, page_id, local_sig, remote_sig)
+         VALUES (?1, ?2, ?3, ?4, ?5)
+         ON CONFLICT(collection, local_id) DO UPDATE SET
+           page_id=excluded.page_id, local_sig=excluded.local_sig, remote_sig=excluded.remote_sig",
+        rusqlite::params![collection, local_id, page_id, local_sig, remote_sig],
+    )
+    .expect("save notion mapping failed");
+}
+
+pub fn notion_del(collection: &str, local_id: &str) {
+    let conn = db().lock().unwrap();
+    conn.execute(
+        "DELETE FROM notion_sync WHERE collection = ?1 AND local_id = ?2",
+        rusqlite::params![collection, local_id],
+    )
+    .ok();
+}
+
+/// 清空某集合的全部映射（同步重置用）。
+pub fn notion_clear(collection: &str) {
+    let conn = db().lock().unwrap();
+    conn.execute(
+        "DELETE FROM notion_sync WHERE collection = ?1",
+        rusqlite::params![collection],
+    )
+    .ok();
+}
+
+/// 某集合的全部映射：(local_id, page_id, local_sig, remote_sig)。
+pub fn notion_all(collection: &str) -> Vec<(String, String, String, String)> {
+    let conn = db().lock().unwrap();
+    conn.prepare(
+        "SELECT local_id, page_id, local_sig, remote_sig FROM notion_sync WHERE collection = ?1",
+    )
+    .and_then(|mut stmt| {
+        stmt
+            .query_map(rusqlite::params![collection], |r| {
+                Ok((r.get(0)?, r.get(1)?, r.get(2)?, r.get(3)?))
+            })
+            .map(|rows| rows.filter_map(|r| r.ok()).collect::<Vec<_>>())
+    })
+    .unwrap_or_default()
+}
+
+/// 新增一个速记标签页，返回新 id。
+pub fn insert_tab(title: &str, content: &str) -> i64 {
+    let conn = db().lock().unwrap();
+    let pos: i64 = conn
+        .query_row("SELECT COALESCE(MAX(position) + 1, 0) FROM tabs", [], |r| r.get(0))
+        .unwrap_or(0);
+    conn.execute(
+        "INSERT INTO tabs (title, content, position) VALUES (?1, ?2, ?3)",
+        rusqlite::params![title, content, pos],
+    )
+    .expect("insert tab failed");
+    conn.last_insert_rowid()
+}
+
+pub fn update_tab(id: i64, title: &str, content: &str) {
+    let conn = db().lock().unwrap();
+    conn.execute(
+        "UPDATE tabs SET title = ?1, content = ?2 WHERE id = ?3",
+        rusqlite::params![title, content, id],
+    )
+    .ok();
+}
+
+pub fn delete_tab(id: i64) {
+    let conn = db().lock().unwrap();
+    conn.execute("DELETE FROM tabs WHERE id = ?1", rusqlite::params![id])
+        .ok();
+}
+
+/// 按标题取分类 id；不存在则新建（手机端新建待办时可能带出新分类）。
+pub fn ensure_category(title: &str) -> i64 {
+    let conn = db().lock().unwrap();
+    let existing: Option<i64> = conn
+        .query_row(
+            "SELECT id FROM categories WHERE title = ?1",
+            rusqlite::params![title],
+            |r| r.get(0),
+        )
+        .ok();
+    if let Some(id) = existing {
+        return id;
+    }
+    let pos: i64 = conn
+        .query_row(
+            "SELECT COALESCE(MAX(position) + 1, 0) FROM categories",
+            [],
+            |r| r.get(0),
+        )
+        .unwrap_or(0);
+    conn.execute(
+        "INSERT INTO categories (title, todos, position) VALUES (?1, '[]', ?2)",
+        rusqlite::params![title, pos],
+    )
+    .expect("insert category failed");
+    conn.last_insert_rowid()
+}
+
+/// 在指定分类里插入或更新一条待办。
+pub fn upsert_todo(category: &str, todo: &TodoItem) {
+    let cat_id = ensure_category(category);
+    let conn = db().lock().unwrap();
+    let raw: String = conn
+        .query_row(
+            "SELECT todos FROM categories WHERE id = ?1",
+            rusqlite::params![cat_id],
+            |r| r.get(0),
+        )
+        .unwrap_or_else(|_| "[]".to_string());
+    let mut list: Vec<TodoItem> = serde_json::from_str(&raw).unwrap_or_default();
+    match list.iter_mut().find(|t| t.id == todo.id) {
+        Some(t) => *t = todo.clone(),
+        None => list.push(todo.clone()),
+    }
+    let next = serde_json::to_string(&list).unwrap_or_else(|_| "[]".to_string());
+    conn.execute(
+        "UPDATE categories SET todos = ?1 WHERE id = ?2",
+        rusqlite::params![next, cat_id],
+    )
+    .ok();
+}
+
+/// 按 id 删除待办（跨全部分类查找）。
+pub fn delete_todo(id: &str) {
+    let conn = db().lock().unwrap();
+    let rows: Vec<(i64, String)> = conn
+        .prepare("SELECT id, todos FROM categories")
+        .and_then(|mut stmt| {
+            stmt
+                .query_map([], |r| Ok((r.get(0)?, r.get(1)?)))
+                .map(|rows| rows.filter_map(|r| r.ok()).collect::<Vec<_>>())
+        })
+        .unwrap_or_default();
+    for (cat_id, raw) in rows {
+        let mut list: Vec<TodoItem> = serde_json::from_str(&raw).unwrap_or_default();
+        let before = list.len();
+        list.retain(|t| t.id != id);
+        if list.len() != before {
+            let next = serde_json::to_string(&list).unwrap_or_else(|_| "[]".to_string());
+            conn.execute(
+                "UPDATE categories SET todos = ?1 WHERE id = ?2",
+                rusqlite::params![next, cat_id],
+            )
+            .ok();
+        }
+    }
+}
+
+/// 读全部待办（扁平化：分类标题 + 条目），供同步与外部消费。
+pub fn load_todos_flat() -> Vec<(String, TodoItem)> {
+    let conn = db().lock().unwrap();
+    let rows: Vec<(String, String)> = conn
+        .prepare("SELECT title, todos FROM categories")
+        .and_then(|mut stmt| {
+            stmt
+                .query_map([], |r| Ok((r.get(0)?, r.get(1)?)))
+                .map(|rows| rows.filter_map(|r| r.ok()).collect::<Vec<_>>())
+        })
+        .unwrap_or_default();
+    rows.into_iter()
+        .flat_map(|(cat, raw)| {
+            let list: Vec<TodoItem> = serde_json::from_str(&raw).unwrap_or_default();
+            list.into_iter().map(move |t| (cat.clone(), t))
+        })
+        .collect()
+}
+
+pub fn update_plan(
+    id: i64,
+    kind: &str,
+    date: Option<&str>,
+    weekday: Option<i64>,
+    time: Option<&str>,
+    text: &str,
+) {
+    let conn = db().lock().unwrap();
+    conn.execute(
+        "UPDATE plans SET kind = ?1, date = ?2, weekday = ?3, time = ?4, text = ?5 WHERE id = ?6",
+        rusqlite::params![kind, date, weekday, time, text, id],
+    )
+    .ok();
+}
+
 // ---- 应用使用统计（usage.rs 采样写入，面板只读当天）----
 
 /// 一段连续使用：起止均为 Unix 毫秒，对应时间线上的一个区间。
@@ -531,6 +788,18 @@ pub fn local_weekday() -> i64 {
         |r| r.get(0),
     )
     .unwrap_or(0)
+}
+
+/// 今天起第 `days` 天后的日期（"YYYY-MM-DD"，真实日历日）。
+/// 周常日程同步到 Notion 时用：Notion 的提醒依赖日期属性，光有星期发不出提醒。
+pub fn date_after(days: i64) -> String {
+    let conn = db().lock().unwrap();
+    conn.query_row(
+        "SELECT date('now', 'localtime', ?1)",
+        rusqlite::params![format!("+{days} days")],
+        |r| r.get(0),
+    )
+    .unwrap_or_default()
 }
 
 /// 本地时刻：格式化好的「HH:MM」、当前分钟、当前秒（0–59）。

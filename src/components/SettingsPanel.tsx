@@ -85,6 +85,15 @@ export default function SettingsPanel({ config, onChange, onClose }: Props) {
           </span>
         </div>
         <div className="skin-body">
+          <label className="set-switch-row" title="关闭全部音效（面板开合、报时、提醒）">
+            <span className="set-label">静音</span>
+            <input
+              type="checkbox"
+              className="set-switch"
+              checked={config.muted}
+              onChange={(e) => set({ muted: e.target.checked })}
+            />
+          </label>
           <Slider
             label="挂件尺寸"
             value={config.widgetSize}

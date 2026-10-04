@@ -44,6 +44,8 @@
     "allow-set-lock-hide-delay",
     "allow-quit-app",
     "allow-log-event",
+    "allow-notion-config",
+    "allow-notion-sync",
     "autostart:allow-enable",
     "autostart:allow-disable",
     "autostart:allow-is-enabled"

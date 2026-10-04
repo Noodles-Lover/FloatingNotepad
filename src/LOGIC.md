@@ -105,7 +105,7 @@ App 端判定**始终基于 UI 当前真实 bounds**：
 - `loadConfig()`：同步读取。以 `DEFAULT_CONFIG` 为底，合并 localStorage 里的用户覆盖，覆盖前过 `sanitize`（数值范围过滤，非法值丢弃）。
 - `saveConfig(cfg)`：应用内「设置」面板调整后写 localStorage。
 - 出厂默认值集中在 `DEFAULT_CONFIG`。
-- 静音（`muted`）由速记面板**头栏的喇叭按钮**切换，设置面板里不再有开关——头栏要放固定、皮肤、统计、静音、设置、收起六个按钮，设置面板只留不与它们重复的项。
+- 静音（`muted`）开关在**设置面板**里；头栏放固定、皮肤、功能、统计、日程、Notion、设置、收起，设置面板只留不与它们重复的项。
 - 配置项：`widgetSize`、`windowWidth`、`windowHeight`、`autoCloseDelay`、`idleOpacity`、`pinned`（面板固定）、`panelMargin`（面板碰撞箱外扩）、`fullscreenPassthrough`（全屏自动穿透）、`muted`（静音）、`usageTracking`（记录应用使用时间）、`chime`（整点报时）、`planNotify`（任务提醒）、`planBadge`（挂件待办角标）。
 
 > 穿透状态是 Rust 维护的运行时态，由 `passthrough-state` 广播驱动，前端只同步显示、不自行持久化（见第 3 节）。

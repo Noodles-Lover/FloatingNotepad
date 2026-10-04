@@ -2,8 +2,10 @@ mod chime;
 mod log;
 mod notify;
 mod popup;
+mod power;
 mod shortcut;
 mod plans;
+mod notion;
 mod db;
 mod foreground;
 mod tracker;
@@ -635,6 +637,86 @@ fn log_event(app: AppHandle, tag: String, msg: String) {
     log::write(&app, &tag, &msg);
 }
 
+/// 读取 Notion 同步配置（密钥存在本机 meta 表里，只回给本机前端）。
+#[tauri::command]
+fn notion_get_config() -> notion::Config {
+    notion::load_cfg()
+}
+
+/// 写入 Notion 同步配置：密钥 + 容器页（可直接粘贴页面链接）。
+#[tauri::command]
+fn notion_set_config(app: AppHandle, token: String, parent_page_id: String) {
+    let page = notion::normalize_page_id(&parent_page_id);
+    let mut cfg = notion::load_cfg();
+    cfg.token = token.trim().to_string();
+    cfg.parent_page_id = page.clone();
+    notion::save_cfg(&cfg);
+    // 密钥本身绝不进日志，只记是否填写与容器页解析成了什么。
+    log::write(
+        &app,
+        "notion",
+        &format!(
+            "配置已保存: 密钥{}, 容器页={}",
+            if cfg.token.is_empty() { "空" } else { "已填" },
+            if page.is_empty() { "空".to_string() } else { page }
+        ),
+    );
+}
+
+/// 在容器页下建齐三个数据库（已建过的会跳过）。
+#[tauri::command]
+async fn notion_setup(app: AppHandle) -> Result<notion::Config, String> {
+    match notion::ensure_databases().await {
+        Ok(cfg) => {
+            log::write(&app, "notion", "建库完成");
+            Ok(cfg)
+        }
+        Err(e) => {
+            log::write(&app, "notion", &format!("建库失败: {e}"));
+            Err(e)
+        }
+    }
+}
+
+/// 跑一轮同步。async 命令不占主线程，同步期间界面不卡。
+#[tauri::command]
+async fn notion_sync(app: AppHandle) -> Result<notion::Summary, String> {
+    match notion::sync().await {
+        Ok(s) => {
+            log::write(
+                &app,
+                "notion",
+                &format!(
+                    "同步完成: 推 {} / 拉 {} / 删 {} / 冲突 {}",
+                    s.pushed, s.pulled, s.deleted, s.conflicts
+                ),
+            );
+            // 通知前端重载数据：拉回的标签页/待办/日程要立刻出现在界面上。
+            let _ = app.emit("notion-synced", &s);
+            Ok(s)
+        }
+        Err(e) => {
+            log::write(&app, "notion", &format!("同步失败: {e}"));
+            Err(e)
+        }
+    }
+}
+
+/// 同步重置：归档 Notion 三个库的全部页面并清空映射表（本地数据不动）。
+#[tauri::command]
+async fn notion_reset(app: AppHandle) -> Result<u32, String> {
+    match notion::reset().await {
+        Ok(n) => {
+            log::write(&app, "notion", &format!("同步已重置: 归档 {n} 页"));
+            Ok(n)
+        }
+        Err(e) => {
+            log::write(&app, "notion", &format!("重置失败: {e}"));
+            Err(e)
+        }
+    }
+}
+
 /// 穿透状态：作为托管状态在命令间共享，是穿透模式的唯一真相源。
 /// 托盘菜单与挂件右键菜单都经由同一个切换入口。
 pub struct PassthroughState {
@@ -854,6 +936,9 @@ pub fn run() {
             // 启动日程提醒（内部按开关决定是否弹窗）。
             plans::start(app.handle().clone());
 
+            // 监听休眠/唤醒/关机并留痕（独立线程，见 power.rs）。
+            power::start(app.handle());
+
             // 预创建锁窗口（隐藏常驻），首次 hover 出现时无需等待 webview 加载。
             if let Err(e) = ensure_lock_window(app.handle()) {
                 log::write(app.handle(), "lock", &format!("预创建锁窗口失败: {e}"));
@@ -945,7 +1030,18 @@ pub fn run() {
             set_lock_hide_delay,
             quit_app,
             log_event,
+            notion_get_config,
+            notion_set_config,
+            notion_setup,
+            notion_sync,
+            notion_reset,
         ])
-        .run(tauri::generate_context!())
-        .expect("error while running tauri application");
+        .build(tauri::generate_context!())
+        .expect("error while building tauri application")
+        .run(|app, event| {
+            // 正常退出（托盘退出 / quit_app）留痕；系统关机走强杀，由 power 模块记 WM_ENDSESSION。
+            if let tauri::RunEvent::Exit = event {
+                log::write(app, "app", "应用退出");
+            }
+        });
 }
