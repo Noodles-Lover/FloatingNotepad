@@ -151,3 +151,18 @@ commands.allow = ["notion_get_config", "notion_set_config"]
 identifier = "allow-notion-sync"
 description = "Allow setting up the Notion databases and running a sync round."
 commands.allow = ["notion_setup", "notion_sync"]
+
+[[permission]]
+identifier = "allow-notion-reset"
+description = "Allow resetting the Notion sync: archive all pages and clear the mapping tables."
+commands.allow = ["notion_reset"]
+
+[[permission]]
+identifier = "allow-notion-conflicts"
+description = "Allow reading the pending sync conflicts shown in the Notion panel."
+commands.allow = ["notion_conflicts"]
+
+[[permission]]
+identifier = "allow-notion-resolve"
+description = "Allow resolving a sync conflict by choosing the app or the Notion side."
+commands.allow = ["notion_resolve"]

@@ -52,6 +52,33 @@ export function resetNotionSync(): Promise<number> {
   return invoke<number>("notion_reset");
 }
 
+/** 一条待处理的同步冲突：两边都改过且不同，等用户选边。 */
+export interface NotionConflict {
+  /** 集合代码（notes/todos/plans），解决时原样传回。 */
+  collection: string;
+  /** 集合中文名（速记/待办/日程），展示用。 */
+  collection_label: string;
+  local_id: string;
+  /** 条目名（标题/文本）。 */
+  label: string;
+  /** 应用侧内容摘要。 */
+  local_desc: string;
+  /** Notion 侧内容摘要。 */
+  remote_desc: string;
+}
+
+export function getNotionConflicts(): Promise<NotionConflict[]> {
+  return invoke<NotionConflict[]>("notion_conflicts");
+}
+
+export function resolveNotionConflict(
+  collection: string,
+  localId: string,
+  choice: "local" | "remote",
+): Promise<void> {
+  return invoke<void>("notion_resolve", { collection, localId, choice });
+}
+
 /** 三个数据库都已就绪时才能同步。 */
 export function isReady(cfg: NotionConfig): boolean {
   return cfg.token !== "" && cfg.db_notes !== "" && cfg.db_todos !== "" && cfg.db_plans !== "";

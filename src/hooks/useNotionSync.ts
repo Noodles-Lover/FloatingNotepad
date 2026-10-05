@@ -1,24 +1,28 @@
 import { useEffect, useSyncExternalStore } from "react";
 import {
   getNotionConfig,
+  getNotionConflicts,
   isReady,
   resetNotionSync,
+  resolveNotionConflict,
   setNotionConfig,
   syncNotion,
+  type NotionConflict,
   type SyncSummary,
 } from "../lib/notion";
 
 /** 当前正在执行的操作。 */
-export type Busy = "" | "save" | "sync" | "reset";
+export type Busy = "" | "save" | "sync" | "resolve" | "reset";
 
 const BUSY_LABEL = {
   save: "保存中…",
   sync: "同步中…",
+  resolve: "处理中…",
   reset: "重置中…",
 } as const;
 
 function labelOf(kind: Busy): string {
-  return kind === "save" ? "保存" : kind === "sync" ? "同步" : "重置";
+  return kind === "save" ? "保存" : kind === "sync" ? "同步" : kind === "resolve" ? "冲突处理" : "重置";
 }
 
 export interface NotionSyncUi {
@@ -29,6 +33,8 @@ export interface NotionSyncUi {
   token: string;
   page: string;
   ready: boolean;
+  /** 待用户选边的同步冲突。 */
+  conflicts: NotionConflict[];
 }
 
 /**
@@ -36,7 +42,14 @@ export interface NotionSyncUi {
  * 但同步/建库是后台动作，执行中提示与结果必须活过一次「收起再打开」，
  * 输入框内容也一样。组件只是这个状态的视图。
  */
-let state = { busy: "" as Busy, msg: "", token: "", page: "", ready: false };
+let state = {
+  busy: "" as Busy,
+  msg: "",
+  token: "",
+  page: "",
+  ready: false,
+  conflicts: [] as NotionConflict[],
+};
 let snapshot: NotionSyncUi = view(state);
 
 function view(s: typeof state): NotionSyncUi {
@@ -58,14 +71,21 @@ function subscribe(l: () => void): () => void {
   };
 }
 
+/** 重取冲突列表（失败时保留现状）。 */
+async function refreshLists() {
+  const conflicts = await getNotionConflicts().catch(() => state.conflicts);
+  update({ conflicts });
+}
+
 let loaded = false;
-/** 首次用到时读一次已保存的配置（幂等）。 */
+/** 首次用到时读一次已保存的配置与待处理冲突（幂等）。 */
 function ensureLoaded() {
   if (loaded) return;
   loaded = true;
   getNotionConfig()
     .then((cfg) => update({ token: cfg.token, page: cfg.parent_page_id, ready: isReady(cfg) }))
     .catch((e) => update({ msg: `读取配置失败：${e}` }));
+  refreshLists();
 }
 
 /** 订阅模块级状态；组件卸载不影响后台动作与状态本身。 */
@@ -105,12 +125,27 @@ export const notionActions = {
       // 所以不需要单独的「建数据库」按钮。
       await setNotionConfig(state.token, state.page);
       const s: SyncSummary = await syncNotion();
-      update({ ready: true });
-      return `同步完成：推 ${s.pushed} / 拉 ${s.pulled} / 删 ${s.deleted} / 冲突 ${s.conflicts}`;
+      // 新冲突与处理历史要立刻反映到面板。
+      await refreshLists();
+      const tail = state.conflicts.length > 0 ? `；${state.conflicts.length} 条冲突待选择` : "";
+      return `同步完成：推 ${s.pushed} / 拉 ${s.pulled} / 删 ${s.deleted} / 冲突 ${s.conflicts}${tail}`;
     }),
   reset: () =>
     run("reset", async () => {
       const n = await resetNotionSync();
+      update({ conflicts: [] });
       return `已重置：归档 ${n} 页。现在点「立即同步」重建`;
+    }),
+  resolveLocal: (c: NotionConflict) =>
+    run("resolve", async () => {
+      await resolveNotionConflict(c.collection, c.local_id, "local");
+      await refreshLists();
+      return `已保留应用版本：${c.label}`;
+    }),
+  resolveRemote: (c: NotionConflict) =>
+    run("resolve", async () => {
+      await resolveNotionConflict(c.collection, c.local_id, "remote");
+      await refreshLists();
+      return `已保留 Notion 版本：${c.label}`;
     }),
 };

@@ -157,6 +157,21 @@ pub fn init_db(app: &tauri::App) {
     )
     .expect("create notion_sync table failed");
 
+    // 同步冲突暂存：检测到「两边都改过且不同」时先记下来，交给用户选择以哪边为准。
+    conn.execute(
+        "CREATE TABLE IF NOT EXISTS notion_conflict (
+            collection TEXT NOT NULL,
+            local_id TEXT NOT NULL,
+            page_id TEXT NOT NULL,
+            local_data TEXT NOT NULL,
+            remote_data TEXT NOT NULL,
+            label TEXT NOT NULL,
+            PRIMARY KEY (collection, local_id)
+        )",
+        [],
+    )
+    .expect("create notion_conflict table failed");
+
     // migrate legacy single note into the first tab (only once)
     let migrated: i64 = conn
         .query_row(
@@ -261,6 +276,10 @@ pub fn init_db(app: &tauri::App) {
 
     // 存入全局单例；若之前已初始化则忽略（理论不会）。
     let _ = DB.set(Mutex::new(conn));
+
+    // 待办 id 统一成时间戳数字（与速记/日程同风格），见 migrate_todo_ids。
+    // 必须在静态连接就位之后：迁移走的就是 db() 这个单例。
+    migrate_todo_ids();
 }
 
 pub fn load_state() -> PersistState {
@@ -497,6 +516,120 @@ pub fn notion_clear(collection: &str) {
         rusqlite::params![collection],
     )
     .ok();
+}
+
+// ---- 同步冲突暂存 ----
+
+/// 记录（或覆盖）一条冲突：两侧内容的 JSON 与一个用于展示的条目名。
+pub fn notion_conflict_put(
+    collection: &str,
+    local_id: &str,
+    page_id: &str,
+    local_data: &str,
+    remote_data: &str,
+    label: &str,
+) {
+    let conn = db().lock().unwrap();
+    conn.execute(
+        "INSERT OR REPLACE INTO notion_conflict
+         (collection, local_id, page_id, local_data, remote_data, label)
+         VALUES (?1, ?2, ?3, ?4, ?5, ?6)",
+        rusqlite::params![collection, local_id, page_id, local_data, remote_data, label],
+    )
+    .ok();
+}
+
+/// 全部冲突：(collection, local_id, page_id, local_data, remote_data, label)。
+pub fn notion_conflict_all() -> Vec<(String, String, String, String, String, String)> {
+    let conn = db().lock().unwrap();
+    conn.prepare("SELECT collection, local_id, page_id, local_data, remote_data, label FROM notion_conflict")
+        .and_then(|mut stmt| {
+            stmt.query_map([], |r| {
+                Ok((
+                    r.get(0)?, r.get(1)?, r.get(2)?, r.get(3)?, r.get(4)?, r.get(5)?,
+                ))
+            })
+            .map(|rows| rows.filter_map(|r| r.ok()).collect())
+        })
+        .unwrap_or_default()
+}
+
+/// 取一条冲突（解决时用）：page_id、双侧内容 JSON。
+pub fn notion_conflict_get(collection: &str, local_id: &str) -> Option<(String, String, String)> {
+    let conn = db().lock().unwrap();
+    conn.query_row(
+        "SELECT page_id, local_data, remote_data FROM notion_conflict
+         WHERE collection = ?1 AND local_id = ?2",
+        rusqlite::params![collection, local_id],
+        |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?)),
+    )
+    .ok()
+}
+
+/// 删除一条冲突（解决后）。
+pub fn notion_conflict_del(collection: &str, local_id: &str) {
+    let conn = db().lock().unwrap();
+    conn.execute(
+        "DELETE FROM notion_conflict WHERE collection = ?1 AND local_id = ?2",
+        rusqlite::params![collection, local_id],
+    )
+    .ok();
+}
+
+/// 清空全部冲突（同步重置用）。
+pub fn notion_conflict_clear_all() {
+    let conn = db().lock().unwrap();
+    conn.execute("DELETE FROM notion_conflict", []).ok();
+}
+
+/// 清空某集合的全部冲突（该集合的库被删重建时，随映射一起作废）。
+pub fn notion_conflict_clear(collection: &str) {
+    let conn = db().lock().unwrap();
+    conn.execute(
+        "DELETE FROM notion_conflict WHERE collection = ?1",
+        rusqlite::params![collection],
+    )
+    .ok();
+}
+
+/// 一次性迁移：把待办 id 从 UUID / "n…" 统一成时间戳毫秒数字（与速记/日程同风格）。
+/// 幂等：已是数字的 id 跳过。Notion 侧旧锚点不再匹配，下一次同步会把旧页
+/// 归档后按本地现状重建（映射随旧 id 一起失效），内容无损。
+pub fn migrate_todo_ids() {
+    let conn = db().lock().unwrap();
+    let rows: Vec<(i64, String)> = conn
+        .prepare("SELECT id, todos FROM categories")
+        .and_then(|mut stmt| {
+            stmt.query_map([], |r| Ok((r.get(0)?, r.get(1)?)))
+                .map(|rows| rows.filter_map(|r| r.ok()).collect())
+        })
+        .unwrap_or_default();
+
+    let mut next: i64 = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|d| d.as_millis() as i64)
+        .unwrap_or(0);
+
+    for (cat_id, todos_json) in rows {
+        let Ok(mut items) = serde_json::from_str::<Vec<TodoItem>>(&todos_json) else {
+            continue;
+        };
+        let mut touched = false;
+        for t in items.iter_mut() {
+            if t.id.parse::<i64>().is_err() {
+                t.id = next.to_string();
+                next += 1;
+                touched = true;
+            }
+        }
+        if touched {
+            let json = serde_json::to_string(&items).unwrap_or_default();
+            let _ = conn.execute(
+                "UPDATE categories SET todos = ?1 WHERE id = ?2",
+                rusqlite::params![json, cat_id],
+            );
+        }
+    }
 }
 
 /// 某集合的全部映射：(local_id, page_id, local_sig, remote_sig)。

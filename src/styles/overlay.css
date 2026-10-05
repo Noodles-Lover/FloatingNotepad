@@ -250,6 +250,42 @@
   word-break: break-word;
 }
 
+/* Notion 冲突选择列表。 */
+.conflict-list {
+  padding: 2px 6px 6px;
+}
+
+.conflict-title {
+  font-size: 12px;
+  font-weight: 700;
+  color: var(--ink-soft);
+  margin-bottom: 6px;
+  font-family: var(--font-ui);
+}
+
+.conflict-item {
+  border: 1px solid color-mix(in srgb, var(--ink-soft) 25%, transparent);
+  border-radius: 8px;
+  padding: 8px;
+  margin-bottom: 8px;
+}
+
+.conflict-label {
+  font-size: 13px;
+  font-weight: 700;
+  color: var(--ink);
+  margin-bottom: 4px;
+  font-family: var(--font-ui);
+  word-break: break-word;
+}
+
+.conflict-desc {
+  font-size: 12px;
+  color: var(--ink-faint);
+  line-height: 1.5;
+  word-break: break-word;
+}
+
 .skin-group-title {
   font-size: 13px;
   font-weight: 700;

@@ -717,6 +717,48 @@ async fn notion_reset(app: AppHandle) -> Result<u32, String> {
     }
 }
 
+/// 当前待处理的同步冲突（面板展示用）。
+#[tauri::command]
+fn notion_conflicts() -> Vec<notion::ConflictView> {
+    notion::conflicts()
+}
+
+/// 解决一条冲突：choice = "local"（应用为准）或 "remote"（Notion 为准）。
+#[tauri::command]
+async fn notion_resolve(
+    app: AppHandle,
+    collection: String,
+    local_id: String,
+    choice: String,
+) -> Result<(), String> {
+    let (page_id, _local_data, remote_data) = db::notion_conflict_get(&collection, &local_id)
+        .ok_or_else(|| "冲突不存在或已被处理".to_string())?;
+    let cfg = notion::load_cfg();
+    let outcome = match choice.as_str() {
+        "local" => notion::resolve_local(&cfg, &collection, &local_id, &page_id).await,
+        "remote" => notion::resolve_remote(&collection, &local_id, &page_id, &remote_data),
+        _ => Err("无效的选择".to_string()),
+    };
+    match outcome {
+        Ok(()) => {
+            db::notion_conflict_del(&collection, &local_id);
+            let which = if choice == "local" { "应用" } else { "Notion" };
+            log::write(
+                &app,
+                "notion",
+                &format!("冲突已解决: 以{which}为准 ({collection} {local_id})"),
+            );
+            // 远端为准会改写本地数据，让界面重载。
+            let _ = app.emit("notion-synced", ());
+            Ok(())
+        }
+        Err(e) => {
+            log::write(&app, "notion", &format!("冲突处理失败: {e}"));
+            Err(e)
+        }
+    }
+}
+
 /// 穿透状态：作为托管状态在命令间共享，是穿透模式的唯一真相源。
 /// 托盘菜单与挂件右键菜单都经由同一个切换入口。
 pub struct PassthroughState {
@@ -1035,6 +1077,8 @@ pub fn run() {
             notion_setup,
             notion_sync,
             notion_reset,
+            notion_conflicts,
+            notion_resolve,
         ])
         .build(tauri::generate_context!())
         .expect("error while building tauri application")

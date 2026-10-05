@@ -11,7 +11,7 @@
 //!
 //! 参考：<https://developers.notion.com/reference/intro>（API 版本 2022-06-28）
 
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
@@ -30,7 +30,6 @@ const C_PLANS: &str = "plans";
 
 /// 属性名：手机端要看得懂，就用中文。
 const P_LOCAL_ID: &str = "本地ID";
-const P_LOCAL_UID: &str = "本地UID";
 const P_TITLE: &str = "标题";
 const P_CONTENT: &str = "内容";
 const P_DONE: &str = "完成";
@@ -40,7 +39,6 @@ const P_CATEGORY: &str = "分类";
 const P_DATE: &str = "日期";
 const P_KIND: &str = "类型";
 const P_WEEKDAY: &str = "星期";
-const P_TIME: &str = "时刻";
 
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
 pub struct Config {
@@ -284,12 +282,6 @@ fn local_id_of(p: &Value) -> Option<String> {
     read_number(p, P_LOCAL_ID).map(|n| n.to_string())
 }
 
-/// 待办 id 是 UUID 字符串，数字属性放不下，锚点改用 rich_text 存。
-fn local_uid_of(p: &Value) -> Option<String> {
-    let s = read_rich(p, P_LOCAL_UID);
-    if s.is_empty() { None } else { Some(s) }
-}
-
 // ---- 页面读写 ----
 
 async fn query_all(token: &str, db_id: &str) -> Result<Vec<Value>, String> {
@@ -369,6 +361,8 @@ fn notes_props_schema() -> Value {
     })
 }
 
+/// 待办的本地 id 与速记/日程一样是时间戳数字，锚点同为「本地ID」；
+/// id 类属性一律放最后（Notion 的列顺序就是建库时的属性顺序）。
 fn todos_props_schema() -> Value {
     json!({
         P_CONTENT: { "title": {} },
@@ -377,10 +371,10 @@ fn todos_props_schema() -> Value {
         P_NOTE: { "rich_text": {} },
         P_CATEGORY: { "select": { "options": [] } },
         P_LOCAL_ID: { "number": {} },
-        P_LOCAL_UID: { "rich_text": {} },
     })
 }
 
+/// 日程的时刻已并入「日期」（带时区），不再单独建「时刻」列。
 fn plans_props_schema() -> Value {
     json!({
         P_CONTENT: { "title": {} },
@@ -389,7 +383,6 @@ fn plans_props_schema() -> Value {
             { "name": "一次性" }, { "name": "每周" }
         ] } },
         P_WEEKDAY: { "number": {} },
-        P_TIME: { "rich_text": {} },
         P_LOCAL_ID: { "number": {} },
     })
 }
@@ -427,6 +420,45 @@ pub async fn ensure_databases() -> Result<Config, String> {
     }
     let token = cfg.token.clone();
     let parent = cfg.parent_page_id.clone();
+
+    // 配置里记着 ID ≠ 库还在：在 Notion 里删掉的库会让查询 404。
+    // 先逐个验证，404 的清掉 ID 并作废该集合的旧映射（旧页已随库消失，
+    // 不作废的话"删除获胜"规则会把本地数据也删掉），走下面的建库重建。
+    let mut invalidated: Vec<&'static str> = Vec::new();
+    for (col, id) in [
+        (C_NOTES, &mut cfg.db_notes),
+        (C_TODOS, &mut cfg.db_todos),
+        (C_PLANS, &mut cfg.db_plans),
+    ] {
+        if id.is_empty() {
+            continue;
+        }
+        match call(reqwest::Method::GET, &token, &format!("/databases/{id}"), None).await {
+            Ok(resp) => {
+                // 回收站里的库 GET 仍返回 200（archived/in_trash = true），
+                // 但查询会 404——同样视为已删，走重建。
+                let gone = resp["archived"].as_bool().unwrap_or(false)
+                    || resp["in_trash"].as_bool().unwrap_or(false);
+                if gone {
+                    *id = String::new();
+                    invalidated.push(col);
+                }
+            }
+            Err(e) if e.starts_with("Notion 返回 404") => {
+                *id = String::new();
+                invalidated.push(col);
+            }
+            Err(e) => return Err(e),
+        }
+    }
+    if !invalidated.is_empty() {
+        save_cfg(&cfg);
+        for col in &invalidated {
+            db::notion_clear(col);
+            db::notion_conflict_clear(col);
+        }
+    }
+
     if cfg.db_notes.is_empty() {
         cfg.db_notes =
             create_database(&token, &parent, "浮笺 · 速记", notes_props_schema()).await?;
@@ -442,15 +474,17 @@ pub async fn ensure_databases() -> Result<Config, String> {
             create_database(&token, &parent, "浮笺 · 日程", plans_props_schema()).await?;
         save_cfg(&cfg);
     }
-    // 老库升级：给已存在的待办库补「本地UID」（PATCH 同名属性是幂等的）。
+    // 待办库必须有「本地ID」锚点列，缺了同步无法工作；
+    // PATCH 同名属性幂等，老库缺列时在这里补上。
     if !cfg.db_todos.is_empty() {
-        patch_database(&token, &cfg.db_todos, json!({ P_LOCAL_UID: { "rich_text": {} } })).await?;
+        patch_database(&token, &cfg.db_todos, json!({ P_LOCAL_ID: { "number": {} } })).await?;
     }
     Ok(cfg)
 }
 
 // ---- 记录形状与签名 ----
 
+#[derive(Serialize, Deserialize)]
 struct NoteRec {
     title: String,
     content: String,
@@ -460,6 +494,7 @@ fn note_sig(r: &NoteRec) -> String {
     format!("{}\u{1}{}", r.title, r.content)
 }
 
+#[derive(Serialize, Deserialize)]
 struct TodoRec {
     category: String,
     text: String,
@@ -475,6 +510,7 @@ fn todo_sig(r: &TodoRec) -> String {
     )
 }
 
+#[derive(Serialize, Deserialize)]
 struct PlanRec {
     kind: String,
     date: Option<String>,
@@ -492,6 +528,45 @@ fn plan_sig(r: &PlanRec) -> String {
         r.time.clone().unwrap_or_default(),
         r.text
     )
+}
+
+/// 更新页面用的属性行：推送与冲突解决共用（建页时再补锚点字段）。
+fn note_payload(r: &NoteRec) -> Value {
+    json!({ P_TITLE: title_of(&r.title), P_CONTENT: rich(&r.content) })
+}
+
+fn todo_payload(cat: &str, t: &db::TodoItem) -> Value {
+    json!({
+        P_CONTENT: title_of(&t.text),
+        P_DONE: json!({ "checkbox": t.done }),
+        P_PRIORITY: number_of(Some(t.priority)),
+        P_NOTE: rich(&t.note),
+        P_CATEGORY: select_of(Some(cat)),
+    })
+}
+
+fn plan_payload(p: &db::Plan) -> Value {
+    let date = plan_remote_date(&p.kind, p.date.as_deref(), p.weekday);
+    json!({
+        P_CONTENT: title_of(&p.text),
+        P_DATE: date_of(date.as_deref(), p.time.as_deref()),
+        P_KIND: select_of(Some(if p.kind == "weekly" { "每周" } else { "一次性" })),
+        P_WEEKDAY: number_of(p.weekday),
+    })
+}
+
+/// 把一条冲突记进暂存表：两侧内容序列化存档，label 用于面板展示。
+fn record_conflict<T: Serialize, U: Serialize>(
+    collection: &str,
+    local_id: &str,
+    page_id: &str,
+    local: &T,
+    remote: &U,
+    label: &str,
+) {
+    let local_json = serde_json::to_string(local).unwrap_or_default();
+    let remote_json = serde_json::to_string(remote).unwrap_or_default();
+    db::notion_conflict_put(collection, local_id, page_id, &local_json, &remote_json, label);
 }
 
 // ---- 三个集合的同步 ----
@@ -559,16 +634,13 @@ async fn sync_notes(token: &str, cfg: &Config) -> Result<Stats, String> {
                 let local_changed = old_local != l_sig;
                 let remote_changed = old_remote != r_sig;
                 if local_changed && remote_changed && l_sig != r_sig {
+                    // 两边都改过且不同：记下冲突交给用户选择，不动任何一侧。
+                    let label = if local_rec.title.is_empty() { &rrec.title } else { &local_rec.title };
+                    record_conflict(C_NOTES, &lid, rpid, &local_rec, rrec, label);
                     st.conflicts += 1;
-                }
-                if local_changed || (remote_changed && !local_changed && l_sig != r_sig) {
+                } else if local_changed || (remote_changed && !local_changed && l_sig != r_sig) {
                     if local_changed {
-                        update_page(
-                            token,
-                            rpid,
-                            json!({ P_TITLE: title_of(&local_rec.title), P_CONTENT: rich(&local_rec.content) }),
-                        )
-                        .await?;
+                        update_page(token, rpid, note_payload(&local_rec)).await?;
                         db::notion_put(C_NOTES, &lid, rpid, &l_sig, &l_sig);
                         st.pushed += 1;
                     } else {
@@ -638,7 +710,7 @@ async fn sync_todos(token: &str, cfg: &Config) -> Result<Stats, String> {
             priority: read_number(p, P_PRIORITY).unwrap_or(5),
             note: read_rich(p, P_NOTE),
         };
-        match local_uid_of(p) {
+        match local_id_of(p) {
             Some(id) => {
                 remote.insert(id, (page_id(p), rec));
             }
@@ -652,12 +724,17 @@ async fn sync_todos(token: &str, cfg: &Config) -> Result<Stats, String> {
         .map(|(cat, t)| (t.id.clone(), (cat.clone(), t.clone())))
         .collect();
 
+    // 本轮归档过的页面可能仍在 unlinked 列表里（锚点读不出来才会进那里），
+    // 导入时必须跳过，否则会把刚归档的页再导入一份。
+    let mut archived: HashSet<String> = HashSet::new();
+
     for (lid, _pid, old_local, old_remote) in db::notion_all(C_TODOS) {
         let has_local = local_map.contains_key(&lid);
         let has_remote = remote.contains_key(&lid);
         match (has_local, has_remote) {
             (false, true) => {
                 archive_page(token, &remote[&lid].0).await?;
+                archived.insert(remote[&lid].0.clone());
                 db::notion_del(C_TODOS, &lid);
                 st.deleted += 1;
             }
@@ -683,21 +760,19 @@ async fn sync_todos(token: &str, cfg: &Config) -> Result<Stats, String> {
                 let local_changed = old_local != l_sig;
                 let remote_changed = old_remote != r_sig;
                 if local_changed && remote_changed && l_sig != r_sig {
+                    // 两边都改过且不同：记下冲突交给用户选择，不动任何一侧。
+                    // 注意存 TodoRec（含分类）而不是 TodoItem，否则反序列化对不上。
+                    let local_rec = TodoRec {
+                        category: cat.clone(),
+                        text: item.text.clone(),
+                        done: item.done,
+                        priority: item.priority,
+                        note: item.note.clone(),
+                    };
+                    record_conflict(C_TODOS, &lid, rpid, &local_rec, rrec, &item.text);
                     st.conflicts += 1;
-                }
-                if local_changed {
-                    update_page(
-                        token,
-                        rpid,
-                        json!({
-                            P_CONTENT: title_of(&item.text),
-                            P_DONE: json!({ "checkbox": item.done }),
-                            P_PRIORITY: number_of(Some(item.priority)),
-                            P_NOTE: rich(&item.note),
-                            P_CATEGORY: select_of(Some(cat)),
-                        }),
-                    )
-                    .await?;
+                } else if local_changed {
+                    update_page(token, rpid, todo_payload(cat, item)).await?;
                     db::notion_put(C_TODOS, &lid, rpid, &l_sig, &l_sig);
                     st.pushed += 1;
                 } else if remote_changed && l_sig != r_sig {
@@ -739,7 +814,7 @@ async fn sync_todos(token: &str, cfg: &Config) -> Result<Stats, String> {
                 P_PRIORITY: number_of(Some(item.priority)),
                 P_NOTE: rich(&item.note),
                 P_CATEGORY: select_of(Some(cat)),
-                P_LOCAL_UID: rich(&item.id),
+                P_LOCAL_ID: number_of(Some(item.id.parse::<i64>().unwrap_or(0))),
             }),
         )
         .await?;
@@ -748,7 +823,11 @@ async fn sync_todos(token: &str, cfg: &Config) -> Result<Stats, String> {
     }
 
     for (pid, rec) in unlinked {
-        let id = uuid_like();
+        // 刚归档的页不再导入，否则重复。
+        if archived.contains(&pid) {
+            continue;
+        }
+        let id = new_todo_id();
         let item = db::TodoItem {
             id: id.clone(),
             text: rec.text.clone(),
@@ -759,21 +838,23 @@ async fn sync_todos(token: &str, cfg: &Config) -> Result<Stats, String> {
         db::upsert_todo(&rec.category, &item);
         db::notion_put(C_TODOS, &id, &pid, &todo_sig(&rec), &todo_sig(&rec));
         // 锚点立刻回写：下一轮同步要靠它认出这页是我们的，否则会被再导入一次。
-        update_page(token, &pid, json!({ P_LOCAL_UID: rich(&id) })).await?;
+        stamp_local_id(token, &pid, id.parse::<i64>().unwrap_or(0)).await?;
         st.pulled += 1;
     }
 
     Ok(st)
 }
 
-/// 本地生成的待办 id（Notion 端新建的条目需要一个本地 id）。
-fn uuid_like() -> String {
-    use std::time::{SystemTime, UNIX_EPOCH};
-    let now = SystemTime::now()
-        .duration_since(UNIX_EPOCH)
-        .map(|d| d.as_nanos())
+/// Notion 端新建待办导入时分配的本地 id：时间戳毫秒（与速记/日程同风格），
+/// 原子序号保证同毫秒内不重复。
+fn new_todo_id() -> String {
+    use std::sync::atomic::{AtomicI64, Ordering};
+    static SEQ: AtomicI64 = AtomicI64::new(0);
+    let now = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|d| d.as_millis() as i64)
         .unwrap_or(0);
-    format!("n{:x}", now)
+    (now + SEQ.fetch_add(1, Ordering::Relaxed)).to_string()
 }
 
 async fn sync_plans(token: &str, cfg: &Config) -> Result<Stats, String> {
@@ -852,21 +933,11 @@ async fn sync_plans(token: &str, cfg: &Config) -> Result<Stats, String> {
                 let local_changed = old_local != l_sig;
                 let remote_changed = old_remote != r_sig;
                 if local_changed && remote_changed && l_sig != r_sig {
+                    // 两边都改过且不同：记下冲突交给用户选择，不动任何一侧。
+                    record_conflict(C_PLANS, &lid, rpid, p, rrec, &p.text);
                     st.conflicts += 1;
-                }
-                if local_changed {
-                    let date = plan_remote_date(&p.kind, p.date.as_deref(), p.weekday);
-                    update_page(
-                        token,
-                        rpid,
-                        json!({
-                            P_CONTENT: title_of(&p.text),
-                            P_DATE: date_of(date.as_deref(), p.time.as_deref()),
-                            P_KIND: select_of(Some(if p.kind == "weekly" { "每周" } else { "一次性" })),
-                            P_WEEKDAY: number_of(p.weekday),
-                        }),
-                    )
-                    .await?;
+                } else if local_changed {
+                    update_page(token, rpid, plan_payload(p)).await?;
                     db::notion_put(C_PLANS, &lid, rpid, &l_sig, &l_sig);
                     st.pushed += 1;
                 } else if remote_changed && l_sig != r_sig {
@@ -956,7 +1027,193 @@ pub async fn reset() -> Result<u32, String> {
     db::notion_clear(C_NOTES);
     db::notion_clear(C_TODOS);
     db::notion_clear(C_PLANS);
+    db::notion_conflict_clear_all();
     Ok(archived)
+}
+
+// ---- 冲突：面板展示与解决 ----
+
+/// 冲突列表项（给面板的视图）。
+#[derive(Debug, Clone, Serialize)]
+pub struct ConflictView {
+    /// 集合代码（notes/todos/plans）——解决命令要原样传回，查库靠它。
+    pub collection: String,
+    /// 集合中文名（速记/待办/日程），展示用。
+    pub collection_label: String,
+    pub local_id: String,
+    /// 条目名（标题/文本），来自检测冲突时。
+    pub label: String,
+    /// 应用侧内容摘要。
+    pub local_desc: String,
+    /// Notion 侧内容摘要。
+    pub remote_desc: String,
+}
+
+fn note_desc(json: &str) -> String {
+    match serde_json::from_str::<NoteRec>(json) {
+        Ok(r) if r.content.is_empty() => r.title,
+        Ok(r) => format!("{}（{} 字）", r.title, r.content.chars().count()),
+        Err(_) => "（内容不可读）".to_string(),
+    }
+}
+
+fn todo_desc(json: &str) -> String {
+    match serde_json::from_str::<TodoRec>(json) {
+        Ok(r) => format!("{}{}，优先级 {}", if r.done { "✔ " } else { "✘ " }, r.text, r.priority),
+        Err(_) => "（内容不可读）".to_string(),
+    }
+}
+
+fn plan_desc(json: &str) -> String {
+    match serde_json::from_str::<PlanRec>(json) {
+        Ok(r) => match (&r.date, &r.time) {
+            (Some(d), Some(t)) => format!("{}（{d} {t}）", r.text),
+            (Some(d), None) => format!("{}（{d}）", r.text),
+            _ => format!("{}（每周）", r.text),
+        },
+        Err(_) => "（内容不可读）".to_string(),
+    }
+}
+
+/// 当前待处理的冲突列表（面板展示用）。
+pub fn conflicts() -> Vec<ConflictView> {
+    db::notion_conflict_all()
+        .into_iter()
+        .map(|(col, lid, _pid, ljson, rjson, label)| {
+            let (name, ld, rd) = match col.as_str() {
+                C_NOTES => ("速记", note_desc(&ljson), note_desc(&rjson)),
+                C_TODOS => ("待办", todo_desc(&ljson), todo_desc(&rjson)),
+                _ => ("日程", plan_desc(&ljson), plan_desc(&rjson)),
+            };
+            ConflictView {
+                collection: col,
+                collection_label: name.to_string(),
+                local_id: lid,
+                label,
+                local_desc: ld,
+                remote_desc: rd,
+            }
+        })
+        .collect()
+}
+
+// ---- 冲突解决的共用读写 ----
+
+/// 把一条速记内容写进本地库。
+fn write_note_local(id: i64, r: &NoteRec) {
+    db::update_tab(id, &r.title, &r.content);
+}
+
+/// 把一条待办内容写进本地库（先摘掉旧位置再插到分类下）。
+fn write_todo_local(lid: &str, r: &TodoRec) {
+    let item = db::TodoItem {
+        id: lid.to_string(),
+        text: r.text.clone(),
+        done: r.done,
+        priority: r.priority,
+        note: r.note.clone(),
+    };
+    db::delete_todo(lid);
+    db::upsert_todo(&r.category, &item);
+}
+
+/// 把一条日程内容写进本地库。
+fn write_plan_local(id: i64, r: &PlanRec) {
+    db::update_plan(id, &r.kind, r.date.as_deref(), r.weekday, r.time.as_deref(), &r.text);
+}
+
+/// 把速记内容推上 Notion 页并对齐签名。
+async fn push_note_remote(token: &str, page_id: &str, lid: &str, r: &NoteRec) -> Result<(), String> {
+    update_page(token, page_id, note_payload(r)).await?;
+    db::notion_put(C_NOTES, lid, page_id, &note_sig(r), &note_sig(r));
+    Ok(())
+}
+
+/// 把待办内容推上 Notion 页并对齐签名。
+async fn push_todo_remote(token: &str, page_id: &str, lid: &str, cat: &str, item: &db::TodoItem) -> Result<(), String> {
+    update_page(token, page_id, todo_payload(cat, item)).await?;
+    let sig = todo_sig(&TodoRec {
+        category: cat.to_string(),
+        text: item.text.clone(),
+        done: item.done,
+        priority: item.priority,
+        note: item.note.clone(),
+    });
+    db::notion_put(C_TODOS, lid, page_id, &sig, &sig);
+    Ok(())
+}
+
+/// 把日程内容推上 Notion 页并对齐签名。
+async fn push_plan_remote(token: &str, page_id: &str, lid: &str, p: &db::Plan) -> Result<(), String> {
+    update_page(token, page_id, plan_payload(p)).await?;
+    let sig = plan_sig(&PlanRec {
+        kind: p.kind.clone(),
+        date: p.date.clone(),
+        weekday: p.weekday,
+        time: p.time.clone(),
+        text: p.text.clone(),
+    });
+    db::notion_put(C_PLANS, lid, page_id, &sig, &sig);
+    Ok(())
+}
+
+/// 解决冲突：以应用为准 → 取本地当前内容推上 Notion。
+pub async fn resolve_local(cfg: &Config, collection: &str, local_id: &str, page_id: &str) -> Result<(), String> {
+    let token = &cfg.token;
+    match collection {
+        C_NOTES => {
+            let id: i64 = local_id.parse().map_err(|_| "本地条目已不存在".to_string())?;
+            let tab = db::load_state()
+                .tabs
+                .into_iter()
+                .find(|t| t.id == id)
+                .ok_or_else(|| "本地条目已不存在".to_string())?;
+            let rec = NoteRec { title: tab.title.clone(), content: tab.content.clone() };
+            push_note_remote(token, page_id, local_id, &rec).await
+        }
+        C_TODOS => {
+            let (cat, item) = db::load_todos_flat()
+                .into_iter()
+                .find(|(_, t)| t.id == local_id)
+                .ok_or_else(|| "本地条目已不存在".to_string())?;
+            push_todo_remote(token, page_id, local_id, &cat, &item).await
+        }
+        C_PLANS => {
+            let id: i64 = local_id.parse().map_err(|_| "本地条目已不存在".to_string())?;
+            let p = db::load_plans()
+                .into_iter()
+                .find(|p| p.id == id)
+                .ok_or_else(|| "本地条目已不存在".to_string())?;
+            push_plan_remote(token, page_id, local_id, &p).await
+        }
+        _ => return Err("未知的条目类型".to_string()),
+    }
+}
+
+/// 解决冲突：以 Notion 为准 → 把检测冲突时的远端内容写进本地。
+/// （远端内容本来就在 Notion 页上，只需改写本地并更新签名，不需要 HTTP。）
+pub fn resolve_remote(collection: &str, local_id: &str, page_id: &str, remote_json: &str) -> Result<(), String> {
+    match collection {
+        C_NOTES => {
+            let rec: NoteRec = serde_json::from_str(remote_json).map_err(|e| e.to_string())?;
+            let id: i64 = local_id.parse().map_err(|_| "本地条目已不存在".to_string())?;
+            write_note_local(id, &rec);
+            db::notion_put(C_NOTES, local_id, page_id, &note_sig(&rec), &note_sig(&rec));
+        }
+        C_TODOS => {
+            let rec: TodoRec = serde_json::from_str(remote_json).map_err(|e| e.to_string())?;
+            write_todo_local(local_id, &rec);
+            db::notion_put(C_TODOS, local_id, page_id, &todo_sig(&rec), &todo_sig(&rec));
+        }
+        C_PLANS => {
+            let rec: PlanRec = serde_json::from_str(remote_json).map_err(|e| e.to_string())?;
+            let id: i64 = local_id.parse().map_err(|_| "本地条目已不存在".to_string())?;
+            write_plan_local(id, &rec);
+            db::notion_put(C_PLANS, local_id, page_id, &plan_sig(&rec), &plan_sig(&rec));
+        }
+        _ => return Err("未知的条目类型".to_string()),
+    }
+    Ok(())
 }
 
 /// 周常日程没有日期，但 Notion 提醒依赖日期 → 写成「下一次到期日」。

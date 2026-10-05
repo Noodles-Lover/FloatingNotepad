@@ -26,6 +26,13 @@ function newCategory(seq: number): Category {
   return { id: Date.now() + seq, title: `分类 ${seq}`, todos: [] };
 }
 
+/** 新待办的本地 id：时间戳毫秒 + 序号，与速记/日程的数字 id 同一风格。 */
+let todoSeq = 0;
+function newTodoId(): string {
+  todoSeq += 1;
+  return String(Date.now() + todoSeq);
+}
+
 /** 待办排序：已完成的永远沉底；未完成的按优先级降序（高在前）。 */
 function sortTodos(list: Todo[]): Todo[] {
   return [...list].sort((a, b) => {
@@ -204,7 +211,7 @@ export function useEntityData() {
 
   const onAddTodo = useCallback(
     (text: string) => {
-      const todo: Todo = { id: crypto.randomUUID(), text, done: false, priority: 5, note: "" };
+      const todo: Todo = { id: newTodoId(), text, done: false, priority: 5, note: "" };
       mutateTodos((ts) => [...ts, todo]);
     },
     [mutateTodos],
