@@ -26,6 +26,8 @@ interface Props {
   pinned: boolean;
   onTogglePin: () => void;
   onOpenNotion: () => void; // 打开 Notion 同步面板
+  onOpenTimer: () => void; // 打开窗口计时面板
+  timerRunning: boolean; // 是否正在计时（按钮高亮）
   onSwitchTab: (id: number) => void;
   onAddTab: () => void;
   onRenameTab: (id: number, title: string) => void;
@@ -121,6 +123,17 @@ function NotionIcon() {
   );
 }
 
+/** 秒表图标（窗口计时入口）。 */
+function TimerIcon() {
+  return (
+    <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+      <circle cx="12" cy="13" r="8" />
+      <path d="M12 9v4l2 2" />
+      <path d="M9 2h6" />
+    </svg>
+  );
+}
+
 /** 日历图标（新增日程入口）。 */
 function CalendarIcon() {
   return (
@@ -170,6 +183,8 @@ function NotePanel({
   edge,
   idleOpacity,
   onOpenNotion,
+  onOpenTimer,
+  timerRunning,
   onOpenSkin,
   onOpenFeatures,
   onOpenSettings,
@@ -255,6 +270,13 @@ function NotePanel({
           </button>
           <button className="icon-btn" onClick={onOpenNotion} title="Notion 同步">
             <NotionIcon />
+          </button>
+          <button
+            className={`icon-btn ${timerRunning ? "active" : ""}`}
+            onClick={onOpenTimer}
+            title={timerRunning ? "正在计时（点此打开面板）" : "窗口计时"}
+          >
+            <TimerIcon />
           </button>
           <button className="icon-btn" onClick={onOpenSettings} title="设置">
             <SettingsIcon />

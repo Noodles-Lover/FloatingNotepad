@@ -166,3 +166,23 @@ commands.allow = ["notion_conflicts"]
 identifier = "allow-notion-resolve"
 description = "Allow resolving a sync conflict by choosing the app or the Notion side."
 commands.allow = ["notion_resolve"]
+
+[[permission]]
+identifier = "allow-list-windows"
+description = "Allow listing visible windows so the user can pick one to time."
+commands.allow = ["list_windows"]
+
+[[permission]]
+identifier = "allow-start-timer"
+description = "Allow starting the usage timer for the picked window's app."
+commands.allow = ["start_timer"]
+
+[[permission]]
+identifier = "allow-stop-timer"
+description = "Allow stopping the usage timer."
+commands.allow = ["stop_timer"]
+
+[[permission]]
+identifier = "allow-timer-state"
+description = "Allow reading the usage timer's state for the widget display."
+commands.allow = ["timer_state"]

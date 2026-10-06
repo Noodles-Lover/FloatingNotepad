@@ -4,6 +4,7 @@ mod notify;
 mod popup;
 mod power;
 mod shortcut;
+mod timer;
 mod plans;
 mod notion;
 mod db;
@@ -577,6 +578,52 @@ fn ensure_lock_window(app: &AppHandle) -> Result<WebviewWindow, String> {
     Ok(lock)
 }
 
+/// 创建（或复用）计时窗口。文字在挂件之外，所以单独一个窗口。
+///
+/// 与锁窗口同样的底子，差别是**常驻穿透**（`WS_EX_TRANSPARENT`）：它只是余光里
+/// 的一行时间，任何时候都不该吃掉点击或焦点。
+pub(crate) fn ensure_timer_window(app: &AppHandle) -> Result<WebviewWindow, String> {
+    if let Some(existing) = app.get_webview_window("widget-timer") {
+        return Ok(existing);
+    }
+    let win = WebviewWindowBuilder::new(
+        app,
+        "widget-timer",
+        WebviewUrl::App("index.html".into()),
+    )
+    .title("浮笺 · 计时")
+    .decorations(false)
+    .transparent(true)
+    .shadow(false)
+    .resizable(false)
+    .skip_taskbar(true)
+    .focused(false)
+    .visible(false)
+    .always_on_top(true)
+    .inner_size(160.0, 56.0)
+    .build()
+    .map_err(|e| format!("创建计时窗口失败: {e}"))?;
+    if let Ok(hwnd) = main_hwnd(&win) {
+        unsafe {
+            let ex = GetWindowLongPtrW(hwnd, GWL_EXSTYLE);
+            let bits = (WS_EX_NOACTIVATE | WS_EX_TOOLWINDOW | WS_EX_TRANSPARENT).0 as isize;
+            SetWindowLongPtrW(hwnd, GWL_EXSTYLE, ex | bits);
+            let _ = SetWindowPos(
+                hwnd,
+                HWND_TOP,
+                0,
+                0,
+                0,
+                0,
+                SWP_NOMOVE | SWP_NOSIZE | SWP_NOACTIVATE | SWP_FRAMECHANGED,
+            );
+        }
+        // 命中测试也要接管：光有 WS_EX_TRANSPARENT 时右键仍会落到窗口上。
+        timer::enable_click_through(hwnd);
+    }
+    Ok(win)
+}
+
 /// 在指定物理坐标显示锁窗口（供状态机内部调用，也保留为命令便于排查）。
 #[tauri::command]
 fn show_lock_window(app: AppHandle, x: i32, y: i32) -> Result<(), String> {
@@ -721,6 +768,30 @@ async fn notion_reset(app: AppHandle) -> Result<u32, String> {
 #[tauri::command]
 fn notion_conflicts() -> Vec<notion::ConflictView> {
     notion::conflicts()
+}
+
+/// 可供计时的窗口列表（选择面板里列出）。
+#[tauri::command]
+fn list_windows() -> Vec<timer::WindowInfo> {
+    timer::list_windows()
+}
+
+/// 开始对指定窗口所属的应用计时（时长清零重算）。
+#[tauri::command]
+fn start_timer(app: AppHandle, hwnd: isize) -> Result<timer::TimerState, String> {
+    timer::start(&app, hwnd)
+}
+
+/// 停止计时并清空显示。
+#[tauri::command]
+fn stop_timer(app: AppHandle) -> timer::TimerState {
+    timer::stop(&app)
+}
+
+/// 当前计时状态（前端每秒取一次）。
+#[tauri::command]
+fn timer_state(app: AppHandle) -> timer::TimerState {
+    timer::snapshot(&app)
 }
 
 /// 解决一条冲突：choice = "local"（应用为准）或 "remote"（Notion 为准）。
@@ -961,6 +1032,8 @@ pub fn run() {
             app.manage(chime::ChimeState::new());
             // 通用弹窗的运行时状态（不透明度 + 内容）。
             app.manage(popup::PopupState::new());
+            // 指定窗口的使用计时（目标窗口 + 累计时长）。
+            app.manage(timer::WindowTimer::default());
             // 日程提醒的运行时状态（开关默认关，由前端加载配置后同步）。
             app.manage(plans::PlanState::new());
             // Create the schema up front; fail loudly if storage is unavailable.
@@ -980,6 +1053,14 @@ pub fn run() {
 
             // 监听休眠/唤醒/关机并留痕（独立线程，见 power.rs）。
             power::start(app.handle());
+
+            // 启动窗口计时采样线程（累计与窗口定位都在 Rust 侧，见 timer.rs）。
+            timer::start_thread(app.handle().clone());
+
+            // 预创建计时窗口（隐藏常驻，计时开始时由 timer 线程定位显示）。
+            if let Err(e) = ensure_timer_window(app.handle()) {
+                log::write(app.handle(), "timer", &format!("预创建计时窗口失败: {e}"));
+            }
 
             // 预创建锁窗口（隐藏常驻），首次 hover 出现时无需等待 webview 加载。
             if let Err(e) = ensure_lock_window(app.handle()) {
@@ -1079,6 +1160,10 @@ pub fn run() {
             notion_reset,
             notion_conflicts,
             notion_resolve,
+            list_windows,
+            start_timer,
+            stop_timer,
+            timer_state,
         ])
         .build(tauri::generate_context!())
         .expect("error while building tauri application")

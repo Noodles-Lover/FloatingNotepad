@@ -60,6 +60,7 @@ export function useViewState({ windowCtl, noteWin, configRef, widgetBox, schedul
   const [featuresOpen, setFeaturesOpen] = useState(false);
   const [plansOpen, setPlansOpen] = useState(false);
   const [notionOpen, setNotionOpen] = useState(false);
+  const [timerOpen, setTimerOpen] = useState(false);
 
   // ---- 跨渲染周期可变引用 ----
   const modeRef = useRef<Mode>("hidden");
@@ -78,7 +79,7 @@ export function useViewState({ windowCtl, noteWin, configRef, widgetBox, schedul
 
   modeRef.current = mode;
   modalOpenRef.current =
-    skinOpen || settingsOpen || usageOpen || featuresOpen || plansOpen || notionOpen;
+    skinOpen || settingsOpen || usageOpen || featuresOpen || plansOpen || notionOpen || timerOpen;
 
   const clearTimers = useCallback(() => {
     if (hideTimer.current) {
@@ -120,6 +121,7 @@ export function useViewState({ windowCtl, noteWin, configRef, widgetBox, schedul
     setFeaturesOpen(false);
     setPlansOpen(false);
     setNotionOpen(false);
+    setTimerOpen(false);
   }, []);
 
   /**
@@ -218,6 +220,8 @@ export function useViewState({ windowCtl, noteWin, configRef, widgetBox, schedul
   const closePlans = useCallback(() => setPlansOpen(false), []);
   const openNotion = useCallback(() => setNotionOpen(true), []);
   const closeNotion = useCallback(() => setNotionOpen(false), []);
+  const openTimerPanel = useCallback(() => setTimerOpen(true), []);
+  const closeTimerPanel = useCallback(() => setTimerOpen(false), []);
 
   /**
    * 请求切换穿透模式：Rust 是状态的唯一真相源。这里只发出切换意图，
@@ -294,9 +298,11 @@ export function useViewState({ windowCtl, noteWin, configRef, widgetBox, schedul
 
   // 打开覆盖层面板时重置收起倒计时：让每次打开都能用满一个完整延时周期。
   useEffect(() => {
-    if (skinOpen || settingsOpen || usageOpen || featuresOpen || plansOpen || notionOpen)
+    if (skinOpen || settingsOpen || usageOpen || featuresOpen || plansOpen || notionOpen || timerOpen)
       clearTimers();
-  }, [skinOpen, settingsOpen, usageOpen, featuresOpen, plansOpen, notionOpen, clearTimers]);
+  }, [
+    skinOpen, settingsOpen, usageOpen, featuresOpen, plansOpen, notionOpen, timerOpen, clearTimers,
+  ]);
 
   /**
    * 尺寸一变就下发：窗口宽高只能由 JS 给，且它是悬停判定依据，必须与容器同尺寸。
@@ -467,7 +473,7 @@ export function useViewState({ windowCtl, noteWin, configRef, widgetBox, schedul
     onWidgetLeave,
     onDraggingChange,
     openContextMenu,
-    overlays: { skinOpen, settingsOpen, usageOpen, featuresOpen, plansOpen, notionOpen },
+    overlays: { skinOpen, settingsOpen, usageOpen, featuresOpen, plansOpen, notionOpen, timerOpen },
     openSkin,
     closeSkin,
     openSettings,
@@ -480,5 +486,7 @@ export function useViewState({ windowCtl, noteWin, configRef, widgetBox, schedul
     closePlans,
     openNotion,
     closeNotion,
+    openTimerPanel,
+    closeTimerPanel,
   };
 }
