@@ -11,6 +11,13 @@ import "./TimerView.css";
 export default function TimerView() {
   const [state, setState] = useState<TimerState | null>(null);
 
+  // 计时窗口不吃交互：屏蔽 WebView2 的默认右键菜单（上一页 / 重新加载 / 检查）。
+  useEffect(() => {
+    const block = (e: MouseEvent) => e.preventDefault();
+    document.addEventListener("contextmenu", block);
+    return () => document.removeEventListener("contextmenu", block);
+  }, []);
+
   useEffect(() => {
     let alive = true;
     const tick = () => {

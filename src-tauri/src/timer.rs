@@ -63,29 +63,51 @@ unsafe extern "system" fn timer_wndproc(
     wparam: WPARAM,
     lparam: LPARAM,
 ) -> LRESULT {
+    use std::sync::atomic::Ordering;
+    use windows::Win32::UI::WindowsAndMessaging::{CallWindowProcW, DefWindowProcW};
     const WM_NCHITTEST: u32 = 0x0084;
     if msg == WM_NCHITTEST {
         return LRESULT(-1);
     }
-    use std::sync::atomic::Ordering;
-    use windows::Win32::UI::WindowsAndMessaging::CallWindowProcW;
-    let prev: TimerWndProc =
-        std::mem::transmute(ORIG_WNDPROC.load(Ordering::Relaxed));
+    let prev = ORIG_WNDPROC.load(Ordering::Relaxed);
+    if prev == 0 {
+        return DefWindowProcW(hwnd, msg, wparam, lparam);
+    }
+    let prev: TimerWndProc = std::mem::transmute(prev);
     CallWindowProcW(Some(prev), hwnd, msg, wparam, lparam)
 }
 
 /// 让计时窗口彻底不吃鼠标消息（含右键）：改写窗口过程，让命中测试恒为透明。
+///
+/// 顶层窗口透明还不够——WebView2 的渲染窗口是**子窗口**，
+/// 光标命中测试会落到它身上，右键菜单照旧弹出来，所以子窗口也要一起透明。
 pub fn enable_click_through(hwnd: HWND) {
     use std::sync::atomic::Ordering;
-    use windows::Win32::UI::WindowsAndMessaging::{GetWindowLongPtrW, SetWindowLongPtrW, GWLP_WNDPROC};
+    use windows::Win32::UI::WindowsAndMessaging::{
+        EnumChildWindows, GetWindowLongPtrW, SetWindowLongPtrW, GWLP_WNDPROC,
+    };
+    let ours = timer_wndproc as *const () as usize;
     unsafe {
-        ORIG_WNDPROC.store(GetWindowLongPtrW(hwnd, GWLP_WNDPROC) as usize, Ordering::Relaxed);
-        SetWindowLongPtrW(
-            hwnd,
-            GWLP_WNDPROC,
-            timer_wndproc as *const () as usize as isize,
-        );
+        // 只能记录**原**窗口过程：重复调用时当前过程已经是自己，
+        // 存进去就会变成自己调自己，栈溢出。
+        let current = GetWindowLongPtrW(hwnd, GWLP_WNDPROC) as usize;
+        if current != ours {
+            ORIG_WNDPROC.store(current, Ordering::Relaxed);
+            SetWindowLongPtrW(hwnd, GWLP_WNDPROC, ours as isize);
+        }
+        // EnumChildWindows 会遍历全部后代（不只是直接子窗口）；重复设置无害。
+        let _ = EnumChildWindows(hwnd, Some(make_transparent_child), LPARAM(0));
     }
+}
+
+/// 给子窗口（Chromium 渲染窗口等）加上 `WS_EX_TRANSPARENT`。
+unsafe extern "system" fn make_transparent_child(hwnd: HWND, _lparam: LPARAM) -> BOOL {
+    use windows::Win32::UI::WindowsAndMessaging::{
+        GetWindowLongPtrW, SetWindowLongPtrW, GWL_EXSTYLE, WS_EX_TRANSPARENT,
+    };
+    let ex = GetWindowLongPtrW(hwnd, GWL_EXSTYLE);
+    SetWindowLongPtrW(hwnd, GWL_EXSTYLE, ex | (WS_EX_TRANSPARENT.0 as isize));
+    true.into()
 }
 
 /// 计时窗口与挂件之间的间隙（物理像素）。
@@ -285,6 +307,9 @@ fn follow_widget(app: &AppHandle) {
         }
         if !state.shown.swap(true, Ordering::Relaxed) {
             if let Ok(th) = crate::main_hwnd(&timer_win) {
+                // 重新接管命中测试：webview 初始化可能把窗口过程换回 wry 的，
+                // 只在建窗时设一次不够。
+                enable_click_through(th);
                 // SW_SHOWNA 只显示不激活：不能把焦点从当前应用抢走。
                 let _ = ShowWindow(th, SW_SHOWNA);
             }

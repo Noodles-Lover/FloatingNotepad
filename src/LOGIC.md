@@ -37,7 +37,7 @@
 - **窗口动作经串行器收敛**（`runWindowOp`，latest-wins）：窗口调用是异步的，先发起的可能后完成。串行器保证同一时刻只跑一个、且始终执行最新目标，使窗口最终收敛到最后一次请求的形态。
 - 穿透广播**不改变整窗隐藏态**：用户显式隐藏不应被一次状态变化悄悄覆盖，所以 `passthrough-state` 只传 `mode`、不带 `appHidden`。
 
-窗口的渲染形态由 `main.tsx` 按 Tauri 窗口 label 分流：label 为 `widget-lock` 时渲染解锁按钮（`LockView`），否则渲染主应用 `App`。锁窗口与主应用共用同一份前端入口与样式。
+窗口的渲染形态由 `main.tsx` 按 Tauri 窗口 label 分流：`widget-lock` 渲染解锁按钮（`LockView`），`widget-timer` 渲染使用时长（`TimerView`），`popup` 渲染通用弹窗（`PopupView`），否则渲染主应用 `App`。这些窗口与主应用共用同一份前端入口与样式。
 
 窗口交互形态由两个职责分离的控制器负责：
 
@@ -168,7 +168,7 @@ App 内所有增删改都收敛到这几个封装，后端命令为纯数据读�
 
 - `styles/base.css`：重置与设计令牌（`:root` 的纸墨配色、撕纸轮廓 `--torn`、阴影）的全局唯一来源。
 - `styles/overlay.css`：皮肤 / 设置 / 使用统计三类覆盖层共用的壳（`.skin-overlay`、`.skin-panel`、`.set-*` 开关）与皮肤卡片网格——三个面板长得一样是因为它们真的共用这些类。
-- 其余与组件同目录同名：`FloatingWidget.css`、`TabBar.css`、`NotePanel.css`、`ConfirmDialog.css`、`LockView.css`、`UsagePanel.css`、`PopupView.css`、`PlansView.css`。
+- 其余与组件同目录同名：`FloatingWidget.css`、`TabBar.css`、`NotePanel.css`、`ConfirmDialog.css`、`LockView.css`、`UsagePanel.css`、`PopupView.css`、`PlansView.css`、`TimerView.css`。
 - 所有 CSS 仍是全局类名（未用 CSS Modules），因此**导入顺序即级联顺序**：统一在 `main.tsx` 按固定顺序导入，不要调整顺序，也不要改成组件内各自 import——那会改变同优先级规则的覆盖关系。
 
 ---
@@ -216,3 +216,13 @@ App 内所有增删改都收敛到这几个封装，后端命令为纯数据读�
 - 只上报**低频关键事件**：面板打开 / 关闭（`panel`）、右键隐藏挂件（`widget`）。
 - **高频行为不记**：鼠标靠近滑出、自动收起、光标轮询——记了会淹没日志（所以 `beginClose` 里只在 `mode === "expanded"` 时留痕）。
 - 上报失败静默：留痕本身不该影响功能。
+
+## 12. 窗口使用计时（前端侧）
+
+**入口**：速记面板头栏的秒表按钮 → `WindowTimerPanel`（覆盖层），列出当前可见窗口（进程名 + 标题），点一个开始计时，再点头栏按钮可查看/停止。
+
+- **状态在 App 上的 `useWindowTimer`**（`hooks/useWindowTimer.ts`）：启动时取一次 `timer_state`，只在计时中每秒轮询——空闲时零开销。累计本身在 Rust 侧，前端只显示。
+- **显示在独立窗口**（`TimerView`，由 `widget-timer` 窗口渲染）：字号用 `40vh`，因为该窗口高度就是挂件高度的一半（封顶 40px），所以文字不随挂件放大而失控。
+- **字形描边而不是画框**：`-webkit-text-stroke` 描在字形轮廓上（深墨字 + 纸色描边），桌面上不留任何色块与线条；描边会向内吃字面，所以字重给到 700。
+- **挂件本身不显示时长**：挂件窗口只有 `WIDGET_BOX_PAD_X` 的留白，放不下文字，硬塞还会撑大碰撞箱。
+- **窗口不吃交互**：命中测试在 Rust 侧接管（见 `src-tauri/LOGIC.md` 第 13 节），前端另在 `document` 上拦 `contextmenu`，保证 WebView2 的默认菜单不弹。

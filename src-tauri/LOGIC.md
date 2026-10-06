@@ -320,3 +320,47 @@ Alt+Tab 切换器、任务视图、开始菜单这类系统 UI 由 explorer 提�
 - 注册：`run()` 里 `.plugin(tauri_plugin_autostart::init(MacosLauncher::LaunchAgent, None))`（`MacosLauncher` 参数在 Windows 下被忽略）。
 - 权限：`capabilities/default.json` 的 `autostart:allow-enable` / `allow-disable` / `allow-is-enabled`（插件自带权限，非 app 自定义命令）。
 - 前端：功能面板开关 → `isEnabled()` 读真实状态、`enable()` / `disable()` 切换（见 `src/LOGIC.md` 第 11 节）；**不写进 `AppConfig`**。
+
+## 13. 窗口使用计时（timer.rs + widget-timer 窗口）
+
+指定一个应用窗口，统计它停留在前台的总时长；时长显示在挂件旁边的独立窗口里。
+
+### 窗口属性
+
+`ensure_timer_window()` 创建（setup 阶段预创建并常驻隐藏）：
+
+| 属性 | 值 | 原因 |
+| --- | --- | --- |
+| label | `widget-timer` | 前端 `main.tsx` 按 label 分流渲染 `TimerView` |
+| URL | `index.html` | 同锁窗口：不附加 query |
+| `decorations(false)` + `transparent(true)` | — | 无边框透明，只显示一行字 |
+| `skip_taskbar` + `WS_EX_TOOLWINDOW` | — | 不出现在任务栏与 Alt-Tab |
+| `WS_EX_NOACTIVATE` | — | 不抢焦点 |
+| `always_on_top` | — | 与挂件同层，浮在别的窗口之上 |
+| 尺寸 | 开始计时时定一次 | 窗口高 = 挂件高的一半并封顶 40px；字号是窗口高的 40%（CSS `40vh`），挂件调大时文字不跟着夸张 |
+| 显示 | `ShowWindow(SW_SHOWNA)` | 同锁窗口：只显示不激活 |
+
+### 为什么必须独立窗口，且要接管命中测试
+
+挂件窗口就那么大（`WIDGET_BOX_PAD_X` 只有 20px 留白），文字放不下；放大它又会撑大碰撞箱（见 `lib/window.ts`），所以另开一个窗口摆在挂件内侧。
+
+光加 `WS_EX_TRANSPARENT` 不够：WebView2 的渲染窗口是**子窗口**（`Chrome_RenderWidgetHostHWND`），命中测试会落到它身上，右键照旧弹出 WebView2 的默认上下文菜单。三层一起做才彻底：
+
+1. 顶层窗口加 `WS_EX_TRANSPARENT`；
+2. `EnumChildWindows` 遍历全部后代窗口，逐个加 `WS_EX_TRANSPARENT`；
+3. 改写窗口过程，`WM_NCHITTEST` 恒答 `HTTRANSPARENT`——命中阶段就把自己排除，左键 / 右键 / 悬停一律穿透。
+
+第 3 步有两个坑：
+
+- **要能重入地重装**：wry 初始化 webview 时可能把窗口过程换回它自己的，所以每次显示窗口都要重新接管；
+- **原过程只记一次**：重装时若把「当前过程」存进 `ORIG_WNDPROC`，第二次读到的就是 `timer_wndproc` 自己，转发给自己 → 无限递归 → 栈溢出（`0xc000041d`）。所以发现当前已是自己的就不覆盖，转发前也留了 `ORIG_WNDPROC == 0` 时走 `DefWindowProcW` 的兜底。
+
+前端另有一层保险：`TimerView` 在 `document` 上拦 `contextmenu` 并 `preventDefault`，默认菜单一定不弹。
+
+### 计时与定位
+
+- **累计在 Rust 线程**（`start_thread`，500ms 一跳）：目标应用在前台、且 `idle_ms()` 小于 60s（人离开不算）才累加；目标窗口被关掉就停止并留痕。
+- **按进程名匹配而不是窗口句柄**：同一应用的新窗口、对话框、设置页都算它；只认句柄会在这些时候静默停表。
+- **停靠侧由位置推断**：主窗口落在所在屏幕的哪半区决定，不让前端上报，多显示器下同样成立。
+- **位置实时、尺寸一次性**：每跳只比主窗口矩形，坐标变了才 `SetWindowPos`；尺寸在本轮计时开始时定一次，中途改挂件大小不重排。
+- 显示位置夹在显示器工作区内：挂件贴边时，外侧那一半可能落到屏幕外。

@@ -165,15 +165,19 @@ floating-notepad/
 ├─ public/
 │  └─ skin/                # 皮肤目录（每子目录一套）
 ├─ src/                    # React 前端
-│  ├─ main.tsx             # 入口（按窗口 label 分流渲染挂件或解锁按钮）
+│  ├─ main.tsx             # 入口（按窗口 label 分流：挂件 / 解锁按钮 / 计时 / 弹窗）
 │  ├─ App.tsx              # 状态机 + 各功能协调
 │  ├─ App.css
-│  ├─ lib/                 # 窗口控制、配置、皮肤、数据库封装等
+│  ├─ lib/                 # 窗口控制、配置、皮肤、数据库封装、Notion 与计时调用层等
+│  ├─ hooks/               # 数据层与各类状态（配置、日程、待办、视图状态、Notion、计时）
 │  ├─ components/
 │  │  ├─ FloatingWidget.tsx  # 悬浮挂件
 │  │  ├─ NotePanel.tsx       # 速记与待办面板
 │  │  ├─ TabBar.tsx          # 标签栏（速记标签页与待办分类共用）
 │  │  ├─ LockView.tsx        # 穿透解锁按钮（独立窗口）
+│  │  ├─ TimerView.tsx       # 使用时长显示（独立穿透窗口）
+│  │  ├─ WindowTimerPanel.tsx # 窗口计时选择面板
+│  │  ├─ NotionPanel.tsx     # Notion 同步面板（含使用说明）
 │  │  ├─ SkinPanel.tsx       # 皮肤选择
 │  │  ├─ SettingsPanel.tsx   # 设置
 │  │  └─ ConfirmDialog.tsx   # 通用确认框
@@ -182,7 +186,9 @@ floating-notepad/
    ├─ capabilities/        # 前端能力权限
    ├─ permissions/         # 自定义命令权限
    ├─ src/
-   │  ├─ lib.rs            # 命令、穿透模式、解锁锁、鼠标轮询、系统托盘
+   │  ├─ lib.rs            # 命令、穿透模式、解锁锁、鼠标轮询、系统托盘、计时窗口
+   │  ├─ timer.rs          # 窗口使用计时（前台累计 + 计时窗口定位与穿透）
+   │  ├─ notion.rs         # Notion 双向同步
    │  └─ db.rs             # SQLite
    └─ LOGIC.md
 ```
