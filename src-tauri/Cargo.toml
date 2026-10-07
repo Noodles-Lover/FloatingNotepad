@@ -18,7 +18,9 @@ tauri = { version = "2", features = ["tray-icon"] }
 # Notion 同步用的 HTTP 客户端。关掉默认特性以避开 openssl，改用 rustls（Windows 下免装工具链）。
 reqwest = { version = "0.12", default-features = false, features = ["json", "rustls-tls"] }
 serde = { version = "1", features = ["derive"] }
-serde_json = "1"
+# preserve_order：json! 里的书写顺序就是 Notion 的列顺序（默认按键排序会把
+# 「本地ID」排到中间去），建库顺序依赖它。
+serde_json = { version = "1", features = ["preserve_order"] }
 rusqlite = { version = "0.32", features = ["bundled"] }
 raw-window-handle = "0.6"
 windows = { version = "0.58", features = [

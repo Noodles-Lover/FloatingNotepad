@@ -14,6 +14,9 @@ export interface NotionConfig {
   db_notes: string;
   db_todos: string;
   db_plans: string;
+  /** 自动同步开关与轮询间隔（秒）。 */
+  auto_sync: boolean;
+  sync_interval_secs: number;
 }
 
 /** 一轮同步的结果。 */
@@ -32,9 +35,14 @@ export function getNotionConfig(): Promise<NotionConfig> {
   return invoke<NotionConfig>("notion_get_config");
 }
 
-export function setNotionConfig(token: string, parentPageId: string): Promise<void> {
-  // 注意：Tauri v2 会把命令参数名转成 camelCase，前端必须写 parentPageId。
-  return invoke<void>("notion_set_config", { token, parentPageId });
+export function setNotionConfig(
+  token: string,
+  parentPageId: string,
+  autoSync: boolean,
+  syncIntervalSecs: number,
+): Promise<void> {
+  // 注意：Tauri v2 会把命令参数名转成 camelCase，前端必须写 parentPageId 等。
+  return invoke<void>("notion_set_config", { token, parentPageId, autoSync, syncIntervalSecs });
 }
 
 /** 在容器页下建齐三个数据库；已建过的会跳过。 */

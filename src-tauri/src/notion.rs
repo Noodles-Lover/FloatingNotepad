@@ -30,6 +30,10 @@ const C_PLANS: &str = "plans";
 
 /// 属性名：手机端要看得懂，就用中文。
 const P_LOCAL_ID: &str = "本地ID";
+/// 锚点列的说明：同步靠它认条目，用户误删误改会导致重复同步。
+const DESC_LOCAL_ID: &str = "同步锚点，勿删改";
+const DESC_DATE: &str = "可在此设置 Notion 提醒";
+const DESC_WEEKDAY: &str = "0=周日，有效值 0-6";
 const P_TITLE: &str = "标题";
 const P_CONTENT: &str = "内容";
 const P_DONE: &str = "完成";
@@ -40,7 +44,8 @@ const P_DATE: &str = "日期";
 const P_KIND: &str = "类型";
 const P_WEEKDAY: &str = "星期";
 
-#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(default)]
 pub struct Config {
     /// Internal Integration 的密钥。
     pub token: String,
@@ -49,6 +54,23 @@ pub struct Config {
     pub db_notes: String,
     pub db_todos: String,
     pub db_plans: String,
+    /// 自动同步开关与轮询间隔（秒）。轮询在前端跑，这里只负责持久化。
+    pub auto_sync: bool,
+    pub sync_interval_secs: u64,
+}
+
+impl Default for Config {
+    fn default() -> Self {
+        Self {
+            token: String::new(),
+            parent_page_id: String::new(),
+            db_notes: String::new(),
+            db_todos: String::new(),
+            db_plans: String::new(),
+            auto_sync: false,
+            sync_interval_secs: 60,
+        }
+    }
 }
 
 #[derive(Debug, Clone, Default, Serialize)]
@@ -357,7 +379,7 @@ fn notes_props_schema() -> Value {
     json!({
         P_TITLE: { "title": {} },
         P_CONTENT: { "rich_text": {} },
-        P_LOCAL_ID: { "number": {} },
+        P_LOCAL_ID: { "number": {}, "description": DESC_LOCAL_ID },
     })
 }
 
@@ -370,20 +392,22 @@ fn todos_props_schema() -> Value {
         P_PRIORITY: { "number": {} },
         P_NOTE: { "rich_text": {} },
         P_CATEGORY: { "select": { "options": [] } },
-        P_LOCAL_ID: { "number": {} },
+        P_LOCAL_ID: { "number": {}, "description": DESC_LOCAL_ID },
     })
 }
 
 /// 日程的时刻已并入「日期」（带时区），不再单独建「时刻」列。
+/// 「星期」用 0–6 表示周日至周六，写在属性说明里（悬停列名可见），
+/// 栏名保持简短——栏名一改，已建的库就读不到了。
 fn plans_props_schema() -> Value {
     json!({
         P_CONTENT: { "title": {} },
-        P_DATE: { "date": {} },
+        P_DATE: { "date": {}, "description": DESC_DATE },
         P_KIND: { "select": { "options": [
             { "name": "一次性" }, { "name": "每周" }
         ] } },
-        P_WEEKDAY: { "number": {} },
-        P_LOCAL_ID: { "number": {} },
+        P_WEEKDAY: { "number": {}, "description": DESC_WEEKDAY },
+        P_LOCAL_ID: { "number": {}, "description": DESC_LOCAL_ID },
     })
 }
 
@@ -393,7 +417,25 @@ async fn create_database(token: &str, parent: &str, title: &str, props: Value) -
         "title": [{ "type": "text", "text": { "content": title } }],
         "properties": props,
     });
-    let resp = call(reqwest::Method::POST, token, "/databases", Some(&body)).await?;
+    let resp = match call(reqwest::Method::POST, token, "/databases", Some(&body)).await {
+        Ok(r) => r,
+        // 属性说明是锦上添花（少数 workspace 可能不接受），去掉再试一次，
+        // 绝不能因为这个可选字段就让建库失败、同步卡住。
+        Err(e) => {
+            call(
+                reqwest::Method::POST,
+                token,
+                "/databases",
+                Some(&json!({
+                    "parent": { "type": "page_id", "page_id": parent },
+                    "title": [{ "type": "text", "text": { "content": title } }],
+                    "properties": without_descriptions(&props),
+                })),
+            )
+            .await
+            .map_err(|_| e)?
+        }
+    };
     let id = page_id(&resp);
     if id.is_empty() {
         return Err(format!("创建 Notion 数据库「{title}」失败：响应里没有 id"));
@@ -401,12 +443,15 @@ async fn create_database(token: &str, parent: &str, title: &str, props: Value) -
     Ok(id)
 }
 
-/// 给已存在的数据库补属性（幂等）：老版本建的待办库还没有「本地UID」。
-async fn patch_database(token: &str, db_id: &str, props: Value) -> Result<(), String> {
-    let body = json!({ "properties": props });
-    call(reqwest::Method::PATCH, token, &format!("/databases/{db_id}"), Some(&body))
-        .await
-        .map(|_| ())
+/// 去掉属性定义里的说明字段（建库重试用）。
+fn without_descriptions(props: &Value) -> Value {
+    let mut out = props.clone();
+    if let Some(map) = out.as_object_mut() {
+        for v in map.values_mut() {
+            v.as_object_mut().map(|o| o.remove("description"));
+        }
+    }
+    out
 }
 
 /// 确保三个数据库存在；缺哪个就在容器页下建哪个，并把 ID 记进配置。
@@ -473,11 +518,6 @@ pub async fn ensure_databases() -> Result<Config, String> {
         cfg.db_plans =
             create_database(&token, &parent, "浮笺 · 日程", plans_props_schema()).await?;
         save_cfg(&cfg);
-    }
-    // 待办库必须有「本地ID」锚点列，缺了同步无法工作；
-    // PATCH 同名属性幂等，老库缺列时在这里补上。
-    if !cfg.db_todos.is_empty() {
-        patch_database(&token, &cfg.db_todos, json!({ P_LOCAL_ID: { "number": {} } })).await?;
     }
     Ok(cfg)
 }

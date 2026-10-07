@@ -693,20 +693,30 @@ fn notion_get_config() -> notion::Config {
 
 /// 写入 Notion 同步配置：密钥 + 容器页（可直接粘贴页面链接）。
 #[tauri::command]
-fn notion_set_config(app: AppHandle, token: String, parent_page_id: String) {
+fn notion_set_config(
+    app: AppHandle,
+    token: String,
+    parent_page_id: String,
+    auto_sync: bool,
+    sync_interval_secs: u64,
+) {
     let page = notion::normalize_page_id(&parent_page_id);
     let mut cfg = notion::load_cfg();
     cfg.token = token.trim().to_string();
     cfg.parent_page_id = page.clone();
+    cfg.auto_sync = auto_sync;
+    cfg.sync_interval_secs = sync_interval_secs.clamp(10, 3600);
     notion::save_cfg(&cfg);
     // 密钥本身绝不进日志，只记是否填写与容器页解析成了什么。
     log::write(
         &app,
         "notion",
         &format!(
-            "配置已保存: 密钥{}, 容器页={}",
+            "配置已保存: 密钥{}, 容器页={}, 自动同步={}/{}秒",
             if cfg.token.is_empty() { "空" } else { "已填" },
-            if page.is_empty() { "空".to_string() } else { page }
+            if page.is_empty() { "空".to_string() } else { page },
+            if auto_sync { "开" } else { "关" },
+            cfg.sync_interval_secs
         ),
     );
 }

@@ -44,12 +44,18 @@ const MIN_LABEL_GAP_PX = 44;
 const appLabel = (app: string): string => app.replace(/\.exe$/i, "");
 
 /** 毫秒转「1h 23m」/「23m」/「42s」。 */
-function fmtDur(ms: number): string {
+/**
+ * 时长显示。bigHours 用于「全部」这类长期累计口径：小时数上百时
+ * 分钟只是噪声，直接省掉（如「123h」而不是「123h 48m」）。
+ */
+function fmtDur(ms: number, bigHours = false): string {
   const s = Math.max(0, Math.round(ms / 1000));
   if (s < 60) return `${s}s`;
   const m = Math.floor(s / 60);
   if (m < 60) return `${m}m`;
-  return `${Math.floor(m / 60)}h ${m % 60}m`;
+  const h = Math.floor(m / 60);
+  if (bigHours && h >= 100) return `${h}h`;
+  return `${h}h ${m % 60}m`;
 }
 
 /** 时间戳转「09:05」（本地时间）。 */
@@ -238,10 +244,13 @@ function Pie({
   totals,
   colors,
   label,
+  bigHours,
 }: {
   totals: UsageTotal[];
   colors: Map<string, string>;
   label: string;
+  /** 长期累计口径：小时数上百时省略分钟。 */
+  bigHours?: boolean;
 }) {
   const sum = totals.reduce((s, t) => s + t.ms, 0);
   const r = 42;
@@ -274,7 +283,7 @@ function Pie({
         })}
       </svg>
       <div className="usage-pie-center">
-        <span className="usage-pie-total">{fmtDur(sum)}</span>
+        <span className="usage-pie-total">{fmtDur(sum, bigHours)}</span>
         <span className="usage-pie-sub">{label}</span>
       </div>
     </div>
@@ -374,6 +383,7 @@ export default function UsagePanel({ config, onChange, onClose }: Props) {
                     totals={totals}
                     colors={colors}
                     label={scope === "all" ? "全部合计" : "今日合计"}
+                    bigHours={scope === "all"}
                   />
                   <div className="usage-legend">
                     {totals.map((t) => (
@@ -382,7 +392,7 @@ export default function UsagePanel({ config, onChange, onClose }: Props) {
                         <span className="usage-legend-name" title={appLabel(t.app)}>
                           {appLabel(t.app)}
                         </span>
-                        <span className="usage-legend-time">{fmtDur(t.ms)}</span>
+                        <span className="usage-legend-time">{fmtDur(t.ms, scope === "all")}</span>
                         <span className="usage-legend-pct">
                           {sum > 0 ? Math.round((t.ms / sum) * 100) : 0}%
                         </span>

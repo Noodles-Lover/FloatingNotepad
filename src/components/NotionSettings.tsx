@@ -50,9 +50,35 @@ export default function NotionSettings() {
           onClick={reset}
           disabled={executing || !ui.ready}
         >
-          {ui.busy === "reset" ? ui.busyLabel : "重置同步"}
+          {ui.busy === "reset" ? ui.busyLabel : "重置数据库"}
         </button>
       </div>
+      <div className="set-switch-row" title="按固定间隔自动跑一轮双向同步">
+        <span className="set-label">自动同步</span>
+        <input
+          type="checkbox"
+          className="set-switch"
+          checked={ui.autoSync}
+          onChange={(e) => notionUi.setAutoSync(e.target.checked)}
+        />
+      </div>
+      {ui.autoSync && (
+        <div className="set-switch-row" title="自动同步的轮询间隔（10–3600 秒）">
+          <span className="set-label">同步间隔</span>
+          <span className="auto-interval">
+            <input
+              className="set-input"
+              type="number"
+              min={10}
+              max={3600}
+              value={ui.intervalSecs}
+              onChange={(e) => notionUi.setIntervalSecs(Number(e.target.value))}
+              disabled={executing}
+            />
+            秒
+          </span>
+        </div>
+      )}
       {ui.conflicts.length > 0 && (
         <div className="conflict-list">
           <div className="conflict-title">

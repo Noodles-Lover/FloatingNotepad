@@ -70,7 +70,7 @@ export default function NotionPanel({ onClose }: { onClose: () => void }) {
               <div>
                 <div className="modal-group-title">兜底</div>
                 <div className="help-text">
-                  「重置同步」= 归档三个库的全部页面并清空映射，之后「立即同步」按本地现状重建；也可以直接删除数据库，点击同步会自动重建。
+                  「重置数据库」= 归档三个库的全部页面并清空映射，之后「立即同步」按本地现状重建；也可以直接删除数据库，点击同步会自动重建。
                 </div>
               </div>
             </div>

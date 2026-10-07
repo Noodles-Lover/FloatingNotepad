@@ -33,6 +33,9 @@ export interface NotionSyncUi {
   token: string;
   page: string;
   ready: boolean;
+  /** 自动同步开关与轮询间隔（秒）。 */
+  autoSync: boolean;
+  intervalSecs: number;
   /** 待用户选边的同步冲突。 */
   conflicts: NotionConflict[];
 }
@@ -48,6 +51,8 @@ let state = {
   token: "",
   page: "",
   ready: false,
+  autoSync: false,
+  intervalSecs: 60,
   conflicts: [] as NotionConflict[],
 };
 let snapshot: NotionSyncUi = view(state);
@@ -78,12 +83,21 @@ async function refreshLists() {
 }
 
 let loaded = false;
-/** 首次用到时读一次已保存的配置与待处理冲突（幂等）。 */
+/** 首次用到时读一次已保存的配置与待处理冲突（幂等）；开着自动同步就顺带启动轮询。 */
 function ensureLoaded() {
   if (loaded) return;
   loaded = true;
   getNotionConfig()
-    .then((cfg) => update({ token: cfg.token, page: cfg.parent_page_id, ready: isReady(cfg) }))
+    .then((cfg) => {
+      update({
+        token: cfg.token,
+        page: cfg.parent_page_id,
+        ready: isReady(cfg),
+        autoSync: cfg.auto_sync,
+        intervalSecs: cfg.sync_interval_secs,
+      });
+      if (cfg.auto_sync) startPolling();
+    })
     .catch((e) => update({ msg: `读取配置失败：${e}` }));
   refreshLists();
 }
@@ -99,7 +113,53 @@ export function useNotionSync(): NotionSyncUi {
 export const notionUi = {
   setToken: (token: string) => update({ token }),
   setPage: (page: string) => update({ page }),
+  setAutoSync: (on: boolean) => {
+    update({ autoSync: on, msg: "" });
+    if (on) startPolling();
+    else stopPolling();
+    persistQuietly();
+  },
+  setIntervalSecs: (secs: number) => {
+    const v = clampInterval(secs);
+    update({ intervalSecs: v });
+    if (state.autoSync) startPolling(); // 间隔变了，重排下一次轮询
+    persistQuietly();
+  },
 };
+
+/** 间隔下限 10 秒（一轮同步是好几个 HTTP 请求，再快没有意义），上限一小时。 */
+function clampInterval(secs: number): number {
+  if (!Number.isFinite(secs)) return 60;
+  return Math.min(3600, Math.max(10, Math.round(secs)));
+}
+
+/** 静默持久化开关与间隔（含当前 token/page，与「立即同步」的自动落盘一致）。 */
+function persistQuietly() {
+  setNotionConfig(state.token, state.page, state.autoSync, state.intervalSecs).catch((e) =>
+    update({ msg: `保存设置失败：${e}` }),
+  );
+}
+
+let pollTimer: ReturnType<typeof setTimeout> | undefined;
+
+/** 启动自动同步轮询：setTimeout 链而非 setInterval，改间隔即时生效且不叠加。 */
+function startPolling() {
+  stopPolling();
+  const tick = () => {
+    pollTimer = setTimeout(tick, state.intervalSecs * 1000);
+    // 未配置或上一轮还没跑完就跳过这一拍，等下一拍。
+    if (!state.ready || state.busy) return;
+    notionActions.sync();
+  };
+  pollTimer = setTimeout(tick, state.intervalSecs * 1000);
+}
+
+function stopPolling() {
+  if (pollTimer !== undefined) {
+    clearTimeout(pollTimer);
+    pollTimer = undefined;
+  }
+}
 
 /** 串行守卫：同一时刻只允许一个 Notion 动作（自动同步将来也走这里）。 */
 async function run(kind: Exclude<Busy, "">, action: () => Promise<string>) {
@@ -115,7 +175,7 @@ async function run(kind: Exclude<Busy, "">, action: () => Promise<string>) {
 export const notionActions = {
   save: () =>
     run("save", async () => {
-      await setNotionConfig(state.token, state.page);
+      await setNotionConfig(state.token, state.page, state.autoSync, state.intervalSecs);
       update({ ready: isReady(await getNotionConfig()) });
       return "配置已保存";
     }),
@@ -123,7 +183,7 @@ export const notionActions = {
     run("sync", async () => {
       // 先落配置再同步：Rust 侧同步开头会确保三个库存在（缺哪个建哪个），
       // 所以不需要单独的「建数据库」按钮。
-      await setNotionConfig(state.token, state.page);
+      await setNotionConfig(state.token, state.page, state.autoSync, state.intervalSecs);
       const s: SyncSummary = await syncNotion();
       // 新冲突与处理历史要立刻反映到面板。
       await refreshLists();
