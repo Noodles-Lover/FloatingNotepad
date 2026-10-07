@@ -38,7 +38,7 @@ export interface AppConfig {
 
 export const DEFAULT_CONFIG: AppConfig = {
   widgetSize: 80,
-  windowWidth: 380,
+  windowWidth: 400,
   windowHeight: 520,
   autoCloseDelay: 500,
   idleOpacity: 0.6,

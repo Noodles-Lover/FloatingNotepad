@@ -19,15 +19,15 @@ interface Props {
  */
 export default function FeaturePanel({ config, onChange, autostart, onAutostartChange, onClose }: Props) {
   return (
-    <div className="skin-overlay" onClick={onClose}>
-      <div className="skin-panel" onClick={(e) => e.stopPropagation()}>
-        <div className="skin-head">
+    <div className="modal-overlay" onClick={onClose}>
+      <div className="modal-panel" onClick={(e) => e.stopPropagation()}>
+        <div className="modal-head">
           <span>功能</span>
-          <span className="skin-x" onClick={onClose} title="关闭">
+          <span className="modal-close" onClick={onClose} title="关闭">
             ×
           </span>
         </div>
-        <div className="skin-body">
+        <div className="modal-body">
           <label
             className="set-switch-row"
             title="进入全屏应用（游戏）时自动开启穿透，退出全屏自动恢复"

@@ -29,54 +29,60 @@ export default function WindowTimerPanel({ state, onStart, onStop, onClose }: Pr
   useEffect(refresh, []);
 
   return (
-    <div className="skin-overlay" onClick={onClose}>
-      <div className="skin-panel" onClick={(e) => e.stopPropagation()}>
-        <div className="skin-head">
+    <div className="modal-overlay" onClick={onClose}>
+      <div className="modal-panel" onClick={(e) => e.stopPropagation()}>
+        <div className="modal-head">
           <span>窗口计时</span>
-          <span className="skin-x" onClick={onClose} title="关闭">
+          <span className="modal-close" onClick={onClose} title="关闭">
             ×
           </span>
         </div>
-        <div className="skin-body">
-          <div className="skin-group-title">当前</div>
-          {state.running ? (
-            <div className="set-row">
-              <div className="set-label">
-                <span>
-                  {state.process} · {state.title}
-                </span>
-                <span className="set-val">{formatElapsed(state.elapsed_ms)}</span>
+        <div className="modal-body">
+          {/* 当前计时状态 */}
+          <div>
+            <div className="modal-group-title">当前</div>
+            {state.running ? (
+              <div className="set-row">
+                <div className="set-label">
+                  <span>
+                    {state.process} · {state.title}
+                  </span>
+                  <span className="set-val">{formatElapsed(state.elapsed_ms)}</span>
+                </div>
+                <div className="set-actions">
+                  <button className="set-btn" onClick={onStop}>
+                    停止计时
+                  </button>
+                </div>
               </div>
-              <div className="set-actions">
-                <button className="set-btn" onClick={onStop}>
-                  停止计时
-                </button>
-              </div>
-            </div>
-          ) : (
-            <div className="skin-empty">未在计时。选一个窗口开始：只有它在前台时才累计。</div>
-          )}
+            ) : (
+              <div className="modal-empty">未在计时。选一个窗口开始：持续在挂件旁显示该窗口的使用时间</div>
+            )}
+          </div>
 
-          <div className="skin-group-title">可选窗口</div>
-          {windows.length === 0 ? (
-            <div className="skin-empty">没有可选窗口（当前没有可见的其它应用窗口）。</div>
-          ) : (
-            <div className="win-list">
-              {windows.map((w) => (
-                <button
-                  key={w.hwnd}
-                  className="win-item"
-                  onClick={() => {
-                    onStart(w.hwnd);
-                    onClose();
-                  }}
-                >
-                  <span className="win-proc">{w.process}</span>
-                  <span className="win-title">{w.title}</span>
-                </button>
-              ))}
-            </div>
-          )}
+          {/* 可选窗口列表 */}
+          <div>
+            <div className="modal-group-title">可选窗口</div>
+            {windows.length === 0 ? (
+              <div className="modal-empty">没有可选窗口（当前没有可见的其它应用窗口）。</div>
+            ) : (
+              <div className="win-list">
+                {windows.map((w) => (
+                  <button
+                    key={w.hwnd}
+                    className="win-item"
+                    onClick={() => {
+                      onStart(w.hwnd);
+                      onClose();
+                    }}
+                  >
+                    <span className="win-proc">{w.process}</span>
+                    <span className="win-title">{w.title}</span>
+                  </button>
+                ))}
+              </div>
+            )}
+          </div>
 
           <div className="set-actions">
             <button className="set-btn" onClick={refresh}>

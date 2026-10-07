@@ -13,12 +13,9 @@ import "./components/FloatingWidget.css";
 import "./components/TabBar.css";
 import "./components/NotePanel.css";
 import "./styles/overlay.css";
-import "./components/ConfirmDialog.css";
-import "./components/LockView.css";
 import "./components/UsagePanel.css";
 import "./components/PopupView.css";
 import "./components/PlansView.css";
-import "./components/TimerView.css";
 
 // 锁窗口（穿透解锁按钮）、计时窗口与通用弹窗都加载同一入口，按 Tauri 窗口 label 区分渲染内容。
 // 不用 URL query：WebviewUrl::App 不支持 query string，会被编码破坏。

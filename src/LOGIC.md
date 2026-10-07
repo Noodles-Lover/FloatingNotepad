@@ -167,9 +167,9 @@ App 内所有增删改都收敛到这几个封装，后端命令为纯数据读�
 样式按组件拆分，没有单体 CSS 文件：
 
 - `styles/base.css`：重置与设计令牌（`:root` 的纸墨配色、撕纸轮廓 `--torn`、阴影）的全局唯一来源。
-- `styles/overlay.css`：皮肤 / 设置 / 使用统计三类覆盖层共用的壳（`.skin-overlay`、`.skin-panel`、`.set-*` 开关）与皮肤卡片网格——三个面板长得一样是因为它们真的共用这些类。
-- 其余与组件同目录同名：`FloatingWidget.css`、`TabBar.css`、`NotePanel.css`、`ConfirmDialog.css`、`LockView.css`、`UsagePanel.css`、`PopupView.css`、`PlansView.css`、`TimerView.css`。
-- 所有 CSS 仍是全局类名（未用 CSS Modules），因此**导入顺序即级联顺序**：统一在 `main.tsx` 按固定顺序导入，不要调整顺序，也不要改成组件内各自 import——那会改变同优先级规则的覆盖关系。
+- `styles/overlay.css`：设置 / 皮肤 / 使用统计 / 日程 / Notion / 窗口计时等**全部覆盖层共用的壳**（`.modal-overlay`、`.modal-panel`、`.modal-close`、`.modal-body`、`.set-*` 开关）——所有面板长得一样是因为它们真的共用这些类；别被 `modal-` 前缀误导，它不是"模态框专用"，就是覆盖层壳。
+- **不足百行的组件样式直接内联在组件 tsx 里**（`<style>{styles}</style>`，如 `ConfirmDialog`、`LockView`、`TimerView`、`SkinPanel` 的皮肤卡片），不为它们建 css 文件；超过百行的才独立成文件：`FloatingWidget.css`、`TabBar.css`、`NotePanel.css`、`UsagePanel.css`、`PopupView.css`、`PlansView.css`。
+- 所有 CSS 仍是全局类名（未用 CSS Modules），因此**导入顺序即级联顺序**：独立 css 文件统一在 `main.tsx` 按固定顺序导入，不要调整顺序——那会改变同优先级规则的覆盖关系；内联的 `<style>` 跟随组件渲染位置，类名唯一、不与共享样式竞争，所以不受此约束。
 
 ---
 

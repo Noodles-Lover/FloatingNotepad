@@ -695,33 +695,8 @@
   gap: 6px;
 }
 
-.skin-btn {
-  height: 26px;
-  padding: 0 12px;
-  display: flex;
-  align-items: center;
-  background: rgba(255, 253, 245, 0.6);
-  border: 1px solid var(--border);
-  color: var(--ink-soft);
-  font-size: 13px;
-  font-weight: 600;
-  border-radius: 13px;
-  cursor: pointer;
-  transition:
-    background 160ms ease,
-    transform 160ms ease,
-    border-color 160ms ease;
-  font-family: var(--font-ui);
-}
 
-.skin-btn:hover {
-  background: var(--paper);
-  border-color: var(--gold);
-}
 
-.skin-btn:active {
-  transform: scale(0.95);
-}
 
 .pin-btn {
   color: var(--ink-soft);

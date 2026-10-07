@@ -318,15 +318,15 @@ export default function UsagePanel({ config, onChange, onClose }: Props) {
   const sum = totals.reduce((s, t) => s + t.ms, 0);
 
   return (
-    <div className="skin-overlay" onClick={onClose}>
-      <div className="skin-panel usage-panel" onClick={(e) => e.stopPropagation()}>
-        <div className="skin-head">
+    <div className="modal-overlay" onClick={onClose}>
+      <div className="modal-panel usage-panel" onClick={(e) => e.stopPropagation()}>
+        <div className="modal-head">
           <span>使用统计</span>
-          <span className="skin-x" onClick={onClose} title="关闭">
+          <span className="modal-close" onClick={onClose} title="关闭">
             ×
           </span>
         </div>
-        <div className="skin-body">
+        <div className="modal-body">
           <label
             className="set-switch-row"
             title="记录每个前台应用的使用时长；数据只写进本机的 notes.db"
