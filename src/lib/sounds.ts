@@ -72,5 +72,12 @@ function createAudio(src: string): HTMLAudioElement {
   return audio;
 }
 
+const NAMES = Object.keys(FILES) as SoundName[];
+
+/** Rust 下发的音效名是否认识（`PopupPayload.sound` 是字符串，跨语言边界要收窄）。 */
+export function isSoundName(value: string): value is SoundName {
+  return (NAMES as string[]).includes(value);
+}
+
 /** 全应用共用的播放器实例。 */
 export const sounds = new SoundPlayer(FILES);

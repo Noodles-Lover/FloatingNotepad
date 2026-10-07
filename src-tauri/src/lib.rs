@@ -1,4 +1,5 @@
 mod chime;
+mod clickthrough;
 mod log;
 mod notify;
 mod popup;
@@ -619,7 +620,7 @@ pub(crate) fn ensure_timer_window(app: &AppHandle) -> Result<WebviewWindow, Stri
             );
         }
         // 命中测试也要接管：光有 WS_EX_TRANSPARENT 时右键仍会落到窗口上。
-        timer::enable_click_through(hwnd);
+        clickthrough::enable(hwnd);
     }
     Ok(win)
 }

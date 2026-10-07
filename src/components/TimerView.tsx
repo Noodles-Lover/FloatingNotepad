@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
 import { formatElapsed, timerState, type TimerState } from "../lib/windowTimer";
+import { useBlockedContextMenu } from "../hooks/useBlockedContextMenu";
 import "./TimerView.css";
 
 /**
@@ -11,12 +12,8 @@ import "./TimerView.css";
 export default function TimerView() {
   const [state, setState] = useState<TimerState | null>(null);
 
-  // 计时窗口不吃交互：屏蔽 WebView2 的默认右键菜单（上一页 / 重新加载 / 检查）。
-  useEffect(() => {
-    const block = (e: MouseEvent) => e.preventDefault();
-    document.addEventListener("contextmenu", block);
-    return () => document.removeEventListener("contextmenu", block);
-  }, []);
+  // 纯展示窗口：屏蔽默认右键菜单，交互由 Rust 侧穿透处理。
+  useBlockedContextMenu();
 
   useEffect(() => {
     let alive = true;

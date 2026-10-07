@@ -6,10 +6,12 @@ export interface PopupToastState {
   text: string;
   sub: string | null;
   leaving: boolean;
+  /** 停留时长（毫秒），来自 Rust 载荷：报时与任务提醒各给各的。 */
+  visibleMs: number;
 }
 
-/** 面板内提示的停留时长（毫秒），与独立小窗一致（Rust 的 VISIBLE = 5 秒）。 */
-const TOAST_VISIBLE = 5000;
+/** 载荷里没带时长时的兜底（毫秒）。 */
+const TOAST_VISIBLE_FALLBACK = 5000;
 /** 消失动画时长（毫秒）。 */
 const TOAST_LEAVE_ANIM = 180;
 
@@ -27,11 +29,20 @@ export function usePopupToast(modeRef: { current: Mode }) {
   }, []);
 
   useEffect(() => {
-    const unlisten: Promise<UnlistenFn> = listen<{ text: string; sub: string | null }>(
+    const unlisten: Promise<UnlistenFn> = listen<{
+      text: string;
+      sub: string | null;
+      visible_ms?: number;
+    }>(
       "popup-show",
       (ev) => {
         if (modeRef.current !== "expanded") return; // 没开面板时看独立小窗
-        setPopupToast({ text: ev.payload.text, sub: ev.payload.sub, leaving: false });
+        setPopupToast({
+          text: ev.payload.text,
+          sub: ev.payload.sub,
+          leaving: false,
+          visibleMs: ev.payload.visible_ms ?? TOAST_VISIBLE_FALLBACK,
+        });
       },
     );
     return () => {
@@ -41,7 +52,7 @@ export function usePopupToast(modeRef: { current: Mode }) {
 
   useEffect(() => {
     if (!popupToast || popupToast.leaving) return;
-    const timer = window.setTimeout(dismissToast, TOAST_VISIBLE);
+    const timer = window.setTimeout(dismissToast, popupToast.visibleMs);
     return () => window.clearTimeout(timer);
   }, [popupToast, dismissToast]);
 
