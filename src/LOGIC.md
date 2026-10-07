@@ -37,7 +37,7 @@
 - **窗口动作经串行器收敛**（`runWindowOp`，latest-wins）：窗口调用是异步的，先发起的可能后完成。串行器保证同一时刻只跑一个、且始终执行最新目标，使窗口最终收敛到最后一次请求的形态。
 - 穿透广播**不改变整窗隐藏态**：用户显式隐藏不应被一次状态变化悄悄覆盖，所以 `passthrough-state` 只传 `mode`、不带 `appHidden`。
 
-窗口的渲染形态由 `main.tsx` 按 Tauri 窗口 label 分流：label 为 `widget-lock` 时渲染解锁按钮（`LockView`），否则渲染主应用 `App`。锁窗口与主应用共用同一份前端入口与样式。
+窗口的渲染形态由 `main.tsx` 按 Tauri 窗口 label 分流：`widget-lock` 渲染解锁按钮（`LockView`），`widget-timer` 渲染使用时长（`TimerView`），`popup` 渲染通用弹窗（`PopupView`），否则渲染主应用 `App`。这些窗口与主应用共用同一份前端入口与样式。
 
 窗口交互形态由两个职责分离的控制器负责：
 
@@ -105,7 +105,7 @@ App 端判定**始终基于 UI 当前真实 bounds**：
 - `loadConfig()`：同步读取。以 `DEFAULT_CONFIG` 为底，合并 localStorage 里的用户覆盖，覆盖前过 `sanitize`（数值范围过滤，非法值丢弃）。
 - `saveConfig(cfg)`：应用内「设置」面板调整后写 localStorage。
 - 出厂默认值集中在 `DEFAULT_CONFIG`。
-- 静音（`muted`）由速记面板**头栏的喇叭按钮**切换，设置面板里不再有开关——头栏要放固定、皮肤、统计、静音、设置、收起六个按钮，设置面板只留不与它们重复的项。
+- 静音（`muted`）开关在**设置面板**里；头栏放固定、皮肤、功能、统计、日程、Notion、设置、收起，设置面板只留不与它们重复的项。
 - 配置项：`widgetSize`、`windowWidth`、`windowHeight`、`autoCloseDelay`、`idleOpacity`、`pinned`（面板固定）、`panelMargin`（面板碰撞箱外扩）、`fullscreenPassthrough`（全屏自动穿透）、`muted`（静音）、`usageTracking`（记录应用使用时间）、`chime`（整点报时）、`planNotify`（任务提醒）、`planBadge`（挂件待办角标）。
 
 > 穿透状态是 Rust 维护的运行时态，由 `passthrough-state` 广播驱动，前端只同步显示、不自行持久化（见第 3 节）。
@@ -167,15 +167,15 @@ App 内所有增删改都收敛到这几个封装，后端命令为纯数据读�
 样式按组件拆分，没有单体 CSS 文件：
 
 - `styles/base.css`：重置与设计令牌（`:root` 的纸墨配色、撕纸轮廓 `--torn`、阴影）的全局唯一来源。
-- `styles/overlay.css`：皮肤 / 设置 / 使用统计三类覆盖层共用的壳（`.skin-overlay`、`.skin-panel`、`.set-*` 开关）与皮肤卡片网格——三个面板长得一样是因为它们真的共用这些类。
-- 其余与组件同目录同名：`FloatingWidget.css`、`TabBar.css`、`NotePanel.css`、`ConfirmDialog.css`、`LockView.css`、`UsagePanel.css`、`PopupView.css`、`PlansView.css`。
-- 所有 CSS 仍是全局类名（未用 CSS Modules），因此**导入顺序即级联顺序**：统一在 `main.tsx` 按固定顺序导入，不要调整顺序，也不要改成组件内各自 import——那会改变同优先级规则的覆盖关系。
+- `styles/overlay.css`：设置 / 皮肤 / 使用统计 / 日程 / Notion / 窗口计时等**全部覆盖层共用的壳**（`.modal-overlay`、`.modal-panel`、`.modal-close`、`.modal-body`、`.set-*` 开关）——所有面板长得一样是因为它们真的共用这些类；别被 `modal-` 前缀误导，它不是"模态框专用"，就是覆盖层壳。
+- **不足百行的组件样式直接内联在组件 tsx 里**（`<style>{styles}</style>`，如 `ConfirmDialog`、`LockView`、`TimerView`、`SkinPanel` 的皮肤卡片），不为它们建 css 文件；超过百行的才独立成文件：`FloatingWidget.css`、`TabBar.css`、`NotePanel.css`、`UsagePanel.css`、`PopupView.css`、`PlansView.css`。
+- 所有 CSS 仍是全局类名（未用 CSS Modules），因此**导入顺序即级联顺序**：独立 css 文件统一在 `main.tsx` 按固定顺序导入，不要调整顺序——那会改变同优先级规则的覆盖关系；内联的 `<style>` 跟随组件渲染位置，类名唯一、不与共享样式竞争，所以不受此约束。
 
 ---
 
 ## 9. 音效与挂件交互
 
-- **音效统一出口（`lib/sounds.ts`）**：`SoundPlayer` 类持音频池与静音状态，导出单例 `sounds`，调用点只写 `sounds.play("paperOpen")`，静音判断也在类里。`playOnEvent(event, name)` 用于「替播不了声音的窗口代播」——弹窗窗口从未被用户点过，Chromium 会拦掉无用户交互的 audio，因此 `popup-show` 与 `plan-due` 都由主窗口代播。弹窗（目前是报时）用 `bell`，任务提醒用 `notification`，启动提示音仍是 `notification`。
+- **音效统一出口（`lib/sounds.ts`）**：`SoundPlayer` 类持音频池与静音状态，导出单例 `sounds`，调用点只写 `sounds.play("paperOpen")`，静音判断也在类里。`playOnEvent(event, name)` 用于「替播不了声音的窗口代播」——弹窗窗口从未被用户点过，Chromium 会拦掉无用户交互的 audio，因此 `popup-show` 由主窗口代播。播哪个声音由 Rust 载荷里的 `sound` 决定（报时 `bell`、任务提醒 `notification`、启动提示音 `notification`），跨语言边界用 `isSoundName` 收窄，不认识的名字忽略。
 - **通用弹窗（`PopupView`）**：与业务无关，只画 Rust 下发的一段内容（主文本 + 可选小字）——`popup-show` 载荷带文本与不透明度（文本由 Rust 组织，前后端不各写一套）；挂载时再主动取一次 `popup_state`，避免事件错过后空白。目前唯一使用者是整点报时。
 - **挂件右键菜单关闭后要收起**：原生菜单期间指针被菜单接管，挂件收不到 `mouseleave`，会一直卡在展开态。菜单关闭后走一次 `onWidgetLeave` 收起；指针若确实还停在挂件上，光标采样会在冷却结束后重新展开。
 
@@ -189,7 +189,7 @@ App 内所有增删改都收敛到这几个封装，后端命令为纯数据读�
 - **新增与提醒开关**：面板头栏的日历按钮打开覆盖层面板（`PlansPanel`，标题「日程」），里面是任务提醒总开关 + 「某一天 / 每周」两个表单。开关放在这里而不是功能面板，是因为它只跟日程有关；默认开启。表单不塞进标签页，是不想让输入控件占掉列表区域。
 - **内容上限 15 字**（`PLAN_TEXT_MAX`）：提醒小窗只有 220 宽，再长既读不完也会把窗口撑高。
 - **系统标签页的视觉**：不参与便签配色轮换——白纸底 + 朱砂虚线框 + 小日历图标，选中时虚线转实线。标记用 `outline` 而非 `border`：`.tab.active` 的朱砂底杠是 `border-bottom`，用 `border` 简写会连它一起覆盖（底杠就没了），`outline` 与 `border` 互不干扰，等于直接继承普通标签页的选中底线。只做「换个颜色」不够，纸深色和便签黄几乎一个色，看不出来。
-- **面板内的弹出（`PopupToast`）**：面板展开时 Rust 不弹独立小窗（会被挡住），只广播内容，主窗口在面板顶部显示同名提示条，观感与小窗一致，5 秒后自动消失。消失有动画，所以卸载前先打 `leaving` 再延迟 180ms，直接卸载就看不到动画了。
+- **面板内的弹出（`PopupToast`）**：面板展开时 Rust 不弹独立小窗（会被挡住），只广播内容，主窗口在面板顶部显示同名提示条，观感与小窗一致；停留时长取载荷里的 `visible_ms`（报时 5 秒、任务提醒 8 秒），与独立小窗同源。消失有动画，所以卸载前先打 `leaving` 再延迟 180ms，直接卸载就看不到动画了。
 - **提示条只在面板展开时渲染**：收起面板后它不该继续飘在挂件上方，但状态留着——下次打开面板若还没过兜底时长，它还在。前端不需要把这个状态同步给后端：Rust 用窗口几何自己判断（见后端文档）。
 - **挂件元素的闲置透明度**：`.widget-fade` 是共享类——闲置时 `opacity: var(--idle-opacity)`，展开/拖动时 1，穿透态强制回到闲置值。挂件图与待办角标都带这个类，新元素也只要带上它，不必再抄一遍 opacity 规则（透明度只有一个来源）。
 - **过期自动清理**：一次性日程过了当天（真实日历日）就不再读取时被删掉（后端在 `load_plans` 里清）；周常任务不过期。没有完成态，留着只会堆积。
@@ -216,3 +216,13 @@ App 内所有增删改都收敛到这几个封装，后端命令为纯数据读�
 - 只上报**低频关键事件**：面板打开 / 关闭（`panel`）、右键隐藏挂件（`widget`）。
 - **高频行为不记**：鼠标靠近滑出、自动收起、光标轮询——记了会淹没日志（所以 `beginClose` 里只在 `mode === "expanded"` 时留痕）。
 - 上报失败静默：留痕本身不该影响功能。
+
+## 12. 窗口使用计时（前端侧）
+
+**入口**：速记面板头栏的秒表按钮 → `WindowTimerPanel`（覆盖层），列出当前可见窗口（进程名 + 标题），点一个开始计时，再点头栏按钮可查看/停止。
+
+- **状态在 App 上的 `useWindowTimer`**（`hooks/useWindowTimer.ts`）：启动时取一次 `timer_state`，只在计时中每秒轮询——空闲时零开销。累计本身在 Rust 侧，前端只显示。
+- **显示在独立窗口**（`TimerView`，由 `widget-timer` 窗口渲染）：字号用 `40vh`，因为该窗口高度就是挂件高度的一半（封顶 40px），所以文字不随挂件放大而失控。
+- **字形描边而不是画框**：`-webkit-text-stroke` 描在字形轮廓上（深墨字 + 纸色描边），桌面上不留任何色块与线条；描边会向内吃字面，所以字重给到 700。
+- **挂件本身不显示时长**：挂件窗口只有 `WIDGET_BOX_PAD_X` 的留白，放不下文字，硬塞还会撑大碰撞箱。
+- **窗口不吃交互**：命中测试由 Rust 侧的 `clickthrough` 统一接管（见 `src-tauri/LOGIC.md` 第 8 节），前端这层只是兜底——`useBlockedContextMenu` 拦掉 WebView2 的默认菜单，计时窗口与弹出通知共用它。

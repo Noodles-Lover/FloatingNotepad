@@ -1,19 +1,22 @@
 //! 日程 / 待办：一次性任务（某天）与周常任务（每周几），可按时刻提醒。
 //!
-//! 数据落在 `plans` 表（见 db.rs）；提醒线程每分钟比一次，命中的任务走**系统通知**
-//! （音效仍由主窗口播放）——全屏/游戏时要不要打扰用户交给系统判断，比自己画弹窗可靠。
+//! 数据落在 `plans` 表（见 db.rs）；提醒线程每分钟比一次，命中的任务弹**挂件小窗**
+//! （与整点报时同一套 popup，另发一条系统通知：全屏/游戏时要不要打扰用户交给系统判断）。
 //! 没有「完成」概念：任务只是带日期时间列出来，不需要了就删掉。
 
 use std::sync::atomic::{AtomicBool, AtomicI64, Ordering};
 use std::thread;
+use std::time::Duration;
 use std::time::{SystemTime, UNIX_EPOCH};
 
-use tauri::{AppHandle, Emitter, Manager};
+use tauri::{AppHandle, Manager};
 
-use crate::{chime, db, log, notify};
+use crate::{chime, db, log, notify, popup};
 
 /// 提醒通知的标题。
 const NOTIFY_TITLE: &str = "浮笺 · 日程";
+/// 任务提醒小窗的停留时长。
+const NOTIFY_VISIBLE: Duration = Duration::from_secs(8);
 
 /// 一天的毫秒数与一分钟的毫秒数。
 const MIN_MS: i64 = 60_000;
@@ -97,10 +100,17 @@ pub fn test(app: &AppHandle) -> Result<(), String> {
     remind(app, "（测试提醒）", &now)
 }
 
-/// 发一条任务提醒：系统通知负责画面，主窗口负责音效。
+/// 发一条任务提醒：挂件小窗（与整点报时同一套）+ 系统通知。
 fn remind(app: &AppHandle, text: &str, time: &str) -> Result<(), String> {
-    // 音效与报时同一套（主窗口代播）；系统通知自带的提示音是系统行为。
-    let _ = app.emit("plan-due", ());
+    // 小窗通知：面板没开时弹独立窗口，开着时主窗口在面板内显示同一条；
+    // 音效也走 popup-show（由主窗口代播，小窗从未被点过，Chromium 会拦掉它的 audio）。
+    let _ = popup::show(
+        app,
+        text.to_string(),
+        Some(format!("{time}  日程")),
+        "notification",
+        NOTIFY_VISIBLE,
+    );
     notify::send(app, NOTIFY_TITLE, &format!("{time}  {text}"))
 }
 

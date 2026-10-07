@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { listen } from "@tauri-apps/api/event";
 import {
   loadState,
   saveTabs,
@@ -23,6 +24,13 @@ function newTab(seq: number): Tab {
 /** 新建一个空白待办分类。 */
 function newCategory(seq: number): Category {
   return { id: Date.now() + seq, title: `分类 ${seq}`, todos: [] };
+}
+
+/** 新待办的本地 id：时间戳毫秒 + 序号，与速记/日程的数字 id 同一风格。 */
+let todoSeq = 0;
+function newTodoId(): string {
+  todoSeq += 1;
+  return String(Date.now() + todoSeq);
 }
 
 /** 待办排序：已完成的永远沉底；未完成的按优先级降序（高在前）。 */
@@ -112,6 +120,22 @@ export function useEntityData() {
       });
   }, [scheduleSave]);
 
+  // Notion 同步完成后重载：拉回的新标签页/待办/勾选状态要立刻出现在界面上，
+  // 不能只改了数据库而停在旧画面。不做存回，避免把同步结果又原样写一遍。
+  useEffect(() => {
+    const pending = listen("notion-synced", () => {
+      loadState()
+        .then((state) => tabsApiRef.current?.load(state.tabs, state.activeTabId))
+        .catch((e) => console.error("[reload] 失败:", e));
+      loadCategories()
+        .then((state) => catsApiRef.current?.load(state.categories, state.activeCategoryId))
+        .catch((e) => console.error("[reloadCat] 失败:", e));
+    });
+    return () => {
+      pending.then((fn) => fn()).catch(() => {});
+    };
+  }, []);
+
   // 当前激活项（派生）。memo 化：无激活项时 `?? list[0]` 不会每帧造新引用。
   const activeTab = useMemo(
     () => tabsApi.list.find((t) => t.id === tabsApi.activeId) ?? tabsApi.list[0],
@@ -187,7 +211,7 @@ export function useEntityData() {
 
   const onAddTodo = useCallback(
     (text: string) => {
-      const todo: Todo = { id: crypto.randomUUID(), text, done: false, priority: 5, note: "" };
+      const todo: Todo = { id: newTodoId(), text, done: false, priority: 5, note: "" };
       mutateTodos((ts) => [...ts, todo]);
     },
     [mutateTodos],

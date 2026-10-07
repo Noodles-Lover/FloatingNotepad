@@ -1,5 +1,5 @@
 /* ---------- Skin / Settings panel（覆盖层）：同样是一张纸 ---------- */
-.skin-overlay {
+.modal-overlay {
   position: fixed;
   inset: 0;
   z-index: 100;
@@ -7,11 +7,11 @@
   align-items: center;
   justify-content: center;
   background: rgba(50, 40, 20, 0.42);
-  animation: skin-fade 140ms ease-out;
+  animation: modal-fade 140ms ease-out;
   backdrop-filter: blur(2px);
 }
 
-.skin-panel {
+.modal-panel {
   position: relative;
   width: min(420px, 86vw);
   max-height: 80vh;
@@ -26,7 +26,7 @@
   padding: 14px 16px 16px;
 }
 
-.skin-panel::before {
+.modal-panel::before {
   content: "";
   position: absolute;
   inset: 0;
@@ -36,7 +36,7 @@
   z-index: -1;
 }
 
-.skin-head {
+.modal-head {
   display: flex;
   justify-content: space-between;
   align-items: center;
@@ -46,7 +46,14 @@
   border-bottom: 1px dashed var(--border);
 }
 
-.skin-x {
+/* 面板头栏右侧的按钮组（? 与 ×）。 */
+.modal-head-btns {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.modal-close {
   width: 26px;
   height: 26px;
   display: flex;
@@ -65,22 +72,22 @@
     color 160ms ease;
 }
 
-.skin-x:hover {
+.modal-close:hover {
   background: rgba(196, 92, 72, 0.12);
   border-color: rgba(196, 92, 72, 0.45);
   color: var(--cinnabar);
 }
 
-.skin-x:active {
+.modal-close:active {
   transform: scale(0.92);
 }
 
-.skin-body {
+.modal-body {
   padding: 10px 6px;
   overflow: auto;
   display: flex;
   flex-direction: column;
-  gap: 16px;
+  gap: 10px;
 }
 
 .set-row {
@@ -109,6 +116,23 @@
   cursor: pointer;
 }
 
+/* 文本输入行（Notion 密钥与容器页）。 */
+.set-input {
+  width: 100%;
+  padding: 5px 8px;
+  font: inherit;
+  font-size: 12px;
+  color: var(--ink);
+  background: rgba(255, 255, 255, 0.7);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+}
+
+.set-input:focus {
+  outline: none;
+  border-color: var(--cinnabar);
+}
+
 /* 开关行：标签 + 右侧拨动开关，风格与滑块行一致。 */
 .set-switch-row {
   display: flex;
@@ -129,6 +153,21 @@
 
 .set-switch:disabled {
   cursor: default;
+}
+
+/* Notion 自动同步的间隔输入（数字框收窄，后跟单位）。 */
+.auto-interval {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 13px;
+  color: var(--ink-soft);
+}
+
+.auto-interval .set-input {
+  width: 64px;
+  padding: 4px 8px;
+  text-align: right;
 }
 
 .set-switch {
@@ -233,77 +272,104 @@
   word-break: break-word;
 }
 
-.skin-group-title {
-  font-size: 13px;
+/* Notion 冲突选择列表。 */
+.conflict-list {
+  padding: 2px 6px 6px;
+}
+
+.conflict-title {
+  font-size: 12px;
   font-weight: 700;
   color: var(--ink-soft);
-  margin-bottom: 8px;
+  margin-bottom: 6px;
   font-family: var(--font-ui);
 }
 
-.skin-empty {
+.conflict-item {
+  border: 1px solid color-mix(in srgb, var(--ink-soft) 25%, transparent);
+  border-radius: 8px;
+  padding: 8px;
+  margin-bottom: 8px;
+}
+
+.conflict-label {
+  font-size: 13px;
+  font-weight: 700;
+  color: var(--ink);
+  margin-bottom: 4px;
+  font-family: var(--font-ui);
+  word-break: break-word;
+}
+
+.conflict-desc {
+  font-size: 12px;
+  color: var(--ink-faint);
+  line-height: 1.5;
+  word-break: break-word;
+}
+
+.modal-group-title {
+  font-size: 13px;
+  font-weight: 700;
+  color: var(--ink-soft);
+  margin-top: 8px;
+  margin-bottom: 4px;
+  font-family: var(--font-ui);
+}
+
+/* 使用说明的正文段落。 */
+.help-text {
+  font-size: 12px;
+  color: var(--ink-soft);
+  line-height: 1.7;
+  word-break: break-word;
+}
+
+/* 窗口计时选择面板的列表。 */
+.win-list {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.win-item {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  width: 100%;
+  padding: 6px 8px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: rgba(255, 253, 245, 0.55);
+  text-align: left;
+  cursor: pointer;
+  font-family: var(--font-ui);
+}
+
+.win-item:hover {
+  border-color: var(--cinnabar);
+}
+
+.win-proc {
+  font-size: 12px;
+  font-weight: 700;
+  color: var(--ink-soft);
+}
+
+.win-title {
+  font-size: 11px;
+  color: var(--ink-faint);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.modal-empty {
   font-size: 12px;
   color: var(--ink-faint);
 }
 
-.skin-grid {
-  display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(92px, 1fr));
-  gap: 10px;
-}
-
-.skin-card {
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  gap: 6px;
-  padding: 8px 6px;
-  background: rgba(255, 253, 245, 0.8);
-  border: 2px solid rgba(232, 217, 168, 0.7);
-  border-radius: 10px;
-  cursor: pointer;
-  transition:
-    border-color 160ms ease,
-    transform 160ms ease,
-    box-shadow 160ms ease;
-}
-
-.skin-card:hover {
-  transform: translateY(-2px);
-  box-shadow: 0 6px 16px rgba(80, 60, 20, 0.14);
-}
-
-.skin-card.active {
-  border-color: var(--cinnabar);
-  box-shadow: 0 0 0 2px rgba(196, 92, 72, 0.28);
-}
-
-.skin-thumb {
-  width: 56px;
-  height: 56px;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  overflow: hidden;
-  border-radius: 8px;
-  background: var(--paper-3);
-}
-
-.skin-thumb img {
-  max-width: 100%;
-  max-height: 100%;
-  object-fit: contain;
-  pointer-events: none;
-}
-
-.skin-name {
-  font-size: 12px;
-  color: var(--ink);
-  text-align: center;
-  line-height: 1.2;
-}
-
-@keyframes skin-fade {
+@keyframes modal-fade {
   from {
     opacity: 0;
   }

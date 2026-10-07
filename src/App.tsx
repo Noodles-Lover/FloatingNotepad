@@ -9,13 +9,16 @@ import { useEntityData } from "./hooks/useEntityData";
 import { useViewState } from "./hooks/useViewState";
 import { usePopupToast } from "./hooks/usePopupToast";
 import { useNotificationSounds } from "./hooks/useNotificationSounds";
+import { useWindowTimer } from "./hooks/useWindowTimer";
 import FloatingWidget from "./components/FloatingWidget";
 import NotePanel from "./components/NotePanel";
 import SkinPanel from "./components/SkinPanel";
 import SettingsPanel from "./components/SettingsPanel";
+import NotionPanel from "./components/NotionPanel";
 import UsagePanel from "./components/UsagePanel";
 import FeaturePanel from "./components/FeaturePanel";
 import PlansPanel from "./components/PlansPanel";
+import WindowTimerPanel from "./components/WindowTimerPanel";
 import ConfirmDialog from "./components/ConfirmDialog";
 import PopupToast from "./components/PopupToast";
 
@@ -34,7 +37,6 @@ export default function App() {
     autostartOn,
     onAutostartChange,
     onTogglePin,
-    onToggleMute,
   } = useAppConfig(noteWin);
   // 日程数据与派生值（最近一项 / 未完成条数）。
   const { plans, setPlans, nearest, planCount } = usePlans();
@@ -65,6 +67,8 @@ export default function App() {
   // 面板内提示与提示音。
   const { popupToast } = usePopupToast(view.modeRef);
   useNotificationSounds();
+  // 指定窗口的使用计时（累计在 Rust 侧，这里只取状态显示）。
+  const timer = useWindowTimer();
 
   // 少量跨 hook 的组合回调：把两个独立动作粘在一个入口上。
   const onSelectSkin = useCallback(
@@ -83,7 +87,8 @@ export default function App() {
     [config, onConfigChange],
   );
 
-  const { skinOpen, settingsOpen, usageOpen, featuresOpen, plansOpen } = view.overlays;
+  const { skinOpen, settingsOpen, usageOpen, featuresOpen, plansOpen, notionOpen, timerOpen } =
+    view.overlays;
 
   return (
     <div className="app">
@@ -109,8 +114,9 @@ export default function App() {
           onReorderCategory={catsApi.reorder}
           pinned={config.pinned}
           onTogglePin={onTogglePin}
-          muted={config.muted}
-          onToggleMute={onToggleMute}
+          onOpenNotion={view.openNotion}
+          onOpenTimer={view.openTimerPanel}
+          timerRunning={timer.running}
           onSwitchTab={tabsApi.switchTo}
           onAddTab={tabsApi.add}
           onRenameTab={tabsApi.rename}
@@ -160,6 +166,17 @@ export default function App() {
 
       {settingsOpen && (
         <SettingsPanel config={config} onChange={onConfigChange} onClose={view.closeSettings} />
+      )}
+
+      {notionOpen && <NotionPanel onClose={view.closeNotion} />}
+
+      {timerOpen && (
+        <WindowTimerPanel
+          state={timer}
+          onStart={(hwnd) => timer.start(hwnd).catch((e) => console.error("[timer] 启动失败:", e))}
+          onStop={timer.stop}
+          onClose={view.closeTimerPanel}
+        />
       )}
 
       {usageOpen && (

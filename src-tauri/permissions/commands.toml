@@ -141,3 +141,48 @@ commands.allow = ["set_lock_hide_delay"]
 identifier = "allow-log-event"
 description = "Allow the frontend to report key UI actions (panel open/close, widget hide/show) to the unified diagnostic log."
 commands.allow = ["log_event"]
+
+[[permission]]
+identifier = "allow-notion-config"
+description = "Allow reading and writing the Notion sync settings (integration secret and container page)."
+commands.allow = ["notion_get_config", "notion_set_config"]
+
+[[permission]]
+identifier = "allow-notion-sync"
+description = "Allow setting up the Notion databases and running a sync round."
+commands.allow = ["notion_setup", "notion_sync"]
+
+[[permission]]
+identifier = "allow-notion-reset"
+description = "Allow resetting the Notion sync: archive all pages and clear the mapping tables."
+commands.allow = ["notion_reset"]
+
+[[permission]]
+identifier = "allow-notion-conflicts"
+description = "Allow reading the pending sync conflicts shown in the Notion panel."
+commands.allow = ["notion_conflicts"]
+
+[[permission]]
+identifier = "allow-notion-resolve"
+description = "Allow resolving a sync conflict by choosing the app or the Notion side."
+commands.allow = ["notion_resolve"]
+
+[[permission]]
+identifier = "allow-list-windows"
+description = "Allow listing visible windows so the user can pick one to time."
+commands.allow = ["list_windows"]
+
+[[permission]]
+identifier = "allow-start-timer"
+description = "Allow starting the usage timer for the picked window's app."
+commands.allow = ["start_timer"]
+
+[[permission]]
+identifier = "allow-stop-timer"
+description = "Allow stopping the usage timer."
+commands.allow = ["stop_timer"]
+
+[[permission]]
+identifier = "allow-timer-state"
+description = "Allow reading the usage timer's state for the widget display."
+commands.allow = ["timer_state"]

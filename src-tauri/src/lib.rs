@@ -1,9 +1,13 @@
 mod chime;
+mod clickthrough;
 mod log;
 mod notify;
 mod popup;
+mod power;
 mod shortcut;
+mod timer;
 mod plans;
+mod notion;
 mod db;
 mod foreground;
 mod tracker;
@@ -575,6 +579,52 @@ fn ensure_lock_window(app: &AppHandle) -> Result<WebviewWindow, String> {
     Ok(lock)
 }
 
+/// 创建（或复用）计时窗口。文字在挂件之外，所以单独一个窗口。
+///
+/// 与锁窗口同样的底子，差别是**常驻穿透**（`WS_EX_TRANSPARENT`）：它只是余光里
+/// 的一行时间，任何时候都不该吃掉点击或焦点。
+pub(crate) fn ensure_timer_window(app: &AppHandle) -> Result<WebviewWindow, String> {
+    if let Some(existing) = app.get_webview_window("widget-timer") {
+        return Ok(existing);
+    }
+    let win = WebviewWindowBuilder::new(
+        app,
+        "widget-timer",
+        WebviewUrl::App("index.html".into()),
+    )
+    .title("浮笺 · 计时")
+    .decorations(false)
+    .transparent(true)
+    .shadow(false)
+    .resizable(false)
+    .skip_taskbar(true)
+    .focused(false)
+    .visible(false)
+    .always_on_top(true)
+    .inner_size(160.0, 56.0)
+    .build()
+    .map_err(|e| format!("创建计时窗口失败: {e}"))?;
+    if let Ok(hwnd) = main_hwnd(&win) {
+        unsafe {
+            let ex = GetWindowLongPtrW(hwnd, GWL_EXSTYLE);
+            let bits = (WS_EX_NOACTIVATE | WS_EX_TOOLWINDOW | WS_EX_TRANSPARENT).0 as isize;
+            SetWindowLongPtrW(hwnd, GWL_EXSTYLE, ex | bits);
+            let _ = SetWindowPos(
+                hwnd,
+                HWND_TOP,
+                0,
+                0,
+                0,
+                0,
+                SWP_NOMOVE | SWP_NOSIZE | SWP_NOACTIVATE | SWP_FRAMECHANGED,
+            );
+        }
+        // 命中测试也要接管：光有 WS_EX_TRANSPARENT 时右键仍会落到窗口上。
+        clickthrough::enable(hwnd);
+    }
+    Ok(win)
+}
+
 /// 在指定物理坐标显示锁窗口（供状态机内部调用，也保留为命令便于排查）。
 #[tauri::command]
 fn show_lock_window(app: AppHandle, x: i32, y: i32) -> Result<(), String> {
@@ -633,6 +683,162 @@ fn do_restart_app(app: &AppHandle) {
 #[tauri::command]
 fn log_event(app: AppHandle, tag: String, msg: String) {
     log::write(&app, &tag, &msg);
+}
+
+/// 读取 Notion 同步配置（密钥存在本机 meta 表里，只回给本机前端）。
+#[tauri::command]
+fn notion_get_config() -> notion::Config {
+    notion::load_cfg()
+}
+
+/// 写入 Notion 同步配置：密钥 + 容器页（可直接粘贴页面链接）。
+#[tauri::command]
+fn notion_set_config(
+    app: AppHandle,
+    token: String,
+    parent_page_id: String,
+    auto_sync: bool,
+    sync_interval_secs: u64,
+) {
+    let page = notion::normalize_page_id(&parent_page_id);
+    let mut cfg = notion::load_cfg();
+    cfg.token = token.trim().to_string();
+    cfg.parent_page_id = page.clone();
+    cfg.auto_sync = auto_sync;
+    cfg.sync_interval_secs = sync_interval_secs.clamp(10, 3600);
+    notion::save_cfg(&cfg);
+    // 密钥本身绝不进日志，只记是否填写与容器页解析成了什么。
+    log::write(
+        &app,
+        "notion",
+        &format!(
+            "配置已保存: 密钥{}, 容器页={}, 自动同步={}/{}秒",
+            if cfg.token.is_empty() { "空" } else { "已填" },
+            if page.is_empty() { "空".to_string() } else { page },
+            if auto_sync { "开" } else { "关" },
+            cfg.sync_interval_secs
+        ),
+    );
+}
+
+/// 在容器页下建齐三个数据库（已建过的会跳过）。
+#[tauri::command]
+async fn notion_setup(app: AppHandle) -> Result<notion::Config, String> {
+    match notion::ensure_databases().await {
+        Ok(cfg) => {
+            log::write(&app, "notion", "建库完成");
+            Ok(cfg)
+        }
+        Err(e) => {
+            log::write(&app, "notion", &format!("建库失败: {e}"));
+            Err(e)
+        }
+    }
+}
+
+/// 跑一轮同步。async 命令不占主线程，同步期间界面不卡。
+#[tauri::command]
+async fn notion_sync(app: AppHandle) -> Result<notion::Summary, String> {
+    match notion::sync().await {
+        Ok(s) => {
+            log::write(
+                &app,
+                "notion",
+                &format!(
+                    "同步完成: 推 {} / 拉 {} / 删 {} / 冲突 {}",
+                    s.pushed, s.pulled, s.deleted, s.conflicts
+                ),
+            );
+            // 通知前端重载数据：拉回的标签页/待办/日程要立刻出现在界面上。
+            let _ = app.emit("notion-synced", &s);
+            Ok(s)
+        }
+        Err(e) => {
+            log::write(&app, "notion", &format!("同步失败: {e}"));
+            Err(e)
+        }
+    }
+}
+
+/// 同步重置：归档 Notion 三个库的全部页面并清空映射表（本地数据不动）。
+#[tauri::command]
+async fn notion_reset(app: AppHandle) -> Result<u32, String> {
+    match notion::reset().await {
+        Ok(n) => {
+            log::write(&app, "notion", &format!("同步已重置: 归档 {n} 页"));
+            Ok(n)
+        }
+        Err(e) => {
+            log::write(&app, "notion", &format!("重置失败: {e}"));
+            Err(e)
+        }
+    }
+}
+
+/// 当前待处理的同步冲突（面板展示用）。
+#[tauri::command]
+fn notion_conflicts() -> Vec<notion::ConflictView> {
+    notion::conflicts()
+}
+
+/// 可供计时的窗口列表（选择面板里列出）。
+#[tauri::command]
+fn list_windows() -> Vec<timer::WindowInfo> {
+    timer::list_windows()
+}
+
+/// 开始对指定窗口所属的应用计时（时长清零重算）。
+#[tauri::command]
+fn start_timer(app: AppHandle, hwnd: isize) -> Result<timer::TimerState, String> {
+    timer::start(&app, hwnd)
+}
+
+/// 停止计时并清空显示。
+#[tauri::command]
+fn stop_timer(app: AppHandle) -> timer::TimerState {
+    timer::stop(&app)
+}
+
+/// 当前计时状态（前端每秒取一次）。
+#[tauri::command]
+fn timer_state(app: AppHandle) -> timer::TimerState {
+    timer::snapshot(&app)
+}
+
+/// 解决一条冲突：choice = "local"（应用为准）或 "remote"（Notion 为准）。
+#[tauri::command]
+async fn notion_resolve(
+    app: AppHandle,
+    collection: String,
+    local_id: String,
+    choice: String,
+) -> Result<(), String> {
+    let (page_id, _local_data, remote_data) = db::notion_conflict_get(&collection, &local_id)
+        .ok_or_else(|| "冲突不存在或已被处理".to_string())?;
+    let cfg = notion::load_cfg();
+    let outcome = match choice.as_str() {
+        "local" => notion::resolve_local(&cfg, &collection, &local_id, &page_id).await,
+        "remote" => notion::resolve_remote(&collection, &local_id, &page_id, &remote_data),
+        _ => Err("无效的选择".to_string()),
+    };
+    match outcome {
+        Ok(()) => {
+            db::notion_conflict_del(&collection, &local_id);
+            let which = if choice == "local" { "应用" } else { "Notion" };
+            log::write(
+                &app,
+                "notion",
+                &format!("冲突已解决: 以{which}为准 ({collection} {local_id})"),
+            );
+            // 远端为准会改写本地数据，让界面重载。
+            let _ = app.emit("notion-synced", ());
+            Ok(())
+        }
+        Err(e) => {
+            log::write(&app, "notion", &format!("冲突处理失败: {e}"));
+            Err(e)
+        }
+    }
 }
 
 /// 穿透状态：作为托管状态在命令间共享，是穿透模式的唯一真相源。
@@ -837,6 +1043,8 @@ pub fn run() {
             app.manage(chime::ChimeState::new());
             // 通用弹窗的运行时状态（不透明度 + 内容）。
             app.manage(popup::PopupState::new());
+            // 指定窗口的使用计时（目标窗口 + 累计时长）。
+            app.manage(timer::WindowTimer::default());
             // 日程提醒的运行时状态（开关默认关，由前端加载配置后同步）。
             app.manage(plans::PlanState::new());
             // Create the schema up front; fail loudly if storage is unavailable.
@@ -853,6 +1061,17 @@ pub fn run() {
 
             // 启动日程提醒（内部按开关决定是否弹窗）。
             plans::start(app.handle().clone());
+
+            // 监听休眠/唤醒/关机并留痕（独立线程，见 power.rs）。
+            power::start(app.handle());
+
+            // 启动窗口计时采样线程（累计与窗口定位都在 Rust 侧，见 timer.rs）。
+            timer::start_thread(app.handle().clone());
+
+            // 预创建计时窗口（隐藏常驻，计时开始时由 timer 线程定位显示）。
+            if let Err(e) = ensure_timer_window(app.handle()) {
+                log::write(app.handle(), "timer", &format!("预创建计时窗口失败: {e}"));
+            }
 
             // 预创建锁窗口（隐藏常驻），首次 hover 出现时无需等待 webview 加载。
             if let Err(e) = ensure_lock_window(app.handle()) {
@@ -945,7 +1164,24 @@ pub fn run() {
             set_lock_hide_delay,
             quit_app,
             log_event,
+            notion_get_config,
+            notion_set_config,
+            notion_setup,
+            notion_sync,
+            notion_reset,
+            notion_conflicts,
+            notion_resolve,
+            list_windows,
+            start_timer,
+            stop_timer,
+            timer_state,
         ])
-        .run(tauri::generate_context!())
-        .expect("error while running tauri application");
+        .build(tauri::generate_context!())
+        .expect("error while building tauri application")
+        .run(|app, event| {
+            // 正常退出（托盘退出 / quit_app）留痕；系统关机走强杀，由 power 模块记 WM_ENDSESSION。
+            if let tauri::RunEvent::Exit = event {
+                log::write(app, "app", "应用退出");
+            }
+        });
 }

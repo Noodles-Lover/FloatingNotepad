@@ -40,6 +40,14 @@ export function usePlans() {
     };
   }, [reload]);
 
+  // Notion 同步完成后重取：从 Notion 拉回的日程变化要立刻反映到界面与角标。
+  useEffect(() => {
+    const pending = listen("notion-synced", reload);
+    return () => {
+      pending.then((fn) => fn()).catch(() => {});
+    };
+  }, [reload]);
+
   // 窗口隐藏期间定时器会被 webview 节流，重新可见时补一次，别停在过期画面上。
   useEffect(() => {
     const onVisible = () => {

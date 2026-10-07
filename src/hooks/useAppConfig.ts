@@ -41,12 +41,6 @@ export function useAppConfig(noteWin: NoteWindow) {
     [onConfigChange],
   );
 
-  /** 切换静音（同上）。 */
-  const onToggleMute = useCallback(
-    () => onConfigChange({ ...configRef.current, muted: !configRef.current.muted }),
-    [onConfigChange],
-  );
-
   /** 切换开机自启：真相在 OS，前端只镜像显示并写入系统启动项。 */
   const onAutostartChange = useCallback((on: boolean) => {
     setAutostartOn(on);
@@ -74,6 +68,5 @@ export function useAppConfig(noteWin: NoteWindow) {
     autostartOn,
     onAutostartChange,
     onTogglePin,
-    onToggleMute,
   };
 }

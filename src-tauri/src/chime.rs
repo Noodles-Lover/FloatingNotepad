@@ -11,6 +11,9 @@ use tauri::{AppHandle, Manager};
 
 use crate::{db, popup};
 
+/// 报时的停留时长。
+const VISIBLE: std::time::Duration = std::time::Duration::from_secs(5);
+
 /// 报时的运行时状态。
 pub struct ChimeState {
     /// 功能开关（功能面板控制）。关闭时到点不弹窗。
@@ -41,7 +44,7 @@ pub fn start(app: AppHandle) {
 
 /// 立刻弹一次报时（挂件右键菜单「试一下报时」调用）：与到点报时同一条路径。
 pub fn ring(app: &AppHandle) -> Result<(), String> {
-    popup::show(app, now_hhmm(), None)
+    popup::show(app, now_hhmm(), None, "bell", VISIBLE)
 }
 
 /// 写入开关与不透明度（功能面板在加载配置与改动时调用）。

@@ -75,15 +75,15 @@ export default function PlansPanel({
   };
 
   return (
-    <div className="skin-overlay" onClick={onClose}>
-      <div className="skin-panel" onClick={(e) => e.stopPropagation()}>
-        <div className="skin-head">
+    <div className="modal-overlay" onClick={onClose}>
+      <div className="modal-panel" onClick={(e) => e.stopPropagation()}>
+        <div className="modal-head">
           <span>日程</span>
-          <span className="skin-x" onClick={onClose} title="关闭">
+          <span className="modal-close" onClick={onClose} title="关闭">
             ×
           </span>
         </div>
-        <div className="skin-body">
+        <div className="modal-body">
           <label
             className="set-switch-row"
             title="到点时调用系统弹窗提醒；时间为空的日程不提醒"

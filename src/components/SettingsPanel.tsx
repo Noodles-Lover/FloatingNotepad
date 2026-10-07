@@ -76,15 +76,24 @@ export default function SettingsPanel({ config, onChange, onClose }: Props) {
   };
 
   return (
-    <div className="skin-overlay" onClick={onClose}>
-      <div className="skin-panel" onClick={(e) => e.stopPropagation()}>
-        <div className="skin-head">
+    <div className="modal-overlay" onClick={onClose}>
+      <div className="modal-panel" onClick={(e) => e.stopPropagation()}>
+        <div className="modal-head">
           <span>设置</span>
-          <span className="skin-x" onClick={onClose} title="关闭">
+          <span className="modal-close" onClick={onClose} title="关闭">
             ×
           </span>
         </div>
-        <div className="skin-body">
+        <div className="modal-body">
+          <label className="set-switch-row" title="关闭全部音效（面板开合、报时、提醒）">
+            <span className="set-label">静音</span>
+            <input
+              type="checkbox"
+              className="set-switch"
+              checked={config.muted}
+              onChange={(e) => set({ muted: e.target.checked })}
+            />
+          </label>
           <Slider
             label="挂件尺寸"
             value={config.widgetSize}

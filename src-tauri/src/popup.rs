@@ -23,7 +23,7 @@ use windows::Win32::UI::WindowsAndMessaging::{
     WS_EX_TOOLWINDOW,
 };
 
-/// 停留时长：一眼的事，弹够 `VISIBLE` 就自己收起。
+/// 兜底停留时长：载荷没带 `visible_ms` 时用它（小窗挂载后主动取内容那次）。
 const VISIBLE: Duration = Duration::from_secs(5);
 /// 紧凑尺寸（逻辑像素）：刚好放得下「13:00」。
 const WIN_W: f64 = 104.0;
@@ -49,6 +49,10 @@ pub struct Payload {
     /// 副文本（小字，可选）。
     pub sub: Option<String>,
     pub opacity: f64,
+    /// 音效名（对应前端 `SoundName`）：播什么由调用方决定，报时与任务提醒各用一种。
+    pub sound: String,
+    /// 停留时长（毫秒）：面板内的提示条也按它计时，两条路径始终一致。
+    pub visible_ms: u64,
 }
 
 /// 弹窗的运行时状态。
@@ -93,6 +97,8 @@ pub fn current(app: &AppHandle) -> Payload {
         text: String::new(),
         sub: None,
         opacity: permille as f64 / 1000.0,
+        sound: String::new(),
+        visible_ms: VISIBLE.as_millis() as u64,
     }
 }
 
@@ -100,12 +106,20 @@ pub fn current(app: &AppHandle) -> Payload {
 ///
 /// 面板展开时不弹独立小窗（会被面板挡住，等于白弹），只广播内容，
 /// 由主窗口在面板内显示——这就是前端 `PopupToast` 的用途。
-pub fn show(app: &AppHandle, text: impl Into<String>, sub: Option<String>) -> Result<(), String> {
+pub fn show(
+    app: &AppHandle,
+    text: impl Into<String>,
+    sub: Option<String>,
+    sound: &str,
+    visible: Duration,
+) -> Result<(), String> {
     let state = app.state::<PopupState>();
     let payload = Payload {
         text: text.into(),
         sub,
         opacity: state.opacity_permille.load(Ordering::SeqCst) as f64 / 1000.0,
+        sound: sound.to_string(),
+        visible_ms: visible.as_millis() as u64,
     };
     let use_window = !panel_expanded(app);
     trace(
@@ -136,6 +150,9 @@ pub fn show(app: &AppHandle, text: impl Into<String>, sub: Option<String>) -> Re
             .map_err(|e| format!("定位弹窗失败: {e}"))?;
 
         let hwnd = crate::main_hwnd(&window)?;
+        // 纯展示的小窗不吃鼠标消息：每次弹出前重新接管命中测试
+        // （wry 初始化 webview 时可能把窗口过程换回它自己的）。
+        crate::clickthrough::enable(hwnd);
         unsafe {
             // 与解锁锁同理：只显示不激活，别把焦点从用户当前窗口抢走。
             let _ = ShowWindow(hwnd, SW_SHOWNA);
@@ -172,7 +189,7 @@ pub fn show(app: &AppHandle, text: impl Into<String>, sub: Option<String>) -> Re
         + 1;
     let app2 = app.clone();
     thread::spawn(move || {
-        thread::sleep(VISIBLE);
+        thread::sleep(visible);
         if app2.state::<PopupState>().show_seq.load(Ordering::SeqCst) == seq {
             if let Err(e) = hide(&app2) {
                 trace(&app2, &format!("隐藏失败: {e}"));
@@ -186,6 +203,9 @@ pub fn show(app: &AppHandle, text: impl Into<String>, sub: Option<String>) -> Re
 pub fn hide(app: &AppHandle) -> Result<(), String> {
     if let Some(window) = app.get_webview_window("popup") {
         let hwnd = crate::main_hwnd(&window)?;
+        // 纯展示的小窗不吃鼠标消息：每次弹出前重新接管命中测试
+        // （wry 初始化 webview 时可能把窗口过程换回它自己的）。
+        crate::clickthrough::enable(hwnd);
         let _ = unsafe { ShowWindow(hwnd, SW_HIDE) };
         trace(app, "隐藏");
     }

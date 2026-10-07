@@ -25,8 +25,9 @@ interface Props {
   onDeleteCategory: (id: number) => void;
   pinned: boolean;
   onTogglePin: () => void;
-  muted: boolean; // 是否静音（头栏按钮切换）
-  onToggleMute: () => void;
+  onOpenNotion: () => void; // 打开 Notion 同步面板
+  onOpenTimer: () => void; // 打开窗口计时面板
+  timerRunning: boolean; // 是否正在计时（按钮高亮）
   onSwitchTab: (id: number) => void;
   onAddTab: () => void;
   onRenameTab: (id: number, title: string) => void;
@@ -112,22 +113,23 @@ function SparkleIcon() {
   );
 }
 
-/** 音量图标：静音时在喇叭右侧画一个叉，开启时画声波。 */
-function VolumeIcon({ muted }: { muted: boolean }) {
+/** Notion 图标：页面上一笔 N。 */
+function NotionIcon() {
   return (
     <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-      <path d="M11 5 6 9H2v6h4l5 4V5z" />
-      {muted ? (
-        <>
-          <path d="M22 9l-6 6" />
-          <path d="M16 9l6 6" />
-        </>
-      ) : (
-        <>
-          <path d="M15.5 8.5a5 5 0 0 1 0 7" />
-          <path d="M18.5 5.5a9 9 0 0 1 0 13" />
-        </>
-      )}
+      <rect x="4" y="3" width="16" height="18" rx="2" />
+      <path d="M9 17V7l6 10V7" />
+    </svg>
+  );
+}
+
+/** 秒表图标（窗口计时入口）。 */
+function TimerIcon() {
+  return (
+    <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+      <circle cx="12" cy="13" r="8" />
+      <path d="M12 9v4l2 2" />
+      <path d="M9 2h6" />
     </svg>
   );
 }
@@ -180,8 +182,9 @@ function NotePanel({
   closing,
   edge,
   idleOpacity,
-  muted,
-  onToggleMute,
+  onOpenNotion,
+  onOpenTimer,
+  timerRunning,
   onOpenSkin,
   onOpenFeatures,
   onOpenSettings,
@@ -265,12 +268,15 @@ function NotePanel({
           <button className="icon-btn" onClick={onOpenPlans} title="日程">
             <CalendarIcon />
           </button>
+          <button className="icon-btn" onClick={onOpenNotion} title="Notion 同步">
+            <NotionIcon />
+          </button>
           <button
-            className={`icon-btn mute-btn ${muted ? "active" : ""}`}
-            onClick={onToggleMute}
-            title={muted ? "已静音（点此恢复音效）" : "静音（关闭音效）"}
+            className={`icon-btn ${timerRunning ? "active" : ""}`}
+            onClick={onOpenTimer}
+            title={timerRunning ? "正在计时（点此打开面板）" : "窗口计时"}
           >
-            <VolumeIcon muted={muted} />
+            <TimerIcon />
           </button>
           <button className="icon-btn" onClick={onOpenSettings} title="设置">
             <SettingsIcon />

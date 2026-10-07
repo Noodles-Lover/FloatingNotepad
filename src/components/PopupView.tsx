@@ -1,10 +1,18 @@
 import { useEffect, useState } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import { listen, type UnlistenFn } from "@tauri-apps/api/event";
+import { useBlockedContextMenu } from "../hooks/useBlockedContextMenu";
 import "./PopupView.css";
 
 /** 与 Rust 的 `popup::Payload` 对应：内容由 Rust 下发，不透明度也由它决定。 */
-type PopupPayload = { text: string; sub: string | null; opacity: number };
+type PopupPayload = {
+  text: string;
+  sub: string | null;
+  opacity: number;
+  /** 音效名与停留时长也在这里，但本窗口不播音效（由主窗口代播），也不计时。 */
+  sound: string;
+  visible_ms: number;
+};
 
 /**
  * 通用弹出小窗（由独立的 popup 窗口渲染）。
@@ -18,6 +26,8 @@ type PopupPayload = { text: string; sub: string | null; opacity: number };
  */
 export default function PopupView() {
   const [info, setInfo] = useState<PopupPayload | null>(null);
+  // 纯展示窗口：屏蔽默认右键菜单，交互由 Rust 侧穿透处理。
+  useBlockedContextMenu();
 
   useEffect(() => {
     let cancelled = false;
