@@ -53,6 +53,16 @@ description = "Allow listing the skin (material pack) folders under public/skin.
 commands.allow = ["list_skins"]
 
 [[permission]]
+identifier = "allow-audio-dir"
+description = "Allow resolving the on-disk audio folder so sounds load from replaceable files."
+commands.allow = ["audio_dir"]
+
+[[permission]]
+identifier = "allow-skin-dir"
+description = "Allow resolving the on-disk skin folder so skin images load from replaceable files."
+commands.allow = ["skin_dir"]
+
+[[permission]]
 identifier = "allow-toggle-passthrough"
 description = "Allow toggling mouse passthrough (WS_EX_TRANSPARENT) from tray or widget menu. Rust is the single source of truth for this state."
 commands.allow = ["toggle_passthrough"]
@@ -131,6 +141,11 @@ commands.allow = ["hide_lock_window"]
 identifier = "allow-quit-app"
 description = "Allow quitting the app from the widget context menu, sharing the tray's exit path."
 commands.allow = ["quit_app"]
+
+[[permission]]
+identifier = "allow-restart-app"
+description = "Allow restarting the app from the widget context menu, sharing the tray's restart path."
+commands.allow = ["restart_app"]
 
 [[permission]]
 identifier = "allow-set-lock-hide-delay"

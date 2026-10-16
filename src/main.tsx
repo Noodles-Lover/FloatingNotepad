@@ -7,6 +7,7 @@ import PopupView from "./components/PopupView";
 import TimerView from "./components/TimerView";
 import ErrorBoundary from "./components/ErrorBoundary";
 import { installErrorReporting } from "./lib/errorReport";
+import { initAudio } from "./lib/sounds";
 // 样式按组件拆分；导入顺序即级联顺序（与拆分前的单文件一致），不要随意调换。
 import "./styles/base.css";
 import "./components/FloatingWidget.css";
@@ -23,6 +24,9 @@ const label = getCurrentWindow().label;
 
 // 未捕获的前端错误一律落 Rust 日志。
 installErrorReporting();
+
+// 音效只在主窗口播（代播机制，见 lib/sounds.ts）；切到磁盘音源也只在这里做。
+if (label === "main") initAudio();
 
 const view =
   label === "widget-lock"

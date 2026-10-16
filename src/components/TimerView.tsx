@@ -7,20 +7,32 @@ const styles = `
 /* 计时窗口的文字样式：深墨字 + 纸色字形描边
    （-webkit-text-stroke 描在字形轮廓上，不是画框），
    不铺底色也没有外框：桌面上不留任何色块与线条。
-   描边会向内吃一点字面，所以字重给到 700，笔画才不显得细。 */
+   描边默认画在字面上会向内吃笔画，paint-order 让它先描边再填字，
+   字形保持完整，描边就能压到很细仍读得清。 */
 .timer-view {
   height: 100%;
   display: flex;
   align-items: center;
-  font-size: 40vh;
-  font-weight: 700;
+  font-size: 45vh;
+  font-weight: 900;
   color: var(--ink);
   -webkit-text-stroke: 2px var(--paper);
+  paint-order: stroke fill;
   opacity: 0.95;
   font-variant-numeric: tabular-nums;
   overflow: hidden;
   user-select: none;
   -webkit-user-select: none;
+}
+
+/* 窗口比文字宽（多留的透明区不吃点击），文字要贴挂件那一侧：
+   挂件在左 → 计时窗口在其右，字靠窗口左沿；挂件在右则反之。 */
+.timer-view.align-left {
+  justify-content: flex-start;
+}
+
+.timer-view.align-right {
+  justify-content: flex-end;
 }
 `;
 

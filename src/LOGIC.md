@@ -176,6 +176,7 @@ App 内所有增删改都收敛到这几个封装，后端命令为纯数据读�
 ## 9. 音效与挂件交互
 
 - **音效统一出口（`lib/sounds.ts`）**：`SoundPlayer` 类持音频池与静音状态，导出单例 `sounds`，调用点只写 `sounds.play("paperOpen")`，静音判断也在类里。`playOnEvent(event, name)` 用于「替播不了声音的窗口代播」——弹窗窗口从未被用户点过，Chromium 会拦掉无用户交互的 audio，因此 `popup-show` 由主窗口代播。播哪个声音由 Rust 载荷里的 `sound` 决定（报时 `bell`、任务提醒 `notification`、启动提示音 `notification`），跨语言边界用 `isSoundName` 收窄，不认识的名字忽略。
+- **音源两级加载**：prod 下主窗口启动时 `initAudio()` 问 Rust 拿 `audio/` 目录（在应用数据目录，由 Rust 启动时从安装目录播种出厂文件、只补缺失），音频池切到磁盘文件（用户可自行替换，重启生效）；单个文件加载失败（error 事件）沿候选链后退——磁盘 mp3 → ogg → wav → 打包内置，全链失败才无声。dev 由 Vite 伺服 `public/audio`，不走磁盘。皮肤图片同理：`skin_dir` 给出磁盘目录，`loadSkins` 按磁盘 → 内置的顺序探测（见第 5 节）。
 - **通用弹窗（`PopupView`）**：与业务无关，只画 Rust 下发的一段内容（主文本 + 可选小字）——`popup-show` 载荷带文本与不透明度（文本由 Rust 组织，前后端不各写一套）；挂载时再主动取一次 `popup_state`，避免事件错过后空白。目前唯一使用者是整点报时。
 - **挂件右键菜单关闭后要收起**：原生菜单期间指针被菜单接管，挂件收不到 `mouseleave`，会一直卡在展开态。菜单关闭后走一次 `onWidgetLeave` 收起；指针若确实还停在挂件上，光标采样会在冷却结束后重新展开。
 
