@@ -270,26 +270,99 @@ fn open_data_dir(app: AppHandle) -> Result<(), String> {
     Ok(())
 }
 
-/// 列出 skin/ 下的所有材质包（文件夹名即材质名）。
-/// dev：resource_dir() 指向 target/debug，实时皮肤源码在 项目根/public/skin。
-/// prod：resource_dir() 指向打包的 resources，皮肤在 resources/skin。
-/// 由于 dev 下 resource_dir 的具体层级随版本变化，这里枚举多个候选路径，
-/// 取第一个真实存在的目录，避免拼错路径导致读不到任何皮肤。
-#[tauri::command]
-fn list_skins(app: AppHandle) -> Result<Vec<String>, String> {
+/// dev 下项目 public/ 里的素材目录（仅 dev 使用；prod 的数据目录无需出厂副本）。
+#[cfg(debug_assertions)]
+fn resource_media_dir(app: &AppHandle, name: &str) -> Result<std::path::PathBuf, String> {
     let base = app
         .path()
         .resource_dir()
         .map_err(|e| format!("无法获取资源目录: {e}"))?;
     let candidates = [
-        base.join("../public/skin"),   // resource_dir = src-tauri
-        base.join("../../public/skin"), // resource_dir = target/debug
-        base.join("skin"),             // prod 打包目录
+        base.join(format!("../public/{name}")),    // resource_dir = src-tauri
+        base.join(format!("../../public/{name}")), // resource_dir = target/debug
     ];
-    let dir = candidates
+    candidates
         .into_iter()
         .find(|p| p.is_dir())
-        .unwrap_or_else(|| base.join("skin"));
+        .ok_or_else(|| format!("找不到 {name} 素材目录"))
+}
+
+/// 素材目录（skin / audio）定位：prod 一律用**应用数据目录**下的文件夹——
+/// 用户往里放自定义文件即生效，不放就全走内置兜底，因此不需要播种出厂副本。
+/// 数据目录不受安装器更新影响，自定义可跨版本保留。dev 下直接用项目 public/。
+fn media_dir(app: &AppHandle, name: &str) -> Result<std::path::PathBuf, String> {
+    if !cfg!(debug_assertions) {
+        if let Ok(data) = app.path().app_data_dir() {
+            let dir = data.join(name);
+            if !dir.is_dir() {
+                let _ = std::fs::create_dir_all(&dir);
+            }
+            return Ok(dir);
+        }
+    }
+    #[cfg(debug_assertions)]
+    return resource_media_dir(app, name);
+    #[cfg(not(debug_assertions))]
+    Err(format!("无法定位 {name} 素材目录"))
+}
+
+/// 去掉 Windows 扩展路径前缀（\\?\M:\... → M:\...）。
+/// 装在非系统盘时 resource_dir 可能带此前缀，asset 协议按原样编码后
+/// scope 与实际路径都对不上，必须剥掉。
+fn plain_path(p: &std::path::Path) -> String {
+    let s = p.to_string_lossy().to_string();
+    s.strip_prefix(r"\\?\").map(str::to_string).unwrap_or(s)
+}
+
+/// 把目录动态加进 asset 协议白名单：静态 scope 的 $RESOURCE 在
+/// 自定义安装盘符下不可靠，运行时按真实路径放行。
+/// 带不带 \\?\ 前缀两种形式都放行——scope 的通配匹配对路径形态敏感。
+fn allow_asset_dir(app: &AppHandle, dir: &std::path::Path) {
+    let mut seen = std::collections::HashSet::new();
+    for p in [dir.to_path_buf(), std::path::PathBuf::from(plain_path(dir))] {
+        if !seen.insert(p.to_string_lossy().to_string()) {
+            continue;
+        }
+        if let Err(e) = app.asset_protocol_scope().allow_directory(&p, true) {
+            log::write(app, "audio", &format!("asset 白名单添加失败({}): {e}", p.display()));
+        }
+    }
+}
+
+/// 音效文件目录（安装目录下的 audio/），前端经 asset 协议从磁盘加载，
+/// 用户替换文件后重启即生效。
+#[tauri::command]
+fn audio_dir(app: AppHandle) -> Result<String, String> {
+    match media_dir(&app, "audio") {
+        Ok(p) => {
+            allow_asset_dir(&app, &p);
+            let s = plain_path(&p);
+            log::write(&app, "audio", &format!("音效目录: {s}"));
+            Ok(s)
+        }
+        Err(e) => {
+            log::write(&app, "audio", &format!("音效目录解析失败: {e}"));
+            Err(e)
+        }
+    }
+}
+
+/// 皮肤素材目录（安装目录下的 skin/），作用同 audio_dir。
+#[tauri::command]
+fn skin_dir(app: AppHandle) -> Result<String, String> {
+    match media_dir(&app, "skin") {
+        Ok(p) => {
+            allow_asset_dir(&app, &p);
+            Ok(plain_path(&p))
+        }
+        Err(e) => Err(e),
+    }
+}
+
+/// 列出 skin/ 下的所有材质包（文件夹名即材质名）。
+#[tauri::command]
+fn list_skins(app: AppHandle) -> Result<Vec<String>, String> {
+    let dir = media_dir(&app, "skin")?;
 
     let mut names: Vec<String> = Vec::new();
     if let Ok(entries) = std::fs::read_dir(&dir) {
@@ -661,6 +734,12 @@ fn do_quit_app(app: &AppHandle) {
 #[tauri::command]
 fn quit_app(app: AppHandle) {
     do_quit_app(&app);
+}
+
+/// 挂件右键的「重启」：与托盘同一条路（do_restart_app）。
+#[tauri::command]
+fn restart_app(app: AppHandle) {
+    do_restart_app(&app);
 }
 
 /// 重启应用：与退出同一条路——先让前端 flush、补写使用统计，再换进程。
@@ -1146,6 +1225,8 @@ pub fn run() {
             set_active_category,
             open_data_dir,
             list_skins,
+            audio_dir,
+            skin_dir,
             toggle_passthrough,
             set_fullscreen_passthrough,
             set_usage_tracking,
@@ -1163,6 +1244,7 @@ pub fn run() {
             hide_lock_window,
             set_lock_hide_delay,
             quit_app,
+            restart_app,
             log_event,
             notion_get_config,
             notion_set_config,

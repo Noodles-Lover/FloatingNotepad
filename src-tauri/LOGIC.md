@@ -299,7 +299,7 @@ Alt+Tab 切换器、任务视图、开始菜单这类系统 UI 由 explorer 提�
 统一入口 `log::write(app, tag, msg)`：**一处调用、双输出**——同时打到 stderr 与文件。
 
 - **位置**：`<数据目录>/logs/floatingnotepad-YYYY-MM-DD.log`，按**天**分文件。
-- **保留**：启动时 `log::prune` 删除修改时间早于 7 天（`LOG_KEEP_DAYS`）的文件；单文件超过 256KB 就从头写，避免一天内无限增长。
+- **保留**：启动时 `log::prune` 删除修改时间早于 14 天（`LOG_KEEP_DAYS`）的文件；单文件超过 256KB 就从头写，避免一天内无限增长。
 - **不依赖数据库与日期库**：时间用 `windows` crate 的 `GetLocalTime`（自包含）。数据库起不来时，日志反而更该写得出来。
 - **panic 钩子**（`install_panic_hook`）：release 用 `panic = "abort"`，进程会直接终止、不留界面提示；钩子仍在 abort 前把 panic 信息写进日志——「静默关闭」时唯一能留下的线索。在 setup 起始处安装。
 - **留痕点**（低频、关键；轮询类**不记**，避免淹没日志）：

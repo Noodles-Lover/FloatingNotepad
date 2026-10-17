@@ -17,7 +17,7 @@ use tauri::{AppHandle, Manager};
 /// 单个日志文件的上限，超过就从头写，避免一天内无限增长。
 const LOG_MAX_BYTES: u64 = 256 * 1024;
 /// 日志保留天数：启动时删除修改时间早于「此刻减该天数」的旧文件。
-const LOG_KEEP_DAYS: u64 = 7;
+const LOG_KEEP_DAYS: u64 = 14;
 
 /// 记一行日志（带本地时间戳，同时打到 stderr）。
 pub fn write(app: &AppHandle, tag: &str, msg: &str) {

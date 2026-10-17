@@ -256,7 +256,7 @@ export function useViewState({ windowCtl, noteWin, configRef, widgetBox, schedul
     setDragging(next);
   }, []);
 
-  /** 在挂件上右键：弹出原生菜单（隐藏 / 穿透 / 试一下报时 / 试一下提醒 / 退出）。 */
+  /** 在挂件上右键：弹出原生菜单（隐藏 / 穿透 / 试一下报时 / 试一下提醒 / 重启 / 退出）。 */
   const openContextMenu = useCallback(async () => {
     const hideItem = await MenuItem.new({
       text: "隐藏挂件",
@@ -282,6 +282,13 @@ export function useViewState({ windowCtl, noteWin, configRef, widgetBox, schedul
         invoke("test_notify").catch((e) => console.error("[plans] 测试提醒失败:", e));
       },
     });
+    const restartItem = await MenuItem.new({
+      text: "重启",
+      action: () => {
+        // 与系统托盘「重启」共用 Rust 的 restart_app：flush 防抖编辑与统计后再换进程。
+        invoke("restart_app").catch((e) => console.error("[重启] 失败:", e));
+      },
+    });
     const quitItem = await MenuItem.new({
       text: "退出",
       action: () => {
@@ -289,7 +296,9 @@ export function useViewState({ windowCtl, noteWin, configRef, widgetBox, schedul
         invoke("quit_app").catch((e) => console.error("[退出] 失败:", e));
       },
     });
-    const menu = await Menu.new({ items: [hideItem, passItem, chimeItem, notifyItem, quitItem] });
+    const menu = await Menu.new({
+      items: [hideItem, passItem, chimeItem, notifyItem, restartItem, quitItem],
+    });
     await menu.popup();
     // 菜单期间指针被菜单接管，挂件收不到 mouseleave，会一直卡在展开态。
     // 菜单关闭等同于鼠标离开：走同一条收起路径。

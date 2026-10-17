@@ -208,27 +208,34 @@ fn follow_widget(app: &AppHandle) {
         *state.edge.lock().unwrap() =
             if docked_left { "left" } else { "right" }.to_string();
 
-        let widget_height = rect.bottom - rect.top;
         let Some(timer_win) = app.get_webview_window("widget-timer") else {
             return;
         };
+        // 窗户尺寸与字号都用逻辑像素：CSS 的 vh 是逻辑单位，若按物理像素设窗口，
+        // 缩放屏上字号会被整体缩小（物理 40px 在 150% 下只有约 27 个逻辑像素）。
+        let scale = timer_win.scale_factor().unwrap_or(1.0);
+        let widget_height = (((rect.bottom - rect.top) as f32) / scale as f32) as i32;
         // 尺寸只在本轮计时开始时定一次：用户中途改挂件大小，计时窗口也不跟着变。
         let (w, h) = {
             let mut size = state.size.lock().unwrap();
             if size.0 <= 0 {
                 *size = size_for(widget_height);
-                let _ = timer_win.set_size(tauri::PhysicalSize::new(size.0 as u32, size.1 as u32));
+                let _ =
+                    timer_win.set_size(tauri::LogicalSize::new(size.0 as f64, size.1 as f64));
             }
             *size
         };
+        // 定位仍走物理像素（SetWindowPos 用物理坐标）。
+        let pw = (w as f32 * scale as f32) as i32;
+        let ph = (h as f32 * scale as f32) as i32;
         let x0 = if docked_left {
             rect.right + GAP
         } else {
-            rect.left - GAP - w
+            rect.left - GAP - pw
         };
         // 夹在工作区内：主窗口贴边时，多显示器与任务栏都可能让外面那侧越界。
-        let x = x0.clamp(work.left, (work.right - w).max(work.left));
-        let y = (rect.top + (widget_height - h) / 2).clamp(work.top, work.bottom);
+        let x = x0.clamp(work.left, (work.right - pw).max(work.left));
+        let y = (rect.top + ((rect.bottom - rect.top) - ph) / 2).clamp(work.top, work.bottom);
 
         if *state.last_pos.lock().unwrap() != Some((x, y)) {
             let _ = SetWindowPos(

@@ -9,7 +9,8 @@
  * 文件名即为路径，不做额外映射；既无 widget 也无 idle/hover 的文件夹会被忽略。
  */
 
-import { invoke } from "@tauri-apps/api/core";
+import { convertFileSrc, invoke } from "@tauri-apps/api/core";
+import { logEvent } from "./log";
 
 /** 滑动模式：widget.png 单张，整颗停靠，用 CSS 滑出半掩。 */
 export interface SlideSkin {
@@ -36,6 +37,9 @@ export type Skin = SlideSkin | TransformSkin;
 
 /** 默认皮肤名（缺少或无效时回落）。 */
 export const DEFAULT_SKIN_NAME = "default";
+
+/** 出厂皮肤：随程序打包在 dist 里，不依赖磁盘目录，所以按名单发现。 */
+const BUILTIN_SKINS = [DEFAULT_SKIN_NAME, "fubuki"];
 
 /** 内置 default 皮肤对象（缺少任何皮肤或解析失败时的兜底）。 */
 export function defaultSkin(): Skin {
@@ -68,33 +72,70 @@ function probeImage(url: string): Promise<number | null> {
 }
 
 /**
- * 自动加载皮肤：先问 Rust 拿到皮肤文件夹名列表，再逐个探测图片文件判定模式。
- * 任何失败都回落到内置 default，保证应用不会因缺皮肤而崩。
+ * 自动加载皮肤：出厂皮肤（随程序打包） + 数据目录 skin\ 下的自定义皮肤，
+ * 逐个探测图片文件判定模式。任何失败都回落到内置 default，保证不会因缺皮肤而崩。
+ *
+ * 同名皮肤以数据目录为准（可自行替换）；数据目录里的路径必须过 convertFileSrc，
+ * 否则会被浏览器当相对 URL 解析到页面源上，必然 404。
+ * dev 下 Vite 直接伺服 public/skin，不走磁盘。
  */
 export async function loadSkins(): Promise<Skin[]> {
-  let names: string[] = [];
+  let customNames: string[] = [];
   try {
-    names = await invoke<string[]>("list_skins");
+    customNames = await invoke<string[]>("list_skins");
   } catch (e) {
     console.error("[list_skins] 失败:", e);
-    names = [DEFAULT_SKIN_NAME];
   }
+
+  // 磁盘皮肤目录（prod only）；拿不到就只用内置资源。
+  let base: string | null = null;
+  if (!import.meta.env.DEV) {
+    base = await invoke<string>("skin_dir").catch(() => null);
+    logEvent("skin", base ? `皮肤目录: ${base}` : "皮肤目录解析失败，只用内置资源");
+  }
+
+  // 出厂在前，自定义在后（重名的自定义排在后面也会被正确解析到磁盘来源）。
+  const names = [...BUILTIN_SKINS, ...customNames.filter((n) => !BUILTIN_SKINS.includes(n))];
 
   const skins: Skin[] = [];
   for (const name of names) {
-    const dir = `/skin/${name}`;
-    const [widget, idle, hover] = await Promise.all([
-      probeImage(`${dir}/widget.png`),
-      probeImage(`${dir}/idle.png`),
-      probeImage(`${dir}/hover.png`),
-    ]);
+    // 候选目录按优先级排列：磁盘在前（可替换，经 asset 协议加载），内置在后（兜底）。
+    const candidates: { url: (file: string) => string; disk: boolean }[] = [
+      { url: (file) => `/skin/${name}/${file}`, disk: false },
+    ];
+    if (base && customNames.includes(name)) {
+      candidates.unshift({ url: (file) => convertFileSrc(`${base}/${name}/${file}`), disk: true });
+    }
+
+    let widget: number | null = null;
+    let idle: number | null = null;
+    let hover: number | null = null;
+    let chosen = candidates[candidates.length - 1];
+    let source = "未找到有效图片";
+    for (const candidate of candidates) {
+      [widget, idle, hover] = await Promise.all([
+        probeImage(candidate.url("widget.png")),
+        probeImage(candidate.url("idle.png")),
+        probeImage(candidate.url("hover.png")),
+      ]);
+      if (widget !== null || (idle !== null && hover !== null)) {
+        chosen = candidate;
+        source = candidate.disk ? "磁盘" : "内置";
+        break;
+      }
+    }
+    if (source === "未找到有效图片") {
+      logEvent("skin", `皮肤 ${name} 图片探测全部失败，最后尝试: ${candidates[0].url("widget.png")}`);
+      continue; // 没有可用素材的文件夹不进列表。
+    }
+    logEvent("skin", `皮肤 ${name} 来源: ${source}`);
+
     if (widget !== null) {
-      skins.push({ name, mode: "slide", widget: `${dir}/widget.png`, ratio: widget });
+      skins.push({ name, mode: "slide", widget: chosen.url("widget.png"), ratio: widget });
     } else if (idle !== null && hover !== null) {
       // 变化模式以 idle 图定容器尺寸：它是「基准」那张（两张画布尺寸不一定相同）。
-      skins.push({ name, mode: "transform", idle: `${dir}/idle.png`, hover: `${dir}/hover.png`, ratio: idle });
+      skins.push({ name, mode: "transform", idle: chosen.url("idle.png"), hover: chosen.url("hover.png"), ratio: idle });
     }
-    // 都不存在：忽略这个文件夹。
   }
 
   if (skins.length === 0) {
