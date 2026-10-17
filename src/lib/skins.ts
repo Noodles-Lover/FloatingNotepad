@@ -38,6 +38,9 @@ export type Skin = SlideSkin | TransformSkin;
 /** 默认皮肤名（缺少或无效时回落）。 */
 export const DEFAULT_SKIN_NAME = "default";
 
+/** 出厂皮肤：随程序打包在 dist 里，不依赖磁盘目录，所以按名单发现。 */
+const BUILTIN_SKINS = [DEFAULT_SKIN_NAME, "fubuki"];
+
 /** 内置 default 皮肤对象（缺少任何皮肤或解析失败时的兜底）。 */
 export function defaultSkin(): Skin {
   return {
@@ -69,20 +72,19 @@ function probeImage(url: string): Promise<number | null> {
 }
 
 /**
- * 自动加载皮肤：先问 Rust 拿到皮肤文件夹名列表，再逐个探测图片文件判定模式。
- * 任何失败都回落到内置 default，保证应用不会因缺皮肤而崩。
+ * 自动加载皮肤：出厂皮肤（随程序打包） + 数据目录 skin\ 下的自定义皮肤，
+ * 逐个探测图片文件判定模式。任何失败都回落到内置 default，保证不会因缺皮肤而崩。
  *
- * 图片优先从安装目录的 skin/ 文件夹读（用户可自行替换、新增材质包），
- * 该目录不存在或文件缺失时回落到打包内置的同名资源。
+ * 同名皮肤以数据目录为准（可自行替换）；数据目录里的路径必须过 convertFileSrc，
+ * 否则会被浏览器当相对 URL 解析到页面源上，必然 404。
  * dev 下 Vite 直接伺服 public/skin，不走磁盘。
  */
 export async function loadSkins(): Promise<Skin[]> {
-  let names: string[] = [];
+  let customNames: string[] = [];
   try {
-    names = await invoke<string[]>("list_skins");
+    customNames = await invoke<string[]>("list_skins");
   } catch (e) {
     console.error("[list_skins] 失败:", e);
-    names = [DEFAULT_SKIN_NAME];
   }
 
   // 磁盘皮肤目录（prod only）；拿不到就只用内置资源。
@@ -92,15 +94,16 @@ export async function loadSkins(): Promise<Skin[]> {
     logEvent("skin", base ? `皮肤目录: ${base}` : "皮肤目录解析失败，只用内置资源");
   }
 
+  // 出厂在前，自定义在后（重名的自定义排在后面也会被正确解析到磁盘来源）。
+  const names = [...BUILTIN_SKINS, ...customNames.filter((n) => !BUILTIN_SKINS.includes(n))];
+
   const skins: Skin[] = [];
   for (const name of names) {
-    // 候选目录按优先级排列：磁盘在前（可替换，经 asset 协议加载），
-    // 内置在后（兜底）。磁盘路径必须过 convertFileSrc，否则会被浏览器
-    // 当相对 URL 解析到页面源上，必然 404。
+    // 候选目录按优先级排列：磁盘在前（可替换，经 asset 协议加载），内置在后（兜底）。
     const candidates: { url: (file: string) => string; disk: boolean }[] = [
       { url: (file) => `/skin/${name}/${file}`, disk: false },
     ];
-    if (base) {
+    if (base && customNames.includes(name)) {
       candidates.unshift({ url: (file) => convertFileSrc(`${base}/${name}/${file}`), disk: true });
     }
 

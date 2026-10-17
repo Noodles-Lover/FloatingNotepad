@@ -44,10 +44,7 @@
       }
     },
     "resources": {
-      "../public/README.txt": "README.txt",
-      "../public/skin/default": "skin/default",
-      "../public/skin/fubuki": "skin/fubuki",
-      "../public/skin/README.txt": "skin/README.txt"
+      "../public/README.txt": "README.txt"
     },
     "icon": [
       "icons/icon.png",
