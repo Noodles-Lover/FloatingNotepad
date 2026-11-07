@@ -56,6 +56,7 @@
     "allow-start-timer",
     "allow-stop-timer",
     "allow-timer-state",
+    "allow-set-hide-taskbar",
     "autostart:allow-enable",
     "autostart:allow-disable",
     "autostart:allow-is-enabled"

@@ -201,3 +201,8 @@ commands.allow = ["stop_timer"]
 identifier = "allow-timer-state"
 description = "Allow reading the usage timer's state for the widget display."
 commands.allow = ["timer_state"]
+
+[[permission]]
+identifier = "allow-set-hide-taskbar"
+description = "Allow hiding the main window's taskbar button so only the tray icon remains."
+commands.allow = ["set_hide_taskbar"]

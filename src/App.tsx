@@ -126,6 +126,7 @@ export default function App() {
           closing={view.closing}
           edge={view.edge}
           idleOpacity={config.idleOpacity}
+          noteRatio={config.noteRatio}
           onOpenSkin={view.openSkin}
           onOpenFeatures={view.openFeatures}
           onOpenSettings={view.openSettings}

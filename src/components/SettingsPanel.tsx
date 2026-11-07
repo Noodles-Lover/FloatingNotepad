@@ -52,6 +52,41 @@ function Slider({
 }
 
 /**
+ * 高度分配条：一条被分成两段的纸，拖动中间的分隔把手改变两段的宽度。
+ * 原生 range 透明铺在上层，只借它的整十吸附与键盘操作；两段宽度和把手位置
+ * 都由同一个 --split 决定，看到的就是「把面板高度分给速记和待办」而不是一个数值。
+ */
+function SplitSlider({
+  noteRatio,
+  onChange,
+}: {
+  noteRatio: number;
+  onChange: (ratio: number) => void;
+}) {
+  return (
+    <div className="set-row">
+      <div className="set-label">
+        <span>速记 / 待办 高度比</span>
+      </div>
+      <div className="split-track" style={{ ["--split" as string]: `${noteRatio}%` }}>
+        <div className="split-segment">速记 {noteRatio}%</div>
+        <div className="split-segment">待办 {100 - noteRatio}%</div>
+        <input
+          className="split-range"
+          type="range"
+          min={0}
+          max={100}
+          step={10}
+          value={noteRatio}
+          aria-label="速记与待办高度比例"
+          onChange={(e) => onChange(Math.min(70, Math.max(30, Number(e.target.value))))}
+        />
+      </div>
+    </div>
+  );
+}
+
+/**
  * 设置面板（覆盖层）：调整挂件尺寸、面板大小、自动收起延时、闲置不透明度。
  * 改动即时生效并写入 localStorage。
  * 覆盖在应用最上层，点击空白处或右上角叉号关闭。
@@ -121,6 +156,7 @@ export default function SettingsPanel({ config, onChange, onClose }: Props) {
             unit="px"
             onChange={(v) => set({ windowHeight: v })}
           />
+          <SplitSlider noteRatio={config.noteRatio} onChange={(v) => set({ noteRatio: v })} />
           <Slider
             label="自动收起延时"
             value={config.autoCloseDelay}

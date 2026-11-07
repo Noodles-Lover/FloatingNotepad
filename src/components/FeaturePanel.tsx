@@ -64,6 +64,18 @@ export default function FeaturePanel({ config, onChange, autostart, onAutostartC
               onChange={(e) => onAutostartChange(e.target.checked)}
             />
           </label>
+          <label
+            className="set-switch-row"
+            title="开启后任务栏不再显示浮笺，只能通过托盘图标操作（重启后依然生效）"
+          >
+            <span className="set-label">不在任务栏显示</span>
+            <input
+              type="checkbox"
+              className="set-switch"
+              checked={config.hideTaskbar}
+              onChange={(e) => onChange({ ...config, hideTaskbar: e.target.checked })}
+            />
+          </label>
         </div>
       </div>
     </div>

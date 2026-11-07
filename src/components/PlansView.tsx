@@ -3,7 +3,10 @@ import {
   deletePlan,
   isPending,
   loadPlans,
+  logicalWeekday,
   planDateLabel,
+  planLogicalDay,
+  planLogicalWeekday,
   sortForDisplay,
   today,
   weekdayLabel,
@@ -43,7 +46,10 @@ function PlansView({ plans, onChange }: Props) {
 
   /** 今天已经过了时刻（判定与 `isPending` 互补，两边用同一套时间基准）。 */
   const isPastToday = (p: Plan, pending: boolean) =>
-    !pending && (p.kind === "once" ? p.date === day : p.weekday === now.getDay());
+    !pending &&
+    (p.kind === "once"
+      ? planLogicalDay(p) === day
+      : planLogicalWeekday(p) === logicalWeekday(now));
 
   const rows = (list: Plan[], kind: "once" | "weekly") =>
     list.map((p) => {
@@ -53,7 +59,9 @@ function PlansView({ plans, onChange }: Props) {
         <div className={`plan-row ${state}`} key={p.id}>
           <span className={`plan-pill ${p.time ? "" : "allday"}`}>{p.time ?? "全天"}</span>
           <span className="plan-when">
-            {kind === "once" ? planDateLabel(p.date ?? "", now) : weekdayLabel(p.weekday)}
+            {kind === "once"
+              ? planDateLabel(planLogicalDay(p) ?? p.date ?? "", now)
+              : weekdayLabel(p.weekday)}
           </span>
           <span className="plan-text" title={p.text}>
             {p.text}

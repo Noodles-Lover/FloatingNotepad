@@ -2,7 +2,7 @@
 
 /* 占据待办清单那一块（与 .todo-list 同样的 flex/滚动规则）。 */
 .plans {
-  flex: 1;
+  flex: var(--todo-part, 50) 1 0;
   overflow-y: auto;
   overflow-x: hidden;
   display: flex;
@@ -159,11 +159,22 @@
   letter-spacing: 1px;
 }
 
-/* 一行内的控件并排：日期/时刻一行，内容 + 添加按钮一行。
-   宽度给足，值才看得全（原生日期控件挤窄了就只剩个图标）。 */
+/* 一行放两个字段组，内容输入单独占一行：紧凑但不挤占文本。
+   字段组里原生控件照常细调，右侧窄条是快捷动作，不写文字标签。 */
 .plan-form-row {
   display: flex;
   gap: 8px;
+}
+
+.plan-form-row > .plan-field-group,
+.plan-form-row > .plan-input-week {
+  flex: 1 1 0;
+  min-width: 0;
+}
+
+/* 日期比时刻略宽，原生日期控件才有位置显示完整日期。 */
+.plan-form-row > .plan-field-group:first-child {
+  flex: 1.15 1 0;
 }
 
 .plan-input {
@@ -188,12 +199,174 @@
 }
 
 .plan-input-week {
-  flex: 1 1 auto;
   padding: 6px 4px;
 }
 
+/* 原生 date / time 的 picker 图标默认渲染在右侧，会与字段组右端的快捷窄条相邻；
+   这里固定在输入框左侧并缩小到 12px，文字由 padding-left 让位。 */
+.plan-input-date,
 .plan-input-time {
-  flex: 0 0 128px;
+  position: relative;
+  padding-left: 25px;
+}
+
+.plan-input-date::-webkit-calendar-picker-indicator,
+.plan-input-time::-webkit-calendar-picker-indicator {
+  position: absolute;
+  left: 5px;
+  top: 50%;
+  transform: translateY(-50%);
+  width: 14px;
+  height: 14px;
+  margin: 0;
+  padding: 0;
+  opacity: 0.7;
+  cursor: pointer;
+}
+
+.plan-input-date:hover::-webkit-calendar-picker-indicator,
+.plan-input-time:hover::-webkit-calendar-picker-indicator,
+.plan-input-date:focus::-webkit-calendar-picker-indicator,
+.plan-input-time:focus::-webkit-calendar-picker-indicator {
+  opacity: 0.85;
+}
+
+/* 字段组：原生控件 + 快捷窄条共用一个外框，看起来是一个控件。 */
+.plan-field-group {
+  display: flex;
+  align-items: stretch;
+  min-width: 0;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: var(--paper);
+  overflow: hidden;
+}
+
+.plan-field-group .plan-input {
+  flex: 1 1 auto;
+  min-width: 0;
+  border: none;
+  border-radius: 0;
+  background: transparent;
+}
+
+.plan-field-group .plan-input:focus {
+  outline: 1px solid var(--gold);
+  outline-offset: -1px;
+}
+
+/* 两个窄条共用外观，宽度各自写、便于单独微调。用途由 aria-label 与 title 说明。 */
+.plan-mini-btn,
+.plan-hour-mini {
+  min-width: 0;
+  padding: 0;
+  border: none;
+  border-left: 1px solid var(--border);
+  border-radius: 0;
+  background-color: transparent;
+  cursor: pointer;
+}
+
+/* 日期步进只占一个符号的宽度。 */
+.plan-mini-btn {
+  flex: 0 0 26px;
+  color: var(--ink-soft);
+  font-size: 16px;
+  line-height: 1;
+  font-family: var(--font-ui);
+}
+
+.plan-mini-btn:hover {
+  background-color: rgba(196, 92, 72, 0.1);
+  color: var(--cinnabar);
+}
+
+/* 整点按钮要容下「整点」两字，因此比符号条宽。 */
+.plan-hour-mini {
+  flex: 0 0 52px;
+  color: var(--ink-soft);
+  font-size: 11px;
+  font-family: var(--font-ui);
+  padding: 0 1px;
+  text-align: center;
+}
+
+.plan-hour-mini:hover,
+.plan-hour-mini[aria-expanded="true"] {
+  background-color: rgba(216, 169, 60, 0.14);
+  color: var(--ink);
+}
+
+/* 快捷控件的键盘焦点必须看得见。 */
+.plan-mini-btn:focus-visible,
+.plan-hour-mini:focus-visible {
+  outline: 2px solid var(--gold);
+  outline-offset: -2px;
+}
+
+/* 整点滚轮：固定三行，中间行是选中值，列表在背后上下滚动并 snap 到整点。
+   必须挂在 .modal-panel 下——字段组与 .modal-body 都有 overflow，会裁掉浮层。 */
+.hour-wheel {
+  position: absolute;
+  z-index: 20;
+  box-sizing: border-box;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--paper-2);
+  box-shadow: 0 8px 18px rgba(60, 45, 20, 0.22);
+  overflow: hidden;
+}
+
+.hour-wheel-highlight {
+  position: absolute;
+  left: 0;
+  right: 0;
+  z-index: 2;
+  pointer-events: none;
+  background: rgba(216, 169, 60, 0.18);
+  border-top: 1px solid var(--gold);
+  border-bottom: 1px solid var(--gold);
+}
+
+.hour-wheel-list {
+  box-sizing: border-box;
+  height: 100%;
+  overflow-y: auto;
+  scroll-snap-type: y mandatory;
+  scrollbar-width: none;
+  padding-block: 30px;
+  outline: none;
+}
+
+.hour-wheel-list::-webkit-scrollbar {
+  display: none;
+}
+
+.hour-wheel-list:focus-visible {
+  outline: 2px solid var(--gold);
+  outline-offset: -2px;
+}
+
+.hour-wheel-item {
+  height: 30px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  scroll-snap-align: center;
+  font-size: 12px;
+  font-family: var(--font-ui);
+  font-variant-numeric: tabular-nums;
+  color: var(--ink-faint);
+  cursor: pointer;
+}
+
+.hour-wheel-item:hover {
+  color: var(--ink);
+}
+
+.hour-wheel-item.center {
+  color: var(--ink);
+  font-weight: 700;
 }
 
 .plan-input-text {

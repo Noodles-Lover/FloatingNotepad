@@ -183,6 +183,12 @@
           "markdownDescription": "Allow adding a schedule entry for a date or a weekday."
         },
         {
+          "description": "Allow resolving the on-disk audio folder so sounds load from replaceable files.",
+          "type": "string",
+          "const": "allow-audio-dir",
+          "markdownDescription": "Allow resolving the on-disk audio folder so sounds load from replaceable files."
+        },
+        {
           "description": "Allow removing a schedule entry.",
           "type": "string",
           "const": "allow-delete-plan",
@@ -199,6 +205,12 @@
           "type": "string",
           "const": "allow-list-skins",
           "markdownDescription": "Allow listing the skin (material pack) folders under public/skin."
+        },
+        {
+          "description": "Allow listing visible windows so the user can pick one to time.",
+          "type": "string",
+          "const": "allow-list-windows",
+          "markdownDescription": "Allow listing visible windows so the user can pick one to time."
         },
         {
           "description": "Allow loading all todo categories and the active category id from the local SQLite database.",
@@ -237,6 +249,36 @@
           "markdownDescription": "Allow the frontend to report key UI actions (panel open/close, widget hide/show) to the unified diagnostic log."
         },
         {
+          "description": "Allow reading and writing the Notion sync settings (integration secret and container page).",
+          "type": "string",
+          "const": "allow-notion-config",
+          "markdownDescription": "Allow reading and writing the Notion sync settings (integration secret and container page)."
+        },
+        {
+          "description": "Allow reading the pending sync conflicts shown in the Notion panel.",
+          "type": "string",
+          "const": "allow-notion-conflicts",
+          "markdownDescription": "Allow reading the pending sync conflicts shown in the Notion panel."
+        },
+        {
+          "description": "Allow resetting the Notion sync: archive all pages and clear the mapping tables.",
+          "type": "string",
+          "const": "allow-notion-reset",
+          "markdownDescription": "Allow resetting the Notion sync: archive all pages and clear the mapping tables."
+        },
+        {
+          "description": "Allow resolving a sync conflict by choosing the app or the Notion side.",
+          "type": "string",
+          "const": "allow-notion-resolve",
+          "markdownDescription": "Allow resolving a sync conflict by choosing the app or the Notion side."
+        },
+        {
+          "description": "Allow setting up the Notion databases and running a sync round.",
+          "type": "string",
+          "const": "allow-notion-sync",
+          "markdownDescription": "Allow setting up the Notion databases and running a sync round."
+        },
+        {
           "description": "Allow revealing the app data directory in the file manager, for backup and migration.",
           "type": "string",
           "const": "allow-open-data-dir",
@@ -253,6 +295,12 @@
           "type": "string",
           "const": "allow-quit-app",
           "markdownDescription": "Allow quitting the app from the widget context menu, sharing the tray's exit path."
+        },
+        {
+          "description": "Allow restarting the app from the widget context menu, sharing the tray's restart path.",
+          "type": "string",
+          "const": "allow-restart-app",
+          "markdownDescription": "Allow restarting the app from the widget context menu, sharing the tray's restart path."
         },
         {
           "description": "Allow showing the hourly chime popup on demand.",
@@ -297,6 +345,12 @@
           "markdownDescription": "Allow syncing the fullscreen auto-passthrough switch from the settings panel."
         },
         {
+          "description": "Allow hiding the main window's taskbar button so only the tray icon remains.",
+          "type": "string",
+          "const": "allow-set-hide-taskbar",
+          "markdownDescription": "Allow hiding the main window's taskbar button so only the tray icon remains."
+        },
+        {
           "description": "Allow syncing the auto-collapse delay used by the passthrough unlock lock.",
           "type": "string",
           "const": "allow-set-lock-hide-delay",
@@ -321,16 +375,40 @@
           "markdownDescription": "Allow showing the passthrough unlock lock window at a given position."
         },
         {
+          "description": "Allow resolving the on-disk skin folder so skin images load from replaceable files.",
+          "type": "string",
+          "const": "allow-skin-dir",
+          "markdownDescription": "Allow resolving the on-disk skin folder so skin images load from replaceable files."
+        },
+        {
           "description": "Allow starting the global cursor watcher that drives the floating-ball reveal.",
           "type": "string",
           "const": "allow-start-mouse-watch",
           "markdownDescription": "Allow starting the global cursor watcher that drives the floating-ball reveal."
         },
         {
+          "description": "Allow starting the usage timer for the picked window's app.",
+          "type": "string",
+          "const": "allow-start-timer",
+          "markdownDescription": "Allow starting the usage timer for the picked window's app."
+        },
+        {
+          "description": "Allow stopping the usage timer.",
+          "type": "string",
+          "const": "allow-stop-timer",
+          "markdownDescription": "Allow stopping the usage timer."
+        },
+        {
           "description": "Allow sending a test reminder to check that notifications appear.",
           "type": "string",
           "const": "allow-test-notify",
           "markdownDescription": "Allow sending a test reminder to check that notifications appear."
+        },
+        {
+          "description": "Allow reading the usage timer's state for the widget display.",
+          "type": "string",
+          "const": "allow-timer-state",
+          "markdownDescription": "Allow reading the usage timer's state for the widget display."
         },
         {
           "description": "Allow toggling mouse passthrough (WS_EX_TRANSPARENT) from tray or widget menu. Rust is the single source of truth for this state.",

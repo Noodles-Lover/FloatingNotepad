@@ -38,6 +38,8 @@ interface Props {
   closing: boolean;
   edge: Edge; // 当前贴附的边，决定面板动画从哪侧飘出
   idleOpacity: number; // 挂件闲置不透明度：面板开合动画的起始/结束不透明度
+  /** 速记区占「速记 + 待办」内容高度的比例（30~70，其余给待办）。 */
+  noteRatio: number;
   onOpenSkin: () => void; // 打开皮肤选择面板
   onOpenFeatures: () => void; // 打开功能面板
   onOpenSettings: () => void; // 打开设置面板
@@ -182,6 +184,7 @@ function NotePanel({
   closing,
   edge,
   idleOpacity,
+  noteRatio,
   onOpenNotion,
   onOpenTimer,
   timerRunning,
@@ -242,7 +245,13 @@ function NotePanel({
     >
       {/* 撕纸边缘：比面板纸大一圈的深色底，沿手撕轮廓露出一圈厚度边 */}
       <div className="panel-edge" aria-hidden="true" />
-      <div className="panel">
+      <div
+        className="panel"
+        style={{
+          ["--note-part" as string]: `${noteRatio}`,
+          ["--todo-part" as string]: `${100 - noteRatio}`,
+        }}
+      >
       <div className="panel-head">
         <span className="brand">
           <PaperclipIcon />

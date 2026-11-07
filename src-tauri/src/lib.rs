@@ -12,6 +12,7 @@ mod db;
 mod foreground;
 mod tracker;
 mod usage;
+mod taskbar;
 
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Mutex;
@@ -1088,6 +1089,12 @@ fn set_fullscreen_passthrough(app: AppHandle, enabled: bool) {
         .store(enabled, Ordering::SeqCst);
 }
 
+/// 同步「不在任务栏显示」开关（功能面板控制，前端在加载配置与改动时调用）。
+#[tauri::command]
+fn set_hide_taskbar(app: AppHandle, hidden: bool) {
+    taskbar::apply(&app, hidden);
+}
+
 /// 把托盘穿透菜单项的引用托管起来，供切换命令同步勾选。
 pub struct TrayPassthroughRef(pub Mutex<Option<CheckMenuItem<tauri::Wry>>>);
 
@@ -1126,6 +1133,8 @@ pub fn run() {
             app.manage(timer::WindowTimer::default());
             // 日程提醒的运行时状态（开关默认关，由前端加载配置后同步）。
             app.manage(plans::PlanState::new());
+            // 主窗口任务栏显隐状态（默认显示，由前端加载配置后同步）。
+            app.manage(taskbar::TaskbarState::new());
             // Create the schema up front; fail loudly if storage is unavailable.
             db::init_db(app);
 
@@ -1257,6 +1266,7 @@ pub fn run() {
             start_timer,
             stop_timer,
             timer_state,
+            set_hide_taskbar,
         ])
         .build(tauri::generate_context!())
         .expect("error while building tauri application")

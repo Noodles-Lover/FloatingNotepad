@@ -65,6 +65,9 @@
 }
 
 .panel {
+  /* 内容高度分配的默认比例（1:1）；NotePanel 按用户设置覆盖这两个变量。 */
+  --note-part: 50;
+  --todo-part: 50;
   position: relative;
   width: 100%;
   height: 100%;
@@ -158,6 +161,13 @@
     opacity: 0;
     transform: translateX(-26px);
   }
+}
+
+/* 头栏与两块标签栏保持自然高度：不参与速记区/待办区的比例分配，
+   面板调到很矮时也不会被压扁。 */
+.panel > .panel-head,
+.panel > .tab-bar {
+  flex: 0 0 auto;
 }
 
 .panel-head {
@@ -351,8 +361,12 @@
 }
 
 /* ---------- 速记内容区：点线纸 ---------- */
+/* 速记输入区与待办清单区按 --note-part : --todo-part 分配面板剩余高度，
+   面板调高时一起变高。标签栏与「添加任务」行保持自然高度，不参与分配。 */
 .content {
-  height: 120px;
+  flex: var(--note-part, 50) 1 0;
+  height: auto;
+  min-height: 0;
   resize: none;
   background: rgba(255, 253, 245, 0.9);
   /* 点线纸：每行由小点组成的虚线，间距更大 */
@@ -376,7 +390,8 @@
 
 /* ---------- Todo 区 ---------- */
 .todo-list {
-  flex: 1;
+  flex: var(--todo-part, 50) 1 0;
+  min-height: 0;
   /* 仅纵向滚动：任务行在切换分类/新贴动画时可能瞬时撑宽，禁用横向滚动避免滚动条闪现 */
   overflow-y: auto;
   overflow-x: hidden;
@@ -590,6 +605,7 @@
 }
 
 .todo-add {
+  flex: 0 0 auto;
   display: flex;
   gap: 6px;
 }

@@ -6,7 +6,7 @@ import { loadPlans, nearestInfo, nextRefreshAt, pendingCount, type Plan } from "
  * 日程数据与派生值（最近一项、未完成条数）。
  *
  * 不做定时轮询：日程只由本应用改（增删改即时重算），真正需要重取的是
- * 「派生值随时刻过期」的边界——今天某条日程的时刻走完、以及跨过 00:00。
+ * 「派生值随时刻过期」的边界——今天某条日程的时刻走完、以及跨过 04:00。
  */
 export function usePlans() {
   const [plans, setPlans] = useState<Plan[]>([]);
