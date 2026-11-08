@@ -1,0 +1,196 @@
+/* 快捷栏在窗口内、纸皮面板之外：没有背景与边框，只有图标、小字文件名和滚动条。 */
+.app.with-dock {
+  display: flex;
+  align-items: stretch;
+}
+
+.app.with-dock > .panel-box {
+  flex: 1 1 auto;
+  width: auto;
+}
+
+.launcher-dock {
+  flex: 0 0 var(--dock-w, 64px);
+  min-width: 0;
+  box-sizing: border-box;
+  height: 100%;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  padding: 6px 0;
+  user-select: none;
+  -webkit-user-select: none;
+}
+
+.launcher-list {
+  flex: 1 1 auto;
+  min-height: 0;
+  min-width: 0;
+  width: 100%;
+  overflow-y: auto;
+  overflow-x: hidden;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 8px;
+  padding: 2px 0;
+  scrollbar-width: thin;
+  scrollbar-color: var(--border) transparent;
+}
+
+.launcher-item {
+  position: relative;
+  box-sizing: border-box;
+  width: 100%;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 2px;
+}
+
+.launcher-icon {
+  width: 40px;
+  height: 40px;
+  padding: 0;
+  border: none;
+  background: none;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.launcher-icon img {
+  width: 32px;
+  height: 32px;
+  pointer-events: none;
+}
+
+.launcher-fallback {
+  width: 32px;
+  height: 32px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 5px;
+  background: var(--paper-2);
+  color: var(--ink-soft);
+  font-size: 14px;
+}
+
+/* 小字文件名：深墨字 + 纸色字形描边，深浅桌面背景都读得清；
+   宽度锁死在栏内，单行省略号不撑开容器。 */
+.launcher-name {
+  display: block;
+  box-sizing: border-box;
+  width: 100%;
+  min-width: 0;
+  max-width: 100%;
+  padding: 0 3px;
+  font-size: 10px;
+  font-weight: 1000;
+  color: var(--ink);
+  -webkit-text-stroke: 1.5px var(--paper);
+  paint-order: stroke fill;
+  text-align: center;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* 删除：与标签页一致的圆形朱砂小叉，悬停才出现。 */
+.launcher-remove {
+  position: absolute;
+  top: 1px;
+  right: 3px;
+  width: 14px;
+  height: 14px;
+  padding: 0;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border: none;
+  border-radius: 50%;
+  background: rgba(196, 92, 72, 0.9);
+  color: var(--paper);
+  box-shadow: 0 1px 3px rgba(80, 60, 20, 0.25);
+  font-size: 11px;
+  line-height: 1;
+  cursor: pointer;
+  opacity: 0;
+  transition: opacity 120ms ease;
+}
+
+.launcher-item:hover .launcher-remove,
+.launcher-remove:focus-visible {
+  opacity: 1;
+}
+
+.launcher-remove:hover {
+  background: var(--cinnabar);
+  transform: scale(1.08);
+}
+
+/* + 接续在列表末尾：列表为空时它就是最顶一项，随列表一起滚动。
+   深墨框 + 纸色外环、深墨加号 + 纸色描边，深浅桌面背景都能看清。 */
+.launcher-add {
+  flex: 0 0 auto;
+  width: 34px;
+  height: 34px;
+  padding: 0;
+  border: 1px solid var(--ink);
+  border-radius: 5px;
+  box-shadow: 0 0 0 1px var(--paper);
+  background: transparent;
+  color: var(--ink);
+  font-size: 20px;
+  font-weight: 700;
+  line-height: 1;
+  font-family: var(--font-ui);
+  -webkit-text-stroke: 1px var(--paper);
+  paint-order: stroke fill;
+  cursor: pointer;
+}
+
+.launcher-add:hover {
+  border-color: var(--cinnabar);
+  color: var(--cinnabar);
+}
+
+.launcher-add:focus-visible,
+.launcher-icon:focus-visible {
+  outline: 2px solid var(--gold);
+  outline-offset: 2px;
+}
+
+/* 收起：与 .panel-box.closing 的 panel-out 同为 240ms，一起淡出。 */
+.launcher-dock.closing {
+  animation: launcher-out 240ms cubic-bezier(0.6, 0, 0.7, 0.4) forwards;
+  pointer-events: none;
+}
+
+@keyframes launcher-out {
+  from {
+    opacity: 1;
+  }
+  to {
+    opacity: 0;
+  }
+}
+
+/* 双击文件名后就地编辑：与标签页重命名一致的窄输入框。 */
+.launcher-rename {
+  box-sizing: border-box;
+  width: 100%;
+  min-width: 0;
+  padding: 1px 2px;
+  border: 1px solid var(--gold);
+  border-radius: 3px;
+  background: var(--paper-2);
+  color: var(--ink);
+  font-size: 9px;
+  font-family: var(--font-ui);
+  text-align: center;
+  outline: none;
+}

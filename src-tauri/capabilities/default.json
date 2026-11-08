@@ -57,6 +57,12 @@
     "allow-stop-timer",
     "allow-timer-state",
     "allow-set-hide-taskbar",
+    "allow-list-launchers",
+    "allow-add-launcher",
+    "allow-rename-launcher",
+    "allow-remove-launcher",
+    "allow-launch-path",
+    "dialog:allow-open",
     "autostart:allow-enable",
     "autostart:allow-disable",
     "autostart:allow-is-enabled"

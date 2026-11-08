@@ -17,6 +17,7 @@
         "height": 56,
         "decorations": false,
         "transparent": true,
+        "dragDropEnabled": true,
         "alwaysOnTop": true,
         "resizable": false,
         "fullscreen": false,

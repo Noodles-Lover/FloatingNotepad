@@ -206,3 +206,28 @@ commands.allow = ["timer_state"]
 identifier = "allow-set-hide-taskbar"
 description = "Allow hiding the main window's taskbar button so only the tray icon remains."
 commands.allow = ["set_hide_taskbar"]
+
+[[permission]]
+identifier = "allow-list-launchers"
+description = "Allow reading the user's launcher shortcuts with their system icons."
+commands.allow = ["list_launchers"]
+
+[[permission]]
+identifier = "allow-add-launcher"
+description = "Allow adding a file path to the launcher shortcuts."
+commands.allow = ["add_launcher"]
+
+[[permission]]
+identifier = "allow-rename-launcher"
+description = "Allow renaming a launcher shortcut's display name."
+commands.allow = ["rename_launcher"]
+
+[[permission]]
+identifier = "allow-remove-launcher"
+description = "Allow removing a file path from the launcher shortcuts."
+commands.allow = ["remove_launcher"]
+
+[[permission]]
+identifier = "allow-launch-path"
+description = "Allow opening a user-added file path with the system default handler."
+commands.allow = ["launch_path"]

@@ -15,6 +15,10 @@ tauri-dev-err.log
 
 # Temp files
 *.tmp
+temp/
+
+# Local dev notes (never committed)
+pitfalls.md
 
 # Signing keys (private keys must never be committed)
 *.key

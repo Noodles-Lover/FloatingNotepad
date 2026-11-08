@@ -73,7 +73,7 @@
 App 端判定**始终基于 UI 当前真实 bounds**：
 
 - 挂件形态：根据挂件贴边位置判定接近。碰撞箱外扩 `panelMargin` **只对面板生效**——挂件外扩会形成一圈「幽灵区」，鼠标停在区内既判定为内部、又不触发 DOM `mouseleave`，导致挂件收不回去。
-- 面板形态：用 `NoteWindow.bounds()` 的真实矩形判定鼠标是否仍在面板内，超时（`autoCloseDelay`）后自动收起。
+- 面板形态：用 `NoteWindow.bounds()` 的真实矩形判定鼠标是否仍在面板内，超时（`autoCloseDelay`）后自动收起。展开时窗口宽度 = 纸皮面板 + 外侧快捷栏（`DOCK_WIDTH`），`bounds()` 读的是真实窗口矩形，因此快捷栏天然算「应用内」，鼠标移过去不会触发收起；Rust 的广播门槛同样基于 `GetWindowRect`，无需另改。快捷栏是 `.panel-box` 的兄弟节点（在 `.panel` 之外），本身不设背景与边框，只有图标、小字文件名、滚动条和接续在列表末尾的方形 `+`；文件名与加号是深墨字配纸色字形描边，任意桌面背景都能读清；列表存 SQLite `meta` 表，图标由 Rust 提取为 PNG data URL，点击走 `ShellExecuteW`。双击文件名就地重命名（`rename_launcher`，空名回退到原文件名），拖放文件到应用窗口内任意位置也会添加。拖放走 Tauri 内置的 Windows OLE 通道：绝对路径只有 OLE 能给（HTML5 的 `File.path` 在 WebView2 里恒为空），Rust 侧不自实现 drop target；`tauri.conf.json` 里 `dragDropEnabled: true` 必须显式声明（Rust builder 会静默丢弃该选项）。细节与权限限制见后端 LOGIC 第 14 节，踩坑记录见根目录 `pitfalls.md`。前端在 `App` 应用级注册 `getCurrentWindow().onDragDropEvent`（快捷栏只在面板展开时挂载，挂件态也要能接收），收 `payload.paths` 的绝对路径后逐个添加，并派发 `launcher-refresh` 让列表刷新。页面不在 `dragover` 上 `preventDefault`：Windows 上 OLE 独占拖放，HTML5 拖放与之互斥。收起时快捷栏与 `.panel-box` 同播 240ms 淡出。`+` 打开的系统文件对话框不在窗口内，期间由 `holdAutoClose()` 挂起 proximity 判定；Rust 只在坐标变化时广播 `cursor-move`，鼠标静止不会补发，所以**挂起结束必须用最后已知坐标重评一次**，否则取消对话框后面板会一直不收起。
 - 穿透模式：proximity 直接早退，挂件不因鼠标接近产生任何反应；解锁按钮的显隐改由 Rust 在光标轮询中判定（见第 3 节）。
 
 ---

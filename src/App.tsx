@@ -1,4 +1,5 @@
-import { useCallback } from "react";
+import { useCallback, useEffect } from "react";
+import { getCurrentWindow } from "@tauri-apps/api/window";
 import { defaultSkin } from "./lib/skins";
 import { useControllers } from "./hooks/useControllers";
 import { useAppConfig } from "./hooks/useAppConfig";
@@ -21,6 +22,9 @@ import PlansPanel from "./components/PlansPanel";
 import WindowTimerPanel from "./components/WindowTimerPanel";
 import ConfirmDialog from "./components/ConfirmDialog";
 import PopupToast from "./components/PopupToast";
+import LauncherDock from "./components/LauncherDock";
+import { DOCK_WIDTH, addLauncher } from "./lib/launchers";
+import { logEvent } from "./lib/log";
 
 /**
  * 应用根组件：只做组合与编排——把各职责 hooks 装配起来、把数据与回调接给视图组件，
@@ -90,8 +94,51 @@ export default function App() {
   const { skinOpen, settingsOpen, usageOpen, featuresOpen, plansOpen, notionOpen, timerOpen } =
     view.overlays;
 
+  // 拖放监听放在应用级：挂件态也要能收到，快捷栏只在面板展开时才挂载。
+  // 事件由 Tauri 内置拖放发出；Rust 侧不要再注册 drop target，会顶掉内置那份。
+  useEffect(() => {
+    let unlisten: (() => void) | null = null;
+    let cancelled = false;
+    getCurrentWindow()
+      .onDragDropEvent(async (event) => {
+        const p = event.payload;
+        if (p.type !== "drop") return;
+        logEvent("dnd", `drop 文件数=${p.paths.length}`);
+        for (const path of p.paths) {
+          try {
+            await addLauncher(path);
+          } catch (e) {
+            console.error("[launchers] 拖放添加失败:", e);
+          }
+        }
+        window.dispatchEvent(new Event("launcher-refresh"));
+      })
+      .then((fn) => {
+        if (cancelled) fn();
+        else unlisten = fn;
+      })
+      .catch((e) => {
+        console.error("[launchers] 拖放监听失败:", e);
+        logEvent("dnd", `拖放监听注册失败 ${String(e)}`);
+      });
+    return () => {
+      cancelled = true;
+      unlisten?.();
+    };
+  }, []);
+
   return (
-    <div className="app">
+    <div
+      className={`app ${view.mode === "expanded" ? "with-dock" : ""}`}
+      style={{ ["--dock-w" as string]: `${DOCK_WIDTH}px` }}
+    >
+      {view.mode === "expanded" && view.edge === "right" && (
+        <LauncherDock
+          edge={view.edge}
+          holdAutoClose={view.holdAutoClose}
+          closing={view.closing}
+        />
+      )}
       {view.mode === "expanded" ? (
         <NotePanel
           note={activeTab?.note ?? ""}
@@ -153,6 +200,13 @@ export default function App() {
           passthrough={view.passthrough}
           onContextMenu={view.openContextMenu}
           onLeave={view.onWidgetLeave}
+        />
+      )}
+      {view.mode === "expanded" && view.edge === "left" && (
+        <LauncherDock
+          edge={view.edge}
+          holdAutoClose={view.holdAutoClose}
+          closing={view.closing}
         />
       )}
 
