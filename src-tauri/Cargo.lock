@@ -1123,7 +1123,7 @@ dependencies = [
 
 [[package]]
 name = "floating-notepad"
-version = "0.4.2"
+version = "0.5.0"
 dependencies = [
  "png 0.17.16",
  "raw-window-handle",

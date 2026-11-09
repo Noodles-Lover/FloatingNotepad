@@ -1,6 +1,6 @@
 [package]
 name = "floating-notepad"
-version = "0.4.2"
+version = "0.5.0"
 description = "Floating notepad with an edge-docked ball"
 authors = ["you"]
 edition = "2021"
