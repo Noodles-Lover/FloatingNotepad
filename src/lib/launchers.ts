@@ -26,6 +26,14 @@ export function removeLauncher(path: string): Promise<LauncherItem[]> {
   return invoke<LauncherItem[]>("remove_launcher", { path });
 }
 
+/** 把 fromPath 移到 toPath 之前（toPath 为 null 表示放到末尾），返回完整新列表。 */
+export function reorderLaunchers(
+  fromPath: string,
+  toPath: string | null,
+): Promise<LauncherItem[]> {
+  return invoke<LauncherItem[]>("reorder_launchers", { fromPath, toPath });
+}
+
 export function launchPath(path: string): Promise<void> {
   return invoke("launch_path", { path });
 }

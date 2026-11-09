@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import {
   addLauncher,
   launchPath,
@@ -6,6 +6,7 @@ import {
   pickLauncherFile,
   removeLauncher,
   renameLauncher,
+  reorderLaunchers,
   type LauncherItem,
 } from "../lib/launchers";
 import "./LauncherDock.css";
@@ -23,6 +24,16 @@ export default function LauncherDock({ edge, holdAutoClose, closing }: Props) {
   const [items, setItems] = useState<LauncherItem[]>([]);
   const [editingPath, setEditingPath] = useState<string | null>(null);
   const [editName, setEditName] = useState("");
+  // 拖拽排序：与 TabBar 同一套 pointer events 契约，toPath 为 null 表示放到末尾。
+  const [dragPath, setDragPath] = useState<string | null>(null);
+  const [overPath, setOverPath] = useState<string | null>(null);
+  const dragStart = useRef<{ path: string; x: number; y: number } | null>(null);
+  const overPathRef = useRef<string | null>(null);
+  const movedRef = useRef(false);
+  // 松手后浏览器还会派发一次 click，不抑制就会把"拖完"误当成"启动应用"。
+  const suppressClickRef = useRef(false);
+
+  const DRAG_THRESHOLD = 5;
 
   useEffect(() => {
     const refresh = () => {
@@ -78,16 +89,94 @@ export default function LauncherDock({ edge, holdAutoClose, closing }: Props) {
     [editingPath],
   );
 
+  /** 竖排命中判定：落在某项上半 → 插到它前面；下半 → 插到它后面（越过最后一项为 null）。 */
+  const findOverPath = (clientY: number, container: HTMLElement): string | null => {
+    const els = Array.from(
+      container.querySelectorAll<HTMLElement>(".launcher-item"),
+    ).filter((el) => el.dataset.path);
+    const paths = els.map((el) => el.dataset.path!);
+    for (let i = 0; i < els.length; i++) {
+      const rect = els[i].getBoundingClientRect();
+      if (clientY < rect.top + rect.height / 2) return paths[i];
+      if (clientY <= rect.bottom) {
+        return i + 1 < paths.length ? paths[i + 1] : null;
+      }
+    }
+    return null;
+  };
+
+  /** 收尾：from/target 都从 ref 读，避免快速拖动时 state 尚未刷新。 */
+  const finishDrag = useCallback(() => {
+    const moved = movedRef.current;
+    const from = dragStart.current?.path ?? null;
+    const target = overPathRef.current;
+    setDragPath(null);
+    setOverPath(null);
+    dragStart.current = null;
+    overPathRef.current = null;
+    movedRef.current = false;
+    if (from === null) return;
+    if (moved) suppressClickRef.current = true;
+    if (!moved || target === from) return;
+    reorderLaunchers(from, target)
+      .then(setItems)
+      .catch((e) => console.error("[launchers] 排序保存失败:", e));
+  }, []);
+
   return (
     <div className={`launcher-dock dock-${edge} ${closing ? "closing" : ""}`}>
-      <div className="launcher-list">
+      <div
+        className="launcher-list"
+        onPointerMove={(e) => {
+          if (!dragStart.current) return;
+          const dx = Math.abs(e.clientX - dragStart.current.x);
+          const dy = Math.abs(e.clientY - dragStart.current.y);
+          if (!movedRef.current && dx + dy > DRAG_THRESHOLD) {
+            movedRef.current = true;
+            setDragPath(dragStart.current.path);
+          }
+          if (movedRef.current) {
+            const target = findOverPath(e.clientY, e.currentTarget);
+            overPathRef.current = target;
+            setOverPath(target);
+          }
+        }}
+        onPointerUp={() => {
+          if (dragStart.current) finishDrag();
+        }}
+        onPointerLeave={() => {
+          if (dragStart.current) finishDrag();
+        }}
+      >
         {items.map((it) => (
-          <div className="launcher-item" key={it.path}>
+          <div
+            key={it.path}
+            data-path={it.path}
+            className={`launcher-item ${dragPath === it.path ? "dragging" : ""} ${
+              overPath === it.path && dragPath !== null && dragPath !== it.path
+                ? "drag-over"
+                : ""
+            }`}
+          >
             <button
               className="launcher-icon"
-              title={it.path}
+              title={`${it.path}（拖动可排序）`}
               aria-label={`打开 ${it.name}`}
-              onClick={() => launch(it.path)}
+              onClick={() => {
+                if (suppressClickRef.current) {
+                  suppressClickRef.current = false;
+                  return;
+                }
+                void launch(it.path);
+              }}
+              onPointerDown={(e) => {
+                // 只在图标上起拖：删除叉、文件名双击重命名都不参与拖拽。
+                if (editingPath !== it.path) {
+                  dragStart.current = { path: it.path, x: e.clientX, y: e.clientY };
+                  movedRef.current = false;
+                  suppressClickRef.current = false;
+                }
+              }}
             >
               {it.icon ? (
                 <img src={it.icon} alt="" draggable={false} />
@@ -134,7 +223,9 @@ export default function LauncherDock({ edge, holdAutoClose, closing }: Props) {
           </div>
         ))}
         <button
-          className="launcher-add"
+          className={`launcher-add ${
+            overPath === null && dragPath !== null ? "drag-over-end" : ""
+          }`}
           title="添加应用或文件"
           aria-label="添加应用或文件"
           onClick={add}

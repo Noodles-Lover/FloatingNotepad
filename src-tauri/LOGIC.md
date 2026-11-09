@@ -373,6 +373,12 @@ Alt+Tab 切换器、任务视图、开始菜单这类系统 UI 由 explorer 提�
 - 绝对路径只能由原生 OLE 通道给（HTML5 的 `File.path` 在 WebView2 里恒为空），所以不能改成
   `dragDropEnabled: false` 走 HTML5；页面也不在 `dragover` 上 `preventDefault`，Windows 上 OLE 独占拖放。
 
+### 快捷栏条目顺序
+
+顺序即 `meta` 表里 JSON 数组的顺序。`LauncherDock` 用 pointer events 判定插入点（同样是
+Windows 上 OLE 独占拖放，列表内排序不能用 HTML5 `draggable`），把 `from_path` / `to_path`
+交给 `reorder_launchers`；Rust 负责重排、落库并返回完整列表，前端直接用返回值覆盖，不自己算新顺序。
+
 > **注意：应用必须在非管理员（Medium 完整性）模式下运行，才能拖放文件。** 以管理员启动时
 > UIPI 会拦掉资源管理器发来的 OLE 拖放消息，表现为禁止光标 + 零事件，与代码无关。应用不申请
 > 提权，按默认方式启动即满足。原理与排查判据见 `pitfalls.md`。

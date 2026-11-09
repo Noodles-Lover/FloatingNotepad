@@ -327,6 +327,12 @@
           "markdownDescription": "Allow renaming a launcher shortcut's display name."
         },
         {
+          "description": "Allow moving a launcher shortcut to a new position.",
+          "type": "string",
+          "const": "allow-reorder-launchers",
+          "markdownDescription": "Allow moving a launcher shortcut to a new position."
+        },
+        {
           "description": "Allow restarting the app from the widget context menu, sharing the tray's restart path.",
           "type": "string",
           "const": "allow-restart-app",

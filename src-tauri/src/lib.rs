@@ -1118,6 +1118,14 @@ fn remove_launcher(path: String) -> Vec<launchers::LauncherItem> {
 }
 
 #[tauri::command]
+fn reorder_launchers(
+    from_path: String,
+    to_path: Option<String>,
+) -> Vec<launchers::LauncherItem> {
+    launchers::reorder(&from_path, to_path.as_deref())
+}
+
+#[tauri::command]
 fn launch_path(path: String) -> Result<(), String> {
     launchers::launch(&path)
 }
@@ -1299,6 +1307,7 @@ pub fn run() {
             add_launcher,
             rename_launcher,
             remove_launcher,
+            reorder_launchers,
             launch_path,
         ])
         .build(tauri::generate_context!())

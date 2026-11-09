@@ -55,10 +55,37 @@
   padding: 0;
   border: none;
   background: none;
-  cursor: pointer;
+  cursor: grab;
+  touch-action: none;
   display: flex;
   align-items: center;
   justify-content: center;
+}
+
+/* 拖拽排序：与标签栏同一套视觉语言，插入线改到顶边（竖排）。 */
+.launcher-item.dragging {
+  opacity: 0.45;
+}
+
+.launcher-item.dragging .launcher-icon {
+  cursor: grabbing;
+}
+
+.launcher-item.drag-over::before {
+  content: "";
+  position: absolute;
+  top: -4px;
+  left: 4px;
+  right: 4px;
+  height: 3px;
+  border-radius: 2px;
+  background: var(--cinnabar);
+}
+
+.launcher-add.drag-over-end {
+  border-color: var(--cinnabar);
+  color: var(--cinnabar);
+  box-shadow: 0 0 0 2px var(--cinnabar);
 }
 
 .launcher-icon img {

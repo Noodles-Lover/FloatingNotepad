@@ -228,6 +228,11 @@ description = "Allow removing a file path from the launcher shortcuts."
 commands.allow = ["remove_launcher"]
 
 [[permission]]
+identifier = "allow-reorder-launchers"
+description = "Allow moving a launcher shortcut to a new position."
+commands.allow = ["reorder_launchers"]
+
+[[permission]]
 identifier = "allow-launch-path"
 description = "Allow opening a user-added file path with the system default handler."
 commands.allow = ["launch_path"]

@@ -227,6 +227,28 @@ pub fn remove(path: &str) -> Vec<LauncherItem> {
     list()
 }
 
+/// 把 `from_path` 条目移到 `to_path` 之前；`to_path` 为 None 表示放到末尾。
+///
+/// 顺序即 JSON 数组顺序（与标签页、分类的落库方式一致）。路径找不到时直接返回当前列表，
+/// 拖拽期间恰好有别的入口增删条目也不会写坏数据。
+pub fn reorder(from_path: &str, to_path: Option<&str>) -> Vec<LauncherItem> {
+    let mut items = load();
+    let Some(from_idx) = items.iter().position(|it| it.path == from_path) else {
+        return list();
+    };
+    let moved = items.remove(from_idx);
+    let at = match to_path {
+        Some(to) => items
+            .iter()
+            .position(|it| it.path == to)
+            .unwrap_or(items.len()),
+        None => items.len(),
+    };
+    items.insert(at, moved);
+    save(&items);
+    list()
+}
+
 /// 用系统默认方式打开（支持 exe、快捷方式、文件夹、文档）。
 pub fn launch(path: &str) -> Result<(), String> {
     unsafe {
