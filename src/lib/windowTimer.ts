@@ -6,6 +6,8 @@ export interface WindowInfo {
   title: string;
   /** 所属进程名（如 `Code.exe`）；同一进程可能有多个窗口。 */
   process: string;
+  /** 是否为本轮推荐目标（前台窗口；浮笺自己占前台时是 Z 序最前的其它应用窗口）。 */
+  foreground: boolean;
 }
 
 /** 计时状态：running 为 true 时前端每秒刷新 elapsed_ms。 */

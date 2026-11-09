@@ -12,6 +12,8 @@ mod db;
 mod foreground;
 mod tracker;
 mod usage;
+mod taskbar;
+mod launchers;
 
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Mutex;
@@ -170,7 +172,7 @@ fn current_cursor() -> Option<(i32, i32)> {
 
 /// 读取窗口在屏幕上的矩形（物理像素）。GetCursorPos 同为物理像素，两者可直接比较。
 #[cfg(target_os = "windows")]
-fn window_rect(hwnd: HWND) -> Option<(i32, i32, i32, i32)> {
+pub(crate) fn window_rect(hwnd: HWND) -> Option<(i32, i32, i32, i32)> {
     use windows::Win32::Foundation::RECT;
     let mut r = RECT::default();
     unsafe {
@@ -384,7 +386,7 @@ fn list_skins(app: AppHandle) -> Result<Vec<String>, String> {
 }
 
 /// 取主窗口的 Win32 HWND。
-fn main_hwnd(window: &WebviewWindow) -> Result<HWND, String> {
+pub(crate) fn main_hwnd(window: &WebviewWindow) -> Result<HWND, String> {
     let handle = window
         .window_handle()
         .map_err(|e| format!("无法获取窗口句柄: {e}"))?;
@@ -1045,6 +1047,12 @@ fn popup_state(app: AppHandle) -> popup::Payload {
     popup::current(&app)
 }
 
+/// 同步面板形态：报时 / 任务提醒据此决定弹独立小窗还是广播给面板内提示条。
+#[tauri::command]
+fn set_panel_expanded(app: AppHandle, expanded: bool) {
+    popup::set_panel_expanded(&app, expanded);
+}
+
 /// 取全部日程（一次性与周常混在一起，排序交给前端——它要按日期/时刻展开周常）。
 #[tauri::command]
 fn load_plans() -> Vec<db::Plan> {
@@ -1088,6 +1096,46 @@ fn set_fullscreen_passthrough(app: AppHandle, enabled: bool) {
         .store(enabled, Ordering::SeqCst);
 }
 
+/// 同步「不在任务栏显示」开关（功能面板控制，前端在加载配置与改动时调用）。
+#[tauri::command]
+fn set_hide_taskbar(app: AppHandle, hidden: bool) {
+    taskbar::apply(&app, hidden);
+}
+
+/// 应用快捷栏：读列表、增删条目、用系统默认方式打开用户添加的路径。
+#[tauri::command]
+async fn list_launchers() -> Vec<launchers::LauncherItem> {
+    launchers::list()
+}
+
+#[tauri::command]
+fn add_launcher(path: String) -> Result<Vec<launchers::LauncherItem>, String> {
+    launchers::add(path)
+}
+
+#[tauri::command]
+fn rename_launcher(path: String, name: String) -> Vec<launchers::LauncherItem> {
+    launchers::rename(&path, &name)
+}
+
+#[tauri::command]
+fn remove_launcher(path: String) -> Vec<launchers::LauncherItem> {
+    launchers::remove(&path)
+}
+
+#[tauri::command]
+fn reorder_launchers(
+    from_path: String,
+    to_path: Option<String>,
+) -> Vec<launchers::LauncherItem> {
+    launchers::reorder(&from_path, to_path.as_deref())
+}
+
+#[tauri::command]
+fn launch_path(path: String) -> Result<(), String> {
+    launchers::launch(&path)
+}
+
 /// 把托盘穿透菜单项的引用托管起来，供切换命令同步勾选。
 pub struct TrayPassthroughRef(pub Mutex<Option<CheckMenuItem<tauri::Wry>>>);
 
@@ -1101,6 +1149,7 @@ pub fn run() {
             None,
         ))
         .plugin(tauri_plugin_notification::init())
+        .plugin(tauri_plugin_dialog::init())
         .setup(|app| {
             // 诊断留痕：先清旧日志、装 panic 钩子，再记启动——顺序保证启动那一行必然落盘。
             log::prune(app.handle());
@@ -1126,6 +1175,8 @@ pub fn run() {
             app.manage(timer::WindowTimer::default());
             // 日程提醒的运行时状态（开关默认关，由前端加载配置后同步）。
             app.manage(plans::PlanState::new());
+            // 主窗口任务栏显隐状态（默认显示，由前端加载配置后同步）。
+            app.manage(taskbar::TaskbarState::new());
             // Create the schema up front; fail loudly if storage is unavailable.
             db::init_db(app);
 
@@ -1235,6 +1286,7 @@ pub fn run() {
             set_chime,
             ring_chime,
             popup_state,
+            set_panel_expanded,
             load_plans,
             add_plan,
             delete_plan,
@@ -1257,6 +1309,13 @@ pub fn run() {
             start_timer,
             stop_timer,
             timer_state,
+            set_hide_taskbar,
+            list_launchers,
+            add_launcher,
+            rename_launcher,
+            remove_launcher,
+            reorder_launchers,
+            launch_path,
         ])
         .build(tauri::generate_context!())
         .expect("error while building tauri application")

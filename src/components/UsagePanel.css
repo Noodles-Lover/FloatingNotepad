@@ -1,8 +1,9 @@
 /* ---- 使用统计面板（UsagePanel）---- */
 
-/* 时间线需要横向空间，比皮肤/设置面板宽一些。 */
+/* 时间线需要横向空间，比皮肤/设置面板宽一些。
+   百分比相对 .modal-overlay（已收进纸皮面板），不能用 vw（整窗）。 */
 .usage-panel {
-  width: min(520px, 92vw);
+  width: min(520px, 92%);
 }
 
 .usage-group-title {

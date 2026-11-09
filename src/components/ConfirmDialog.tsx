@@ -6,6 +6,8 @@ const styles = `
 .confirm-mask {
   position: fixed;
   inset: 0;
+  left: var(--overlay-left, 0px);
+  right: var(--overlay-right, 0px);
   background: rgba(50, 40, 20, 0.35);
   display: flex;
   align-items: center;
@@ -17,6 +19,7 @@ const styles = `
 .confirm-box {
   position: relative;
   width: 280px;
+  max-width: 90%;
   background: var(--paper);
   clip-path: var(--torn);
   filter: drop-shadow(0 14px 28px rgba(60, 45, 20, 0.32));

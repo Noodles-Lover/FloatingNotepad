@@ -34,6 +34,8 @@ pub struct WindowInfo {
     pub title: String,
     /// 所属进程名（如 `Code.exe`），同一进程可能有多个窗口。
     pub process: String,
+    /// 是否是本轮推荐目标（前台窗口；浮笺自己占前台时是 Z 序最前的其它应用窗口）。
+    pub foreground: bool,
 }
 
 /// 计时状态（前端显示用）。
@@ -114,22 +116,49 @@ unsafe extern "system" fn collect_window(hwnd: HWND, lparam: LPARAM) -> BOOL {
     if title.trim().is_empty() || foreground::is_shell_overlay(hwnd) {
         return true.into();
     }
+    let process = foreground::process_name(hwnd);
+    // 再按可执行文件名排除一次本应用：pid 过滤只挡得住当前进程，
+    // 同时运行的安装版 / dev 版窗口标题同样是「浮笺」，不能混进候选。
+    if process.eq_ignore_ascii_case(foreground::self_process_name()) {
+        return true.into();
+    }
     out.push(WindowInfo {
         hwnd: hwnd.0 as isize,
-        process: foreground::process_name(hwnd),
+        process,
         title,
+        foreground: false,
     });
     true.into()
 }
 
 /// 可供选择的窗口：可见、有标题，且不是工具窗口、本应用或系统覆盖层。
+///
+/// 「当前窗口」置顶：前台窗口若本身是候选就选它；打开计时面板时浮笺自己成了
+/// 前台（已被回调按 pid 与进程名过滤），此时取 EnumWindows 的 Z 序最前者——
+/// 那是用户刚才在用的应用。
 pub fn list_windows() -> Vec<WindowInfo> {
     let mut out: Vec<WindowInfo> = Vec::new();
     let ctx = LPARAM(&mut out as *mut Vec<WindowInfo> as isize);
     unsafe {
         let _ = EnumWindows(Some(collect_window), ctx);
     }
-    out.sort_by(|a, b| a.process.cmp(&b.process).then(a.title.cmp(&b.title)));
+
+    let fg = foreground::foreground_hwnd();
+    let preferred = if out.iter().any(|w| w.hwnd == fg) {
+        fg
+    } else {
+        out.first().map(|w| w.hwnd).unwrap_or_default()
+    };
+    for w in &mut out {
+        w.foreground = w.hwnd == preferred;
+    }
+    // 推荐项置顶，其余按进程名/标题排序，列表顺序稳定可预期。
+    out.sort_by(|a, b| {
+        b.foreground
+            .cmp(&a.foreground)
+            .then(a.process.cmp(&b.process))
+            .then(a.title.cmp(&b.title))
+    });
     out
 }
 

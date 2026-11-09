@@ -9,8 +9,7 @@ export interface AppConfig {
   widgetSize: number;
   /** 笔记面板宽度（逻辑像素）。 */
   windowWidth: number;
-  /** 笔记面板高度（逻辑像素）。对应 .content（速记文本域）的固定高度 120px，
-   *  调整其中之一时需确认另一处是否仍协调。 */
+  /** 笔记面板高度（逻辑像素）。多出的空间由速记区与待办区按 noteRatio 分配。 */
   windowHeight: number;
   /** 鼠标离开 UI 多久后自动收起（毫秒）。 */
   autoCloseDelay: number;
@@ -34,7 +33,18 @@ export interface AppConfig {
   planNotify: boolean;
   /** 挂件上的待办角标：显示「还没到点」的任务条数。 */
   planBadge: boolean;
+  /** 不在任务栏显示应用：开启后只剩托盘图标可操作。 */
+  hideTaskbar: boolean;
+  /** 速记区占「速记 + 待办」内容高度的比例（30~70，步长 10，其余给待办）。 */
+  noteRatio: number;
+  /** 快捷栏图标大小（逻辑像素）：文件名、加号按钮随它一起缩放。 */
+  dockIconSize: number;
 }
+
+/** 快捷栏图标大小边界。栏宽固定 64px，图标容器 = 图标 + 8px，
+ *  上限 48px 时容器 56px 仍装得下；再大就得联动窗口宽度与碰撞箱。 */
+export const DOCK_ICON_MIN = 24;
+export const DOCK_ICON_MAX = 48;
 
 export const DEFAULT_CONFIG: AppConfig = {
   widgetSize: 80,
@@ -50,6 +60,9 @@ export const DEFAULT_CONFIG: AppConfig = {
   chime: false,
   planNotify: true,
   planBadge: true,
+  hideTaskbar: false,
+  noteRatio: 50,
+  dockIconSize: 32,
 };
 
 const LS_KEY = "floating-notepad.config";
@@ -92,6 +105,15 @@ function sanitize(part: Partial<AppConfig>): Partial<AppConfig> {
   if (typeof part.chime === "boolean") out.chime = part.chime;
   if (typeof part.planNotify === "boolean") out.planNotify = part.planNotify;
   if (typeof part.planBadge === "boolean") out.planBadge = part.planBadge;
+  if (typeof part.hideTaskbar === "boolean") out.hideTaskbar = part.hideTaskbar;
+  if (typeof part.noteRatio === "number" && part.noteRatio >= 30 && part.noteRatio <= 70)
+    out.noteRatio = Math.round(part.noteRatio / 10) * 10;
+  if (
+    typeof part.dockIconSize === "number" &&
+    part.dockIconSize >= DOCK_ICON_MIN &&
+    part.dockIconSize <= DOCK_ICON_MAX
+  )
+    out.dockIconSize = Math.round(part.dockIconSize / 2) * 2;
   return out;
 }
 

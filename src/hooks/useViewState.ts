@@ -49,6 +49,9 @@ export function useViewState({ windowCtl, noteWin, configRef, widgetBox, schedul
   // ---- 形态状态 ----
   const [mode, setMode] = useState<Mode>("hidden");
   const [closing, setClosing] = useState(false); // 是否正在播放收起动画
+  // 窗口是否已放大到位：展开时面板要等窗口 setSize / setPosition 完成才显示并播入场动画，
+  // 否则会在仍是挂件尺寸的小窗口里先露出一瞬被压缩的面板。
+  const [panelReady, setPanelReady] = useState(false);
   const [edge, setEdge] = useState<Edge>("right"); // 挂件当前贴附的边
   const [dragging, setDragging] = useState(false); // 挂件是否正在被拖动
   const [passthrough, setPassthroughState] = useState(false); // 穿透模式（真相在 Rust）
@@ -73,6 +76,11 @@ export function useViewState({ windowCtl, noteWin, configRef, widgetBox, schedul
   const passthroughRef = useRef(false);
   const widgetPlacedRef = useRef(false);
   const modalOpenRef = useRef(false);
+  /** 系统文件对话框期间挂起自动收起：对话框不在应用窗口内，鼠标移过去会被判成离开。 */
+  const autoCloseHoldRef = useRef(false);
+  /** 最后一次光标坐标 + 重评入口：Rust 只在坐标变化时广播，挂起结束必须自己补一拍。 */
+  const lastCursorRef = useRef<{ x: number; y: number } | null>(null);
+  const recheckRef = useRef<((x: number, y: number) => void) | null>(null);
   const screenRef = useRef<{ w: number; h: number } | null>(null);
   const winOpRef = useRef<(() => Promise<void>) | null>(null);
   const winOpBusyRef = useRef(false);
@@ -91,6 +99,22 @@ export function useViewState({ windowCtl, noteWin, configRef, widgetBox, schedul
       closeTimer.current = null;
     }
   }, []);
+
+  /** 挂起/恢复自动收起，供打开系统对话框这类「鼠标必须离开窗口」的操作使用。 */
+  const holdAutoClose = useCallback(
+    (hold: boolean) => {
+      autoCloseHoldRef.current = hold;
+      if (hold) {
+        clearTimers();
+        return;
+      }
+      // Rust 只在坐标变化时广播 cursor-move，鼠标静止不会补发；挂起结束必须用
+      // 最后已知坐标自己重评一次，否则取消对话框后面板会一直不收起。
+      const last = lastCursorRef.current;
+      if (last) recheckRef.current?.(last.x, last.y);
+    },
+    [clearTimers],
+  );
 
   // ---- 窗口动作串行器 ----
   // 窗口操作是异步的（show / setSize / setPosition 各一次 IPC）。多次形态切换接连发生时，
@@ -167,16 +191,22 @@ export function useViewState({ windowCtl, noteWin, configRef, widgetBox, schedul
       /** 落到目标形态：ref 先更新（同步可见），窗口动作交给串行器（最终收敛到最新目标）。 */
       const commit = () => {
         modeRef.current = nextMode;
+        if (enteringExpanded) setPanelReady(false);
         setMode(nextMode);
         runWindowOp(async () => {
-          if (appHidden) {
-            await windowCtl.hideApp();
-          } else if (nextMode === "expanded") {
-            await windowCtl.showOnly();
-            await noteWin.expand(windowCtl.currentEdge(), windowCtl.getDockY());
-          } else {
-            // hidden 与 revealed 的窗口形态相同：显示并停靠回挂件尺寸。
-            await windowCtl.showApp();
+          try {
+            if (appHidden) {
+              await windowCtl.hideApp();
+            } else if (nextMode === "expanded") {
+              await windowCtl.showOnly();
+              await noteWin.expand(windowCtl.currentEdge(), windowCtl.getDockY());
+            } else {
+              // hidden 与 revealed 的窗口形态相同：显示并停靠回挂件尺寸。
+              await windowCtl.showApp();
+            }
+          } finally {
+            // 窗口到位后才让面板可见并播 panel-in；失败也放行，不能把界面永久藏起来。
+            if (enteringExpanded) setPanelReady(true);
           }
         });
       };
@@ -429,39 +459,50 @@ export function useViewState({ windowCtl, noteWin, configRef, widgetBox, schedul
       return x >= b.left - m && x <= b.right + m && y >= b.top - m && y <= b.bottom + m;
     };
 
+    // 光标判定只有一个实现：传感器回调与挂起结束后的重评都走它。
+    const evaluate = async (x: number, y: number) => {
+      // 拖动时绝不抢窗口；托盘整窗隐藏时忽略全局鼠标；冷却期内禁止重新弹出；穿透时不检测。
+      if (draggingRef.current) return;
+      if (appHiddenRef.current) return;
+      if (Date.now() < suppressUntil.current) return;
+      if (passthroughRef.current) return;
+      if (autoCloseHoldRef.current) return;
+      const isInside = await inside(x, y);
+      // await 期间状态可能已变，判定一律以最新形态为准。
+      const cur = modeRef.current;
+      if (cur === "hidden") {
+        if (isInside) {
+          // 手动关闭（点叉）后鼠标仍停在挂件上：必须等其先离开才允许再次弹出。
+          if (!userMustLeaveRef.current) applyView({ mode: "revealed" });
+        } else {
+          userMustLeaveRef.current = false;
+        }
+      } else if (isInside) {
+        clearTimers();
+        setClosing(false);
+      } else if (!configRef.current.pinned && !hideTimer.current && !closeTimer.current) {
+        // 面板未固定时才随鼠标离开自动收起；固定后只有手动点叉能关闭。
+        hideTimer.current = window.setTimeout(
+          () => applyView({ mode: "hidden" }, { animate: true }),
+          configRef.current.autoCloseDelay,
+        );
+      }
+    };
+    recheckRef.current = (x, y) => {
+      void evaluate(x, y);
+    };
+
     const sensor = new ProximitySensor();
     sensor
       .start(async (x, y) => {
-        // 拖动时绝不抢窗口；托盘整窗隐藏时忽略全局鼠标；冷却期内禁止重新弹出；穿透时不检测。
-        if (draggingRef.current) return;
-        if (appHiddenRef.current) return;
-        if (Date.now() < suppressUntil.current) return;
-        if (passthroughRef.current) return;
-        const isInside = await inside(x, y);
-        // await 期间状态可能已变，判定一律以最新形态为准。
-        const cur = modeRef.current;
-        if (cur === "hidden") {
-          if (isInside) {
-            // 手动关闭（点叉）后鼠标仍停在挂件上：必须等其先离开才允许再次弹出。
-            if (!userMustLeaveRef.current) applyView({ mode: "revealed" });
-          } else {
-            userMustLeaveRef.current = false;
-          }
-        } else if (isInside) {
-          clearTimers();
-          setClosing(false);
-        } else if (!configRef.current.pinned && !hideTimer.current && !closeTimer.current) {
-          // 面板未固定时才随鼠标离开自动收起；固定后只有手动点叉能关闭。
-          hideTimer.current = window.setTimeout(
-            () => applyView({ mode: "hidden" }, { animate: true }),
-            configRef.current.autoCloseDelay,
-          );
-        }
+        lastCursorRef.current = { x, y };
+        await evaluate(x, y);
       })
       .catch((e) => console.error("[sensor.start] 失败:", e));
 
     return () => {
       cancelled = true;
+      recheckRef.current = null;
       unlisteners.forEach((fn) => fn());
       unwatchScreen();
       sensor.stop();
@@ -472,6 +513,7 @@ export function useViewState({ windowCtl, noteWin, configRef, widgetBox, schedul
   return {
     mode,
     closing,
+    panelReady,
     edge,
     dragging,
     passthrough,
@@ -497,5 +539,6 @@ export function useViewState({ windowCtl, noteWin, configRef, widgetBox, schedul
     closeNotion,
     openTimerPanel,
     closeTimerPanel,
+    holdAutoClose,
   };
 }

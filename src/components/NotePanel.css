@@ -39,15 +39,23 @@
   position: relative;
   width: 100%;
   height: 100%;
-  animation: panel-in 260ms cubic-bezier(0.22, 1, 0.36, 1);
+}
+/* ready 由 useViewState 在窗口 setSize / setPosition 完成后置上，入场动画这时才开始。
+   就绪前的隐藏由 .app:not(.panel-ready) 统一管（见 LauncherDock.css）。 */
+.panel-box.ready {
+  opacity: 1;
+  animation: panel-in 200ms cubic-bezier(0.22, 1, 0.36, 1);
 }
 .panel-box.dock-right {
   transform-origin: right center;
 }
 .panel-box.dock-left {
-  animation: panel-in-left 260ms cubic-bezier(0.22, 1, 0.36, 1);
   transform-origin: left center;
 }
+.panel-box.dock-left.ready {
+  animation: panel-in-left 200ms cubic-bezier(0.22, 1, 0.36, 1);
+}
+/* closing 规则写在 ready 之后，靠同级/更高特异性盖掉入场动画。 */
 .panel-box.closing {
   animation: panel-out 240ms cubic-bezier(0.6, 0, 0.7, 0.4) forwards;
 }
@@ -65,6 +73,9 @@
 }
 
 .panel {
+  /* 内容高度分配的默认比例（1:1）；NotePanel 按用户设置覆盖这两个变量。 */
+  --note-part: 50;
+  --todo-part: 50;
   position: relative;
   width: 100%;
   height: 100%;
@@ -158,6 +169,13 @@
     opacity: 0;
     transform: translateX(-26px);
   }
+}
+
+/* 头栏与两块标签栏保持自然高度：不参与速记区/待办区的比例分配，
+   面板调到很矮时也不会被压扁。 */
+.panel > .panel-head,
+.panel > .tab-bar {
+  flex: 0 0 auto;
 }
 
 .panel-head {
@@ -351,8 +369,12 @@
 }
 
 /* ---------- 速记内容区：点线纸 ---------- */
+/* 速记输入区与下半区（.todo-section）按 --note-part : --todo-part 分配面板剩余高度，
+   面板调高时一起变高。头栏与两块标签栏保持自然高度，不参与分配。 */
 .content {
-  height: 120px;
+  flex: var(--note-part, 50) 1 0;
+  height: auto;
+  min-height: 0;
   resize: none;
   background: rgba(255, 253, 245, 0.9);
   /* 点线纸：每行由小点组成的虚线，间距更大 */
@@ -375,8 +397,21 @@
 }
 
 /* ---------- Todo 区 ---------- */
+/* 下半区作为 .panel 的一个整体 flex 项参与 --todo-part 分配。普通分类里有
+   「添加任务」行、日程标签页里没有，包进同一容器后两种状态的 .panel flex 项一致，
+   切换标签页不会让速记区跟着变高 / 变矮。 */
+.todo-section {
+  flex: var(--todo-part, 50) 1 0;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  /* 与 .panel 同款间距：原先 .todo-list 与 .todo-add 是 .panel 的直接子项，靠它的 gap 分开。 */
+  gap: 8px;
+}
+
 .todo-list {
-  flex: 1;
+  flex: 1 1 0;
+  min-height: 0;
   /* 仅纵向滚动：任务行在切换分类/新贴动画时可能瞬时撑宽，禁用横向滚动避免滚动条闪现 */
   overflow-y: auto;
   overflow-x: hidden;
@@ -590,6 +625,7 @@
 }
 
 .todo-add {
+  flex: 0 0 auto;
   display: flex;
   gap: 6px;
 }

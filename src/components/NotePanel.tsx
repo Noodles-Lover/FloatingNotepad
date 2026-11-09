@@ -36,8 +36,12 @@ interface Props {
   onReorderCategory: (fromId: number, toId: number | null) => void;
   onClose: () => void;
   closing: boolean;
+  /** 窗口已放大到位：面板这时才显示并播入场动画。 */
+  panelReady: boolean;
   edge: Edge; // 当前贴附的边，决定面板动画从哪侧飘出
   idleOpacity: number; // 挂件闲置不透明度：面板开合动画的起始/结束不透明度
+  /** 速记区占「速记 + 待办」内容高度的比例（30~70，其余给待办）。 */
+  noteRatio: number;
   onOpenSkin: () => void; // 打开皮肤选择面板
   onOpenFeatures: () => void; // 打开功能面板
   onOpenSettings: () => void; // 打开设置面板
@@ -180,8 +184,10 @@ function NotePanel({
   onReorderCategory,
   onClose,
   closing,
+  panelReady,
   edge,
   idleOpacity,
+  noteRatio,
   onOpenNotion,
   onOpenTimer,
   timerRunning,
@@ -237,12 +243,18 @@ function NotePanel({
 
   return (
     <div
-      className={`panel-box dock-${edge} ${closing ? "closing" : ""}`}
+      className={`panel-box dock-${edge} ${closing ? "closing" : ""} ${panelReady ? "ready" : ""}`}
       style={{ ["--idle-opacity" as string]: `${idleOpacity}` }}
     >
       {/* 撕纸边缘：比面板纸大一圈的深色底，沿手撕轮廓露出一圈厚度边 */}
       <div className="panel-edge" aria-hidden="true" />
-      <div className="panel">
+      <div
+        className="panel"
+        style={{
+          ["--note-part" as string]: `${noteRatio}`,
+          ["--todo-part" as string]: `${100 - noteRatio}`,
+        }}
+      >
       <div className="panel-head">
         <span className="brand">
           <PaperclipIcon />
@@ -357,8 +369,9 @@ function NotePanel({
         title="待办"
       />
 
-      {/* 选中「日程」系统标签页时，这块区域换成日程清单（只看与删）；
-          速记区照常在上面，切标签不会像换页一样把整块内容换掉。 */}
+      {/* 下半区作为整体参与 --todo-part 高度分配：普通分类有「添加任务」行、日程没有。
+          包进同一容器后，两种标签页状态下 .panel 的 flex 项完全一致，速记区不会跟着跳。 */}
+      <div className="todo-section">
       {plansActive ? (
         <PlansView plans={plans} onChange={onPlansChange} />
       ) : (
@@ -463,6 +476,7 @@ function NotePanel({
           </div>
         </>
       )}
+      </div>
 
       {/* 备注气泡：fixed 定位，脱离列表裁切，显示在任务行上方 */}
       {hoverNote && (

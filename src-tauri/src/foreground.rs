@@ -1,10 +1,26 @@
 //! 前台窗口信息（进程名 / 标题 / 类名 / 样式 / 是否铺满显示器）与系统空闲时长。
 //!
-//! 全屏检测（tracker.rs）与应用使用统计（usage.rs）都要读前台窗口，
-//! 这里提供同一份实现，避免两套 Win32 调用各自漂移。
+//! 全屏检测（tracker.rs）、应用使用统计（usage.rs）与窗口计时（timer.rs）
+//! 都要读前台窗口，这里提供同一份实现，避免多套 Win32 调用各自漂移。
+
+use std::sync::OnceLock;
 
 #[cfg(target_os = "windows")]
 use windows::Win32::Foundation::HWND;
+
+/// 本应用的可执行文件名（如 `floating-notepad.exe`）。
+///
+/// 按名字而不是 pid 排除「本应用」：用户可能同时开着安装版与 dev 版，
+/// 两个进程是同一个应用，只排除当前 pid 会让另一个实例的窗口混进来。
+pub fn self_process_name() -> &'static str {
+    static OWN: OnceLock<String> = OnceLock::new();
+    OWN.get_or_init(|| {
+        std::env::current_exe()
+            .ok()
+            .and_then(|p| p.file_name().map(|n| n.to_string_lossy().into_owned()))
+            .unwrap_or_default()
+    })
+}
 
 /// 前台窗口的句柄（原始值）；取不到时为 0。
 #[cfg(target_os = "windows")]

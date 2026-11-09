@@ -1,0 +1,291 @@
+/* 快捷栏在窗口内、纸皮面板之外：没有背景与边框，只有图标、小字文件名和滚动条。
+   栏宽固定 --dock-w（它同时是窗口 setSize 的一部分，单独改会造成窗口与碰撞箱错位）；
+   图标、容器、文件名、加号、删除叉全部由 --dock-icon 派生，所以调一处就整体缩放。
+   图标上限受栏宽约束，见 lib/config.ts 的 DOCK_ICON_MAX。 */
+.app.with-dock {
+  display: flex;
+  align-items: stretch;
+}
+
+.app.with-dock > .panel-box {
+  flex: 1 1 auto;
+  width: auto;
+}
+
+/* 窗口放大到位前（panelReady=false）面板与快捷栏都不显示：否则两者会先在仍是
+   挂件尺寸的小窗口里以压缩态露出一瞬，随后窗口变大才突然出现完整界面。 */
+.app.with-dock:not(.panel-ready) > .panel-box,
+.app.with-dock:not(.panel-ready) > .launcher-dock {
+  opacity: 0;
+}
+
+.launcher-dock {
+  flex: 0 0 var(--dock-w, 64px);
+  min-width: 0;
+  box-sizing: border-box;
+  height: 100%;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  padding: 6px 0;
+  user-select: none;
+  -webkit-user-select: none;
+}
+
+.launcher-list {
+  flex: 1 1 auto;
+  min-height: 0;
+  min-width: 0;
+  width: 100%;
+  overflow-y: auto;
+  overflow-x: hidden;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 8px;
+  padding: 2px 0;
+  scrollbar-width: thin;
+  scrollbar-color: var(--border) transparent;
+}
+
+.launcher-item {
+  position: relative;
+  box-sizing: border-box;
+  width: 100%;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 2px;
+}
+
+.launcher-icon {
+  width: calc(var(--dock-icon, 32px) + 8px);
+  height: calc(var(--dock-icon, 32px) + 8px);
+  padding: 0;
+  border: none;
+  background: none;
+  cursor: grab;
+  touch-action: none;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  /* 提亮放在这一层；放大放到子元素上，与点击动画的 transform 各管一层。 */
+  transition: filter 140ms ease;
+}
+
+/* 悬停：图标内容放大一点 + 提亮。图标没有背景、背后是用户的应用（未知），不加投影。
+   transform 不占布局空间，且 1.08 的幅度小于图标容器四周留白，快捷栏不会被撑动。 */
+.launcher-icon img,
+.launcher-fallback {
+  transition: transform 140ms ease;
+}
+.launcher-item:not(.dragging):hover .launcher-icon {
+  filter: brightness(1.12);
+}
+.launcher-item:not(.dragging):hover .launcher-icon img,
+.launcher-item:not(.dragging):hover .launcher-icon .launcher-fallback {
+  transform: scale(1.08);
+}
+
+/* 拖拽排序：与标签栏同一套视觉语言，插入线改到顶边（竖排）。 */
+.launcher-item.dragging {
+  opacity: 0.45;
+}
+
+.launcher-item.dragging .launcher-icon {
+  cursor: grabbing;
+}
+
+.launcher-item.drag-over::before {
+  content: "";
+  position: absolute;
+  top: -4px;
+  left: 4px;
+  right: 4px;
+  height: 3px;
+  border-radius: 2px;
+  background: var(--cinnabar);
+}
+
+.launcher-add.drag-over-end {
+  border-color: var(--cinnabar);
+  color: var(--cinnabar);
+  box-shadow: 0 0 0 2px var(--cinnabar);
+}
+
+.launcher-icon img {
+  width: var(--dock-icon, 32px);
+  height: var(--dock-icon, 32px);
+  pointer-events: none;
+}
+
+.launcher-fallback {
+  width: var(--dock-icon, 32px);
+  height: var(--dock-icon, 32px);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 5px;
+  background: var(--paper-2);
+  color: var(--ink-soft);
+  font-size: calc(6px + var(--dock-icon, 32px) * 0.25);
+}
+
+/* 小字文件名：深墨字 + 纸色字形描边，深浅桌面背景都读得清；
+   宽度锁死在栏内，单行省略号不撑开容器。字号随图标小幅变化。 */
+.launcher-name {
+  display: block;
+  box-sizing: border-box;
+  width: 100%;
+  min-width: 0;
+  max-width: 100%;
+  padding: 0 3px;
+  font-size: calc(7px + var(--dock-icon, 32px) * 0.09);
+  font-weight: 1000;
+  color: var(--ink);
+  -webkit-text-stroke: 1.5px var(--paper);
+  paint-order: stroke fill;
+  text-align: center;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* 删除：与标签页一致的圆形朱砂小叉，悬停才出现。 */
+.launcher-remove {
+  position: absolute;
+  top: 1px;
+  right: 3px;
+  width: calc(6px + var(--dock-icon, 32px) * 0.25);
+  height: calc(6px + var(--dock-icon, 32px) * 0.25);
+  padding: 0;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border: none;
+  border-radius: 50%;
+  background: rgba(196, 92, 72, 0.9);
+  color: var(--paper);
+  box-shadow: 0 1px 3px rgba(80, 60, 20, 0.25);
+  font-size: calc(3px + var(--dock-icon, 32px) * 0.25);
+  line-height: 1;
+  cursor: pointer;
+  opacity: 0;
+  transition: opacity 120ms ease;
+}
+
+.launcher-item:hover .launcher-remove,
+.launcher-remove:focus-visible {
+  opacity: 1;
+}
+
+.launcher-remove:hover {
+  background: var(--cinnabar);
+  transform: scale(1.08);
+}
+
+/* + 接续在列表末尾：列表为空时它就是最顶一项，随列表一起滚动。
+   深墨框 + 纸色外环、深墨加号 + 纸色描边，深浅桌面背景都能看清。 */
+.launcher-add {
+  flex: 0 0 auto;
+  width: calc(var(--dock-icon, 32px) + 2px);
+  height: calc(var(--dock-icon, 32px) + 2px);
+  padding: 0;
+  border: 1px solid var(--ink);
+  border-radius: 5px;
+  box-shadow: 0 0 0 1px var(--paper);
+  background: transparent;
+  color: var(--ink);
+  font-size: calc(8px + var(--dock-icon, 32px) * 0.375);
+  font-weight: 700;
+  line-height: 1;
+  font-family: var(--font-ui);
+  -webkit-text-stroke: 1px var(--paper);
+  paint-order: stroke fill;
+  cursor: pointer;
+}
+
+.launcher-add:hover {
+  border-color: var(--cinnabar);
+  color: var(--cinnabar);
+}
+
+.launcher-add:focus-visible,
+.launcher-icon:focus-visible {
+  outline: 2px solid var(--gold);
+  outline-offset: 2px;
+}
+
+/* 收起：与 .panel-box.closing 的 panel-out 同为 240ms，一起淡出。 */
+.launcher-dock.closing {
+  animation: launcher-out 240ms cubic-bezier(0.6, 0, 0.7, 0.4) forwards;
+  pointer-events: none;
+}
+
+@keyframes launcher-out {
+  from {
+    opacity: 1;
+  }
+  to {
+    opacity: 0;
+  }
+}
+
+/* 双击文件名后就地编辑：与标签页重命名一致的窄输入框，字号跟文件名同步。 */
+.launcher-rename {
+  box-sizing: border-box;
+  width: 100%;
+  min-width: 0;
+  padding: 1px 2px;
+  border: 1px solid var(--gold);
+  border-radius: 3px;
+  background: var(--paper-2);
+  color: var(--ink);
+  font-size: calc(7px + var(--dock-icon, 32px) * 0.09);
+  font-family: var(--font-ui);
+  text-align: center;
+  outline: none;
+}
+
+/* 新增条目反馈：飞入 + 一圈金光渐隐。只给本次添加成功的条目挂 class，
+   Dock 每次展开时不会把全部条目都播一遍。 */
+.launcher-item.just-added {
+  animation: launcher-added 420ms cubic-bezier(0.34, 1.3, 0.64, 1);
+}
+
+@keyframes launcher-added {
+  0% {
+    opacity: 0;
+    transform: translateY(-8px) scale(0.9);
+    box-shadow: 0 0 0 0 transparent;
+  }
+  55% {
+    opacity: 1;
+    transform: none;
+    box-shadow: 0 0 0 3px var(--gold);
+  }
+  100% {
+    box-shadow: 0 0 0 0 transparent;
+  }
+}
+
+/* 点击启动：一次按压回弹，动画结束由组件清掉 class。 */
+.launcher-icon.launching {
+  animation: launcher-launch 250ms cubic-bezier(0.34, 1.3, 0.64, 1);
+}
+
+@keyframes launcher-launch {
+  0% {
+    transform: scale(1);
+  }
+  35% {
+    transform: scale(0.88);
+  }
+  70% {
+    transform: scale(1.05);
+  }
+  100% {
+    transform: scale(1);
+  }
+}

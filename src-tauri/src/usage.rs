@@ -8,7 +8,7 @@
 //! 数据全部留在本机 notes.db，面板只展示当天（凌晨 4 点为界）。
 
 use std::sync::atomic::{AtomicBool, AtomicI64, Ordering};
-use std::sync::{Mutex, OnceLock};
+use std::sync::Mutex;
 use std::time::Duration;
 
 use tauri::{AppHandle, Manager};
@@ -239,17 +239,6 @@ impl Clock {
     }
 }
 
-/// 本进程的可执行文件名：浮笺只是贴在别人上面的便签，不把自己算进使用时间。
-fn own_process() -> &'static str {
-    static OWN: OnceLock<String> = OnceLock::new();
-    OWN.get_or_init(|| {
-        std::env::current_exe()
-            .ok()
-            .and_then(|p| p.file_name().map(|n| n.to_string_lossy().into_owned()))
-            .unwrap_or_default()
-    })
-}
-
 /// 取当前前台应用的进程名；取不到、或前台就是浮笺自己时返回 None。
 #[cfg(target_os = "windows")]
 fn foreground_app() -> Option<String> {
@@ -265,7 +254,10 @@ fn foreground_app() -> Option<String> {
         return None;
     }
     let name = crate::foreground::process_name(hwnd);
-    if name.is_empty() || name == "(unknown)" || name == own_process() {
+    if name.is_empty()
+        || name == "(unknown)"
+        || name.eq_ignore_ascii_case(crate::foreground::self_process_name())
+    {
         return None;
     }
     if AWAY_PROCESSES.iter().any(|p| name.eq_ignore_ascii_case(p)) {

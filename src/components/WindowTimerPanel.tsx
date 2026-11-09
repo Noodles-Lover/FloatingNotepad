@@ -70,13 +70,16 @@ export default function WindowTimerPanel({ state, onStart, onStop, onClose }: Pr
                 {windows.map((w) => (
                   <button
                     key={w.hwnd}
-                    className="win-item"
+                    className={`win-item ${w.foreground ? "foreground" : ""}`}
                     onClick={() => {
                       onStart(w.hwnd);
                       onClose();
                     }}
                   >
-                    <span className="win-proc">{w.process}</span>
+                    <span className="win-proc">
+                      {w.process}
+                      {w.foreground && <span className="win-badge">当前窗口</span>}
+                    </span>
                     <span className="win-title">{w.title}</span>
                   </button>
                 ))}

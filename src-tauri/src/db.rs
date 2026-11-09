@@ -965,9 +965,16 @@ pub struct Plan {
 pub fn load_plans() -> Vec<Plan> {
     let conn = db().lock().unwrap();
     // 过期的一次性日程自动清掉：没有「完成」概念，留着只会越堆越多，用户还得手动删。
-    // 用真实日历日（00:00 换日）——4 点换日只属于应用使用统计。周常任务不会过期。
+    // 按「逻辑日」比较：凌晨 0~4 点的日程属于前一天的深夜，先把它的日期回退一天，
+    // 再与「当前时刻减 4 小时」得到的逻辑今天相比。于是 01:00 的 1:30 日程仍算今天、
+    // 不会被删；过了 04:00 才随前一天一起清掉。周常任务不会过期。
     conn.execute(
-        "DELETE FROM plans WHERE kind = 'once' AND date < date('now', 'localtime')",
+        r#"DELETE FROM plans
+           WHERE kind = 'once'
+             AND date(CASE
+                   WHEN time IS NOT NULL AND time <> '' AND substr(time, 1, 2) < '04'
+                     THEN date(plans.date, '-1 day')
+                   ELSE plans.date END) < date('now', 'localtime', '-4 hours')"#,
         [],
     )
     .ok();
