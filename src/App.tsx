@@ -146,7 +146,7 @@ export default function App() {
 
   return (
     <div
-      className={`app ${view.mode === "expanded" ? "with-dock" : ""}`}
+      className={`app ${view.mode === "expanded" ? "with-dock" : ""} ${view.panelReady ? "panel-ready" : ""}`}
       style={{
         ["--dock-w" as string]: `${DOCK_WIDTH}px`,
         ["--dock-icon" as string]: `${config.dockIconSize}px`,
@@ -193,6 +193,7 @@ export default function App() {
           onReorderTab={tabsApi.reorder}
           onClose={view.closePanel}
           closing={view.closing}
+          panelReady={view.panelReady}
           edge={view.edge}
           idleOpacity={config.idleOpacity}
           noteRatio={config.noteRatio}

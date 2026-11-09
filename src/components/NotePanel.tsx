@@ -36,6 +36,8 @@ interface Props {
   onReorderCategory: (fromId: number, toId: number | null) => void;
   onClose: () => void;
   closing: boolean;
+  /** 窗口已放大到位：面板这时才显示并播入场动画。 */
+  panelReady: boolean;
   edge: Edge; // 当前贴附的边，决定面板动画从哪侧飘出
   idleOpacity: number; // 挂件闲置不透明度：面板开合动画的起始/结束不透明度
   /** 速记区占「速记 + 待办」内容高度的比例（30~70，其余给待办）。 */
@@ -182,6 +184,7 @@ function NotePanel({
   onReorderCategory,
   onClose,
   closing,
+  panelReady,
   edge,
   idleOpacity,
   noteRatio,
@@ -240,7 +243,7 @@ function NotePanel({
 
   return (
     <div
-      className={`panel-box dock-${edge} ${closing ? "closing" : ""}`}
+      className={`panel-box dock-${edge} ${closing ? "closing" : ""} ${panelReady ? "ready" : ""}`}
       style={{ ["--idle-opacity" as string]: `${idleOpacity}` }}
     >
       {/* 撕纸边缘：比面板纸大一圈的深色底，沿手撕轮廓露出一圈厚度边 */}

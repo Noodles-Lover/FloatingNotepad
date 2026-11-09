@@ -39,15 +39,23 @@
   position: relative;
   width: 100%;
   height: 100%;
-  animation: panel-in 260ms cubic-bezier(0.22, 1, 0.36, 1);
+}
+/* ready 由 useViewState 在窗口 setSize / setPosition 完成后置上，入场动画这时才开始。
+   就绪前的隐藏由 .app:not(.panel-ready) 统一管（见 LauncherDock.css）。 */
+.panel-box.ready {
+  opacity: 1;
+  animation: panel-in 200ms cubic-bezier(0.22, 1, 0.36, 1);
 }
 .panel-box.dock-right {
   transform-origin: right center;
 }
 .panel-box.dock-left {
-  animation: panel-in-left 260ms cubic-bezier(0.22, 1, 0.36, 1);
   transform-origin: left center;
 }
+.panel-box.dock-left.ready {
+  animation: panel-in-left 200ms cubic-bezier(0.22, 1, 0.36, 1);
+}
+/* closing 规则写在 ready 之后，靠同级/更高特异性盖掉入场动画。 */
 .panel-box.closing {
   animation: panel-out 240ms cubic-bezier(0.6, 0, 0.7, 0.4) forwards;
 }

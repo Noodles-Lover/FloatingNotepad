@@ -12,6 +12,13 @@
   width: auto;
 }
 
+/* 窗口放大到位前（panelReady=false）面板与快捷栏都不显示：否则两者会先在仍是
+   挂件尺寸的小窗口里以压缩态露出一瞬，随后窗口变大才突然出现完整界面。 */
+.app.with-dock:not(.panel-ready) > .panel-box,
+.app.with-dock:not(.panel-ready) > .launcher-dock {
+  opacity: 0;
+}
+
 .launcher-dock {
   flex: 0 0 var(--dock-w, 64px);
   min-width: 0;

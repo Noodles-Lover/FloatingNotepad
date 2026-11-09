@@ -49,6 +49,9 @@ export function useViewState({ windowCtl, noteWin, configRef, widgetBox, schedul
   // ---- 形态状态 ----
   const [mode, setMode] = useState<Mode>("hidden");
   const [closing, setClosing] = useState(false); // 是否正在播放收起动画
+  // 窗口是否已放大到位：展开时面板要等窗口 setSize / setPosition 完成才显示并播入场动画，
+  // 否则会在仍是挂件尺寸的小窗口里先露出一瞬被压缩的面板。
+  const [panelReady, setPanelReady] = useState(false);
   const [edge, setEdge] = useState<Edge>("right"); // 挂件当前贴附的边
   const [dragging, setDragging] = useState(false); // 挂件是否正在被拖动
   const [passthrough, setPassthroughState] = useState(false); // 穿透模式（真相在 Rust）
@@ -188,16 +191,22 @@ export function useViewState({ windowCtl, noteWin, configRef, widgetBox, schedul
       /** 落到目标形态：ref 先更新（同步可见），窗口动作交给串行器（最终收敛到最新目标）。 */
       const commit = () => {
         modeRef.current = nextMode;
+        if (enteringExpanded) setPanelReady(false);
         setMode(nextMode);
         runWindowOp(async () => {
-          if (appHidden) {
-            await windowCtl.hideApp();
-          } else if (nextMode === "expanded") {
-            await windowCtl.showOnly();
-            await noteWin.expand(windowCtl.currentEdge(), windowCtl.getDockY());
-          } else {
-            // hidden 与 revealed 的窗口形态相同：显示并停靠回挂件尺寸。
-            await windowCtl.showApp();
+          try {
+            if (appHidden) {
+              await windowCtl.hideApp();
+            } else if (nextMode === "expanded") {
+              await windowCtl.showOnly();
+              await noteWin.expand(windowCtl.currentEdge(), windowCtl.getDockY());
+            } else {
+              // hidden 与 revealed 的窗口形态相同：显示并停靠回挂件尺寸。
+              await windowCtl.showApp();
+            }
+          } finally {
+            // 窗口到位后才让面板可见并播 panel-in；失败也放行，不能把界面永久藏起来。
+            if (enteringExpanded) setPanelReady(true);
           }
         });
       };
@@ -504,6 +513,7 @@ export function useViewState({ windowCtl, noteWin, configRef, widgetBox, schedul
   return {
     mode,
     closing,
+    panelReady,
     edge,
     dragging,
     passthrough,
