@@ -1,4 +1,5 @@
-import { useCallback } from "react";
+import { useCallback, useEffect } from "react";
+import { getCurrentWindow } from "@tauri-apps/api/window";
 import { defaultSkin } from "./lib/skins";
 import { useControllers } from "./hooks/useControllers";
 import { useAppConfig } from "./hooks/useAppConfig";
@@ -21,6 +22,11 @@ import PlansPanel from "./components/PlansPanel";
 import WindowTimerPanel from "./components/WindowTimerPanel";
 import ConfirmDialog from "./components/ConfirmDialog";
 import PopupToast from "./components/PopupToast";
+import LauncherDock from "./components/LauncherDock";
+import { DOCK_WIDTH, addLauncher, type LauncherItem } from "./lib/launchers";
+import { logEvent } from "./lib/log";
+import { syncPanelExpanded } from "./lib/configSync";
+import { reportLauncherAdded } from "./lib/launcherFeedback";
 
 /**
  * 应用根组件：只做组合与编排——把各职责 hooks 装配起来、把数据与回调接给视图组件，
@@ -90,8 +96,71 @@ export default function App() {
   const { skinOpen, settingsOpen, usageOpen, featuresOpen, plansOpen, notionOpen, timerOpen } =
     view.overlays;
 
+  // 拖放监听放在应用级：挂件态也要能收到，快捷栏只在面板展开时才挂载。
+  // 事件由 Tauri 内置拖放发出；Rust 侧不要再注册 drop target，会顶掉内置那份。
+  useEffect(() => {
+    let unlisten: (() => void) | null = null;
+    let cancelled = false;
+    getCurrentWindow()
+      .onDragDropEvent(async (event) => {
+        const p = event.payload;
+        if (p.type !== "drop") return;
+        logEvent("dnd", `drop 文件数=${p.paths.length}`);
+        const added: string[] = [];
+        let latest: LauncherItem[] | null = null;
+        for (const path of p.paths) {
+          try {
+            latest = await addLauncher(path);
+            added.push(path);
+          } catch (e) {
+            console.error("[launchers] 拖放添加失败:", e);
+          }
+        }
+        reportLauncherAdded(added, latest ?? []);
+      })
+      .then((fn) => {
+        if (cancelled) fn();
+        else unlisten = fn;
+      })
+      .catch((e) => {
+        console.error("[launchers] 拖放监听失败:", e);
+        logEvent("dnd", `拖放监听注册失败 ${String(e)}`);
+      });
+    return () => {
+      cancelled = true;
+      unlisten?.();
+    };
+  }, []);
+
+  // 面板形态由 useViewState 维护，Rust 需要它决定报时/提醒走哪条显示路径。
+  // 形态变化的所有入口都收敛到 view.mode，只在这一处同步，初次挂载也会同步一次。
+  const expanded = view.mode === "expanded";
+  useEffect(() => {
+    syncPanelExpanded(expanded);
+  }, [expanded]);
+
+  // 挂件贴屏幕右边时快捷栏排在 DOM 前面（纸皮面板左侧），反之在右侧。
+  // 覆盖层与面板内 Toast 都只按纸皮面板区域定位，这里把该区间的左右边界注入成变量。
+  const dockOnLeft = view.mode === "expanded" && view.edge === "right";
+  const dockOnRight = view.mode === "expanded" && view.edge === "left";
+
   return (
-    <div className="app">
+    <div
+      className={`app ${view.mode === "expanded" ? "with-dock" : ""} ${view.panelReady ? "panel-ready" : ""}`}
+      style={{
+        ["--dock-w" as string]: `${DOCK_WIDTH}px`,
+        ["--dock-icon" as string]: `${config.dockIconSize}px`,
+        ["--overlay-left" as string]: dockOnLeft ? `${DOCK_WIDTH}px` : "0px",
+        ["--overlay-right" as string]: dockOnRight ? `${DOCK_WIDTH}px` : "0px",
+      }}
+    >
+      {view.mode === "expanded" && view.edge === "right" && (
+        <LauncherDock
+          edge={view.edge}
+          holdAutoClose={view.holdAutoClose}
+          closing={view.closing}
+        />
+      )}
       {view.mode === "expanded" ? (
         <NotePanel
           note={activeTab?.note ?? ""}
@@ -124,8 +193,10 @@ export default function App() {
           onReorderTab={tabsApi.reorder}
           onClose={view.closePanel}
           closing={view.closing}
+          panelReady={view.panelReady}
           edge={view.edge}
           idleOpacity={config.idleOpacity}
+          noteRatio={config.noteRatio}
           onOpenSkin={view.openSkin}
           onOpenFeatures={view.openFeatures}
           onOpenSettings={view.openSettings}
@@ -152,6 +223,13 @@ export default function App() {
           passthrough={view.passthrough}
           onContextMenu={view.openContextMenu}
           onLeave={view.onWidgetLeave}
+        />
+      )}
+      {view.mode === "expanded" && view.edge === "left" && (
+        <LauncherDock
+          edge={view.edge}
+          holdAutoClose={view.holdAutoClose}
+          closing={view.closing}
         />
       )}
 

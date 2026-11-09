@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { invoke } from "@tauri-apps/api/core";
-import type { AppConfig } from "../lib/config";
+import { DOCK_ICON_MAX, DOCK_ICON_MIN, type AppConfig } from "../lib/config";
 import { checkAndInstallUpdate, restartApp } from "../lib/updater";
 
 interface Props {
@@ -47,6 +47,41 @@ function Slider({
         value={value}
         onChange={(e) => onChange(Number(e.target.value))}
       />
+    </div>
+  );
+}
+
+/**
+ * 高度分配条：一条被分成两段的纸，拖动中间的分隔把手改变两段的宽度。
+ * 原生 range 透明铺在上层，只借它的整十吸附与键盘操作；两段宽度和把手位置
+ * 都由同一个 --split 决定，看到的就是「把面板高度分给速记和待办」而不是一个数值。
+ */
+function SplitSlider({
+  noteRatio,
+  onChange,
+}: {
+  noteRatio: number;
+  onChange: (ratio: number) => void;
+}) {
+  return (
+    <div className="set-row">
+      <div className="set-label">
+        <span>速记 / 待办 高度比</span>
+      </div>
+      <div className="split-track" style={{ ["--split" as string]: `${noteRatio}%` }}>
+        <div className="split-segment">速记 {noteRatio}%</div>
+        <div className="split-segment">待办 {100 - noteRatio}%</div>
+        <input
+          className="split-range"
+          type="range"
+          min={0}
+          max={100}
+          step={10}
+          value={noteRatio}
+          aria-label="速记与待办高度比例"
+          onChange={(e) => onChange(Math.min(70, Math.max(30, Number(e.target.value))))}
+        />
+      </div>
     </div>
   );
 }
@@ -121,6 +156,16 @@ export default function SettingsPanel({ config, onChange, onClose }: Props) {
             unit="px"
             onChange={(v) => set({ windowHeight: v })}
           />
+          <Slider
+            label="快捷栏图标"
+            value={config.dockIconSize}
+            min={DOCK_ICON_MIN}
+            max={DOCK_ICON_MAX}
+            step={2}
+            unit="px"
+            onChange={(v) => set({ dockIconSize: v })}
+          />
+          <SplitSlider noteRatio={config.noteRatio} onChange={(v) => set({ noteRatio: v })} />
           <Slider
             label="自动收起延时"
             value={config.autoCloseDelay}

@@ -1,13 +1,17 @@
 //! 通用弹出小窗：在挂件旁显示一小段内容（大字 + 可选小字），停留后自动收起。
 //!
 //! 与主窗口分离的独立窗口（label `popup`）——主窗口可能被穿透或隐藏，弹出不能依赖它。
-//! 谁需要弹一下（目前的唯一调用者是整点报时）就调 [`show`]，内容与关闭方式都写在
+//! 谁需要弹一下（整点报时、任务提醒）就调 [`show`]，内容与关闭方式都写在
 //! [`Payload`] 里，不感知业务。显示走 `SW_SHOWNA`，不抢焦点。
+//!
+//! 面板是否展开由前端同步（形态的真相源是 `useViewState`）：展开时只广播内容让主窗口
+//! 在面板内显示提示条，挂件态才弹独立小窗。窗口几何会随面板宽高设置和快捷栏变化，
+//! 不能当判据。
 //!
 //! 不透明度交给 CSS（`style={{ opacity }}`）而不是窗口分层样式：给 WebView2 的宿主
 //! 窗口加 `WS_EX_LAYERED` 配合 `SetLayeredWindowAttributes` 会让内容整个不显示。
 
-use std::sync::atomic::{AtomicU32, AtomicU64, Ordering};
+use std::sync::atomic::{AtomicU32, AtomicU64, AtomicU8, Ordering};
 use std::sync::Mutex;
 use std::thread;
 use std::time::Duration;
@@ -64,6 +68,9 @@ pub struct PopupState {
     show_seq: AtomicU64,
     /// 最近一次显示的内容：小窗挂载时会主动取一次（webview 重建后仍是同一内容）。
     last: Mutex<Option<Payload>>,
+    /// 面板形态：0 = 前端尚未同步、1 = 挂件态、2 = 面板展开。
+    /// 三态而非布尔，是为了把"从未同步"和"同步为挂件态"区分开，日志里能直接看出通道是否通了。
+    panel: AtomicU8,
 }
 
 impl PopupState {
@@ -72,6 +79,7 @@ impl PopupState {
             opacity_permille: AtomicU32::new(600),
             show_seq: AtomicU64::new(0),
             last: Mutex::new(None),
+            panel: AtomicU8::new(0),
         }
     }
 }
@@ -121,11 +129,14 @@ pub fn show(
         sound: sound.to_string(),
         visible_ms: visible.as_millis() as u64,
     };
-    let use_window = !panel_expanded(app);
+    // 读一次状态同时用于判断与留痕：日志里的 0/1/2 能直接分辨「从未同步」「挂件」「展开」，
+    // 同步失联时不会只剩一个看不出缘由的「弹独立小窗=true」。
+    let panel = app.state::<PopupState>().panel.load(Ordering::SeqCst);
+    let use_window = panel != PANEL_EXPANDED;
     trace(
         app,
         &format!(
-            "show 内容={:?} 弹独立小窗={use_window}",
+            "show 内容={:?} 面板状态={panel} 弹独立小窗={use_window}",
             payload.text.lines().next().unwrap_or("")
         ),
     );
@@ -281,20 +292,25 @@ fn popup_pos(widget: (i32, i32, i32, i32), w: i32, h: i32) -> (i32, i32) {
     (x, top + (bottom - top - h) / 2)
 }
 
-/// 主窗口（速记面板）是否展开。以**窗口几何**为答案，而不是听前端同步来的标志位：
-/// 标志位一旦与服务端失联（invoke 被拒、事件丢失）就永远停在旧值，表现是
-/// 「有内容但看不见」，而且极难查。几何是物理事实，不需要同步，也不会过时。
+/// 前端同步面板形态。形态的真相源是 `useViewState`，Rust 只接收结果：
+/// 窗口几何里的宽高比会被面板宽高设置与快捷栏宽度带偏，不能当判据。
 ///
-/// 面板是竖长的纸（宽度不小于 240、高大于宽），挂件是正方形（宽高都等于挂件尺寸）。
-fn panel_expanded(app: &AppHandle) -> bool {
-    match crate::main_window_rect(app) {
-        Some((left, top, right, bottom)) => {
-            let (w, h) = (right - left, bottom - top);
-            w >= 240 && h > w
-        }
-        None => false,
+/// 同步通道失联是最需要防的情形，所以两侧都留痕：状态**发生变化时**这里写一条日志，
+/// 前端 invoke 失败时也会把错误写进同一个日志文件；日志里的「面板状态」能直接分辨
+/// 「从未同步」和「同步过但停在旧值」，不会变成查不出来的静默故障。
+pub fn set_panel_expanded(app: &AppHandle, expanded: bool) {
+    let state = app.state::<PopupState>();
+    let value = if expanded { PANEL_EXPANDED } else { 1 };
+    if state.panel.swap(value, Ordering::SeqCst) != value {
+        trace(
+            app,
+            &format!("面板形态: {}", if expanded { "展开" } else { "挂件" }),
+        );
     }
 }
+
+/// 面板展开的编码值，与 `PopupState::panel` 的三态定义对应。
+const PANEL_EXPANDED: u8 = 2;
 
 /// 留痕：弹窗的位置/可见性都是运行时事实，出问题时看日志比读代码快。
 fn trace(app: &AppHandle, msg: &str) {

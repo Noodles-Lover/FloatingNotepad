@@ -3,6 +3,7 @@ import { LogicalPosition, LogicalSize } from "@tauri-apps/api/dpi";
 import { WindowController, type Edge, type Rect } from "./window";
 import type { ScreenSize } from "./screen";
 import type { AppConfig } from "./config";
+import { DOCK_WIDTH } from "./launchers";
 
 /** 展开后面板与屏幕边界保留的最小间距。 */
 const MARGIN = 6;
@@ -53,7 +54,9 @@ export class NoteWindow {
    */
   async expand(dockEdge: Edge, dockY: number): Promise<void> {
     // 窗口交互性由 Rust 的 toggle_passthrough 控制 WS_EX_TRANSPARENT。
-    await this.win.setSize(new LogicalSize(this.panelW, this.panelH));
+    // 窗口宽度 = 纸皮面板 + 外侧快捷栏；bounds() 读真实窗口矩形，自动收起判定自然覆盖。
+    const totalW = this.panelW + DOCK_WIDTH;
+    await this.win.setSize(new LogicalSize(totalW, this.panelH));
     // dockY 本身就是挂件中心的 Y，直接拿它对面板中心。
     // 挂件高度由素材比例决定、不等于配置的挂件尺寸，所以不能拿配置尺寸反推中心。
     const y = Math.max(
@@ -61,7 +64,7 @@ export class NoteWindow {
       Math.min(dockY - this.panelH / 2, this.screen.h - this.panelH - MARGIN),
     );
     // 与屏幕边沿也留 MARGIN：右贴时面板贴右边但内缩 MARGIN；左贴时贴左边内缩 MARGIN。
-    const x = dockEdge === "left" ? MARGIN : this.screen.w - this.panelW - MARGIN;
+    const x = dockEdge === "left" ? MARGIN : this.screen.w - totalW - MARGIN;
     await this.win.setPosition(new LogicalPosition(Math.round(x), Math.round(y)));
   }
 

@@ -67,7 +67,8 @@ fn fire_due(app: &AppHandle) -> Result<(), String> {
         return Ok(());
     }
 
-    // 日程用的是真实日历日（00:00 换日），不是使用统计那套 4 点日界。
+    // 到点提醒按真实日历日（HH:MM 到点即弹），与展示用的 04:00 逻辑日互不干扰：
+    // 提醒只关心「此刻是几号几点」，不该把熬夜那段算成前一天而漏弹。
     let now = chime::now_hhmm();
     let day = db::local_day();
     let weekday = db::local_weekday();
