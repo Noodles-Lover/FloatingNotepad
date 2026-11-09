@@ -361,8 +361,8 @@
 }
 
 /* ---------- 速记内容区：点线纸 ---------- */
-/* 速记输入区与待办清单区按 --note-part : --todo-part 分配面板剩余高度，
-   面板调高时一起变高。标签栏与「添加任务」行保持自然高度，不参与分配。 */
+/* 速记输入区与下半区（.todo-section）按 --note-part : --todo-part 分配面板剩余高度，
+   面板调高时一起变高。头栏与两块标签栏保持自然高度，不参与分配。 */
 .content {
   flex: var(--note-part, 50) 1 0;
   height: auto;
@@ -389,8 +389,20 @@
 }
 
 /* ---------- Todo 区 ---------- */
-.todo-list {
+/* 下半区作为 .panel 的一个整体 flex 项参与 --todo-part 分配。普通分类里有
+   「添加任务」行、日程标签页里没有，包进同一容器后两种状态的 .panel flex 项一致，
+   切换标签页不会让速记区跟着变高 / 变矮。 */
+.todo-section {
   flex: var(--todo-part, 50) 1 0;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  /* 与 .panel 同款间距：原先 .todo-list 与 .todo-add 是 .panel 的直接子项，靠它的 gap 分开。 */
+  gap: 8px;
+}
+
+.todo-list {
+  flex: 1 1 0;
   min-height: 0;
   /* 仅纵向滚动：任务行在切换分类/新贴动画时可能瞬时撑宽，禁用横向滚动避免滚动条闪现 */
   overflow-y: auto;

@@ -367,9 +367,11 @@ Alt+Tab 切换器、任务视图、开始菜单这类系统 UI 由 explorer 提�
 `tauri.conf.json`（`dragDropEnabled: true`）→ wry 在 webview 窗口链注册 `IDropTarget`、调
 `SetAllowExternalDrop(false)` 让 WebView2 不再接管（tao 在顶层窗口另注册一份）→
 `tauri://drag-enter` / `tauri://drag-drop` / `tauri://drag-leave` → 前端 `App` 应用级的
-`getCurrentWindow().onDragDropEvent` → 逐个 `addLauncher` 入库 → `launcher-refresh` 通知快捷栏重取列表。
+`getCurrentWindow().onDragDropEvent` → 逐个 `addLauncher` 入库 → `reportLauncherAdded` 播提示音并广播新增路径与新列表 → 快捷栏更新列表、给新条目播动画。
 
 - 监听放应用级：快捷栏只在面板展开时挂载，挂件态也要能接收拖放。
+- **添加反馈只有一个出口**：拖放与 `+` 按钮都调 `reportLauncherAdded`（`lib/launcherFeedback.ts`）——播 `notification` 音效，并派发 `launcher-added`（带新增路径 + 最后一次 add 返回的完整列表）。Dock 收到后统一 `setItems`、只给新增条目挂动画；挂件态 Dock 未挂载时音效仍响，列表靠下次挂载时的 `listLaunchers()` 补齐。全部添加失败时不给「成功」反馈。
+- **点击图标启动**：一次按压回弹动画（`launching` class，`onAnimationEnd` 自清），是点击反馈而非「启动成功」反馈，所以启动失败也照常播；拖拽结束被抑制的那次 click 不播。
 - `dragDropEnabled` 必须**显式写在配置文件**：Rust 的 builder 会静默丢弃该选项。
 - 绝对路径只能由原生 OLE 通道给（HTML5 的 `File.path` 在 WebView2 里恒为空），所以不能改成
   `dragDropEnabled: false` 走 HTML5；页面也不在 `dragover` 上 `preventDefault`，Windows 上 OLE 独占拖放。

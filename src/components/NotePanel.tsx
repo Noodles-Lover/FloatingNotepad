@@ -366,8 +366,9 @@ function NotePanel({
         title="待办"
       />
 
-      {/* 选中「日程」系统标签页时，这块区域换成日程清单（只看与删）；
-          速记区照常在上面，切标签不会像换页一样把整块内容换掉。 */}
+      {/* 下半区作为整体参与 --todo-part 高度分配：普通分类有「添加任务」行、日程没有。
+          包进同一容器后，两种标签页状态下 .panel 的 flex 项完全一致，速记区不会跟着跳。 */}
+      <div className="todo-section">
       {plansActive ? (
         <PlansView plans={plans} onChange={onPlansChange} />
       ) : (
@@ -472,6 +473,7 @@ function NotePanel({
           </div>
         </>
       )}
+      </div>
 
       {/* 备注气泡：fixed 定位，脱离列表裁切，显示在任务行上方 */}
       {hoverNote && (

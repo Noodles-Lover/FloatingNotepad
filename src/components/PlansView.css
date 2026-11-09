@@ -1,8 +1,9 @@
 /* 日程视图（待办系统标签页）：按日期 / 每周两组，每行「何时 + 时刻 + 内容 + 删除」。 */
 
-/* 占据待办清单那一块（与 .todo-list 同样的 flex/滚动规则）。 */
+/* 撑满下半区（.todo-section）：高度由 --todo-part 在 .todo-section 上统一分配，
+   这里不再自己算比例，切换标签页时不会和速记区抢高度。 */
 .plans {
-  flex: var(--todo-part, 50) 1 0;
+  flex: 1 1 0;
   overflow-y: auto;
   overflow-x: hidden;
   display: flex;

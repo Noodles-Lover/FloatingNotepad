@@ -9,6 +9,10 @@ import {
   reorderLaunchers,
   type LauncherItem,
 } from "../lib/launchers";
+import {
+  reportLauncherAdded,
+  type LauncherAddedDetail,
+} from "../lib/launcherFeedback";
 import "./LauncherDock.css";
 
 interface Props {
@@ -32,26 +36,40 @@ export default function LauncherDock({ edge, holdAutoClose, closing }: Props) {
   const movedRef = useRef(false);
   // 松手后浏览器还会派发一次 click，不抑制就会把"拖完"误当成"启动应用"。
   const suppressClickRef = useRef(false);
+  // 本次添加成功的条目：只给它们播新增动画，动画结束清掉。
+  const [addedPaths, setAddedPaths] = useState<Set<string>>(new Set());
+  // 点击启动的条目：播一次按压回弹，动画结束自动清掉。
+  const [launchingPath, setLaunchingPath] = useState<string | null>(null);
 
   const DRAG_THRESHOLD = 5;
 
   useEffect(() => {
-    const refresh = () => {
-      listLaunchers()
-        .then(setItems)
-        .catch((e) => console.error("[launchers] 加载失败:", e));
+    // Dock 只在面板展开时挂载：挂载时先拉一次，挂件态期间收到的添加靠这次补齐。
+    listLaunchers()
+      .then(setItems)
+      .catch((e) => console.error("[launchers] 加载失败:", e));
+
+    const onAdded = (e: Event) => {
+      const { paths, items } = (e as CustomEvent<LauncherAddedDetail>).detail;
+      setItems(items);
+      setAddedPaths(new Set(paths));
     };
-    refresh();
-    window.addEventListener("launcher-refresh", refresh);
-    return () => window.removeEventListener("launcher-refresh", refresh);
+    window.addEventListener("launcher-added", onAdded);
+    return () => window.removeEventListener("launcher-added", onAdded);
   }, []);
+
+  useEffect(() => {
+    if (addedPaths.size === 0) return;
+    const timer = window.setTimeout(() => setAddedPaths(new Set()), 520);
+    return () => window.clearTimeout(timer);
+  }, [addedPaths]);
 
   const add = useCallback(async () => {
     holdAutoClose(true);
     try {
       const path = await pickLauncherFile();
       if (!path) return;
-      setItems(await addLauncher(path));
+      reportLauncherAdded([path], await addLauncher(path));
     } catch (e) {
       console.error("[launchers] 添加失败:", e);
     } finally {
@@ -156,10 +174,10 @@ export default function LauncherDock({ edge, holdAutoClose, closing }: Props) {
               overPath === it.path && dragPath !== null && dragPath !== it.path
                 ? "drag-over"
                 : ""
-            }`}
+            } ${addedPaths.has(it.path) ? "just-added" : ""}`}
           >
             <button
-              className="launcher-icon"
+              className={`launcher-icon ${launchingPath === it.path ? "launching" : ""}`}
               title={`${it.path}（拖动可排序）`}
               aria-label={`打开 ${it.name}`}
               onClick={() => {
@@ -167,8 +185,12 @@ export default function LauncherDock({ edge, holdAutoClose, closing }: Props) {
                   suppressClickRef.current = false;
                   return;
                 }
+                setLaunchingPath(it.path);
                 void launch(it.path);
               }}
+              onAnimationEnd={() =>
+                setLaunchingPath((current) => (current === it.path ? null : current))
+              }
               onPointerDown={(e) => {
                 // 只在图标上起拖：删除叉、文件名双击重命名都不参与拖拽。
                 if (editingPath !== it.path) {

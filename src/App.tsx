@@ -23,9 +23,10 @@ import WindowTimerPanel from "./components/WindowTimerPanel";
 import ConfirmDialog from "./components/ConfirmDialog";
 import PopupToast from "./components/PopupToast";
 import LauncherDock from "./components/LauncherDock";
-import { DOCK_WIDTH, addLauncher } from "./lib/launchers";
+import { DOCK_WIDTH, addLauncher, type LauncherItem } from "./lib/launchers";
 import { logEvent } from "./lib/log";
 import { syncPanelExpanded } from "./lib/configSync";
+import { reportLauncherAdded } from "./lib/launcherFeedback";
 
 /**
  * 应用根组件：只做组合与编排——把各职责 hooks 装配起来、把数据与回调接给视图组件，
@@ -105,14 +106,17 @@ export default function App() {
         const p = event.payload;
         if (p.type !== "drop") return;
         logEvent("dnd", `drop 文件数=${p.paths.length}`);
+        const added: string[] = [];
+        let latest: LauncherItem[] | null = null;
         for (const path of p.paths) {
           try {
-            await addLauncher(path);
+            latest = await addLauncher(path);
+            added.push(path);
           } catch (e) {
             console.error("[launchers] 拖放添加失败:", e);
           }
         }
-        window.dispatchEvent(new Event("launcher-refresh"));
+        reportLauncherAdded(added, latest ?? []);
       })
       .then((fn) => {
         if (cancelled) fn();

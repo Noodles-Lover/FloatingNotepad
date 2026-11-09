@@ -7,7 +7,7 @@
   unlock               退出穿透模式
   paper-open           面板展开
   paper-close          面板收起
-  new-notification     日程提醒通知和应用启动音效
+  new-notification     日程提醒通知、应用启动、添加快捷文件
   bell                 整点报时
 
 使用说明：
