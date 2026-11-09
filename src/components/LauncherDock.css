@@ -70,6 +70,22 @@
   display: flex;
   align-items: center;
   justify-content: center;
+  /* 提亮放在这一层；放大放到子元素上，与点击动画的 transform 各管一层。 */
+  transition: filter 140ms ease;
+}
+
+/* 悬停：图标内容放大一点 + 提亮。图标没有背景、背后是用户的应用（未知），不加投影。
+   transform 不占布局空间，且 1.08 的幅度小于图标容器四周留白，快捷栏不会被撑动。 */
+.launcher-icon img,
+.launcher-fallback {
+  transition: transform 140ms ease;
+}
+.launcher-item:not(.dragging):hover .launcher-icon {
+  filter: brightness(1.12);
+}
+.launcher-item:not(.dragging):hover .launcher-icon img,
+.launcher-item:not(.dragging):hover .launcher-icon .launcher-fallback {
+  transform: scale(1.08);
 }
 
 /* 拖拽排序：与标签栏同一套视觉语言，插入线改到顶边（竖排）。 */
