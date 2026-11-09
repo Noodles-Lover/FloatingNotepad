@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { invoke } from "@tauri-apps/api/core";
-import type { AppConfig } from "../lib/config";
+import { DOCK_ICON_MAX, DOCK_ICON_MIN, type AppConfig } from "../lib/config";
 import { checkAndInstallUpdate, restartApp } from "../lib/updater";
 
 interface Props {
@@ -155,6 +155,15 @@ export default function SettingsPanel({ config, onChange, onClose }: Props) {
             step={10}
             unit="px"
             onChange={(v) => set({ windowHeight: v })}
+          />
+          <Slider
+            label="快捷栏图标"
+            value={config.dockIconSize}
+            min={DOCK_ICON_MIN}
+            max={DOCK_ICON_MAX}
+            step={2}
+            unit="px"
+            onChange={(v) => set({ dockIconSize: v })}
           />
           <SplitSlider noteRatio={config.noteRatio} onChange={(v) => set({ noteRatio: v })} />
           <Slider

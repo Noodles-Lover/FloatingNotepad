@@ -130,7 +130,10 @@ export default function App() {
   return (
     <div
       className={`app ${view.mode === "expanded" ? "with-dock" : ""}`}
-      style={{ ["--dock-w" as string]: `${DOCK_WIDTH}px` }}
+      style={{
+        ["--dock-w" as string]: `${DOCK_WIDTH}px`,
+        ["--dock-icon" as string]: `${config.dockIconSize}px`,
+      }}
     >
       {view.mode === "expanded" && view.edge === "right" && (
         <LauncherDock

@@ -37,7 +37,14 @@ export interface AppConfig {
   hideTaskbar: boolean;
   /** 速记区占「速记 + 待办」内容高度的比例（30~70，步长 10，其余给待办）。 */
   noteRatio: number;
+  /** 快捷栏图标大小（逻辑像素）：文件名、加号按钮随它一起缩放。 */
+  dockIconSize: number;
 }
+
+/** 快捷栏图标大小边界。栏宽固定 64px，图标容器 = 图标 + 8px，
+ *  上限 48px 时容器 56px 仍装得下；再大就得联动窗口宽度与碰撞箱。 */
+export const DOCK_ICON_MIN = 24;
+export const DOCK_ICON_MAX = 48;
 
 export const DEFAULT_CONFIG: AppConfig = {
   widgetSize: 80,
@@ -55,6 +62,7 @@ export const DEFAULT_CONFIG: AppConfig = {
   planBadge: true,
   hideTaskbar: false,
   noteRatio: 50,
+  dockIconSize: 32,
 };
 
 const LS_KEY = "floating-notepad.config";
@@ -100,6 +108,12 @@ function sanitize(part: Partial<AppConfig>): Partial<AppConfig> {
   if (typeof part.hideTaskbar === "boolean") out.hideTaskbar = part.hideTaskbar;
   if (typeof part.noteRatio === "number" && part.noteRatio >= 30 && part.noteRatio <= 70)
     out.noteRatio = Math.round(part.noteRatio / 10) * 10;
+  if (
+    typeof part.dockIconSize === "number" &&
+    part.dockIconSize >= DOCK_ICON_MIN &&
+    part.dockIconSize <= DOCK_ICON_MAX
+  )
+    out.dockIconSize = Math.round(part.dockIconSize / 2) * 2;
   return out;
 }
 
