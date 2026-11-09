@@ -236,3 +236,8 @@ commands.allow = ["reorder_launchers"]
 identifier = "allow-launch-path"
 description = "Allow opening a user-added file path with the system default handler."
 commands.allow = ["launch_path"]
+
+[[permission]]
+identifier = "allow-set-panel-expanded"
+description = "Allow syncing whether the note panel is expanded."
+commands.allow = ["set_panel_expanded"]

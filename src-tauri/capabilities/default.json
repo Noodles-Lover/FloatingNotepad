@@ -62,6 +62,7 @@
     "allow-rename-launcher",
     "allow-remove-launcher",
     "allow-reorder-launchers",
+    "allow-set-panel-expanded",
     "allow-launch-path",
     "dialog:allow-open",
     "autostart:allow-enable",

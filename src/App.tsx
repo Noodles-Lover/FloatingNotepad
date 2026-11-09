@@ -25,6 +25,7 @@ import PopupToast from "./components/PopupToast";
 import LauncherDock from "./components/LauncherDock";
 import { DOCK_WIDTH, addLauncher } from "./lib/launchers";
 import { logEvent } from "./lib/log";
+import { syncPanelExpanded } from "./lib/configSync";
 
 /**
  * 应用根组件：只做组合与编排——把各职责 hooks 装配起来、把数据与回调接给视图组件，
@@ -127,12 +128,26 @@ export default function App() {
     };
   }, []);
 
+  // 面板形态由 useViewState 维护，Rust 需要它决定报时/提醒走哪条显示路径。
+  // 形态变化的所有入口都收敛到 view.mode，只在这一处同步，初次挂载也会同步一次。
+  const expanded = view.mode === "expanded";
+  useEffect(() => {
+    syncPanelExpanded(expanded);
+  }, [expanded]);
+
+  // 挂件贴屏幕右边时快捷栏排在 DOM 前面（纸皮面板左侧），反之在右侧。
+  // 覆盖层与面板内 Toast 都只按纸皮面板区域定位，这里把该区间的左右边界注入成变量。
+  const dockOnLeft = view.mode === "expanded" && view.edge === "right";
+  const dockOnRight = view.mode === "expanded" && view.edge === "left";
+
   return (
     <div
       className={`app ${view.mode === "expanded" ? "with-dock" : ""}`}
       style={{
         ["--dock-w" as string]: `${DOCK_WIDTH}px`,
         ["--dock-icon" as string]: `${config.dockIconSize}px`,
+        ["--overlay-left" as string]: dockOnLeft ? `${DOCK_WIDTH}px` : "0px",
+        ["--overlay-right" as string]: dockOnRight ? `${DOCK_WIDTH}px` : "0px",
       }}
     >
       {view.mode === "expanded" && view.edge === "right" && (

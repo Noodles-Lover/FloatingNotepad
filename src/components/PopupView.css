@@ -74,8 +74,11 @@
 .popup-toast {
   position: fixed;
   top: 42px;
-  left: 50%;
-  transform: translateX(-50%);
+  /* 按纸皮面板区域居中：left/right 收掉快捷栏，margin-inline 在区间内置中。 */
+  left: var(--overlay-left, 0px);
+  right: var(--overlay-right, 0px);
+  width: fit-content;
+  margin-inline: auto;
   /* 高于覆盖层面板（100）：面板打开时也会弹，不能被自己压住；
      低于确认弹窗（999）——那类弹窗要等用户处理。 */
   z-index: 200;
@@ -120,13 +123,13 @@
 @keyframes popup-toast-in {
   from {
     opacity: 0;
-    transform: translateX(-50%) translateY(-8px);
+    transform: translateY(-8px);
   }
 }
 
 @keyframes popup-toast-out {
   to {
     opacity: 0;
-    transform: translateX(-50%) translateY(-8px);
+    transform: translateY(-8px);
   }
 }

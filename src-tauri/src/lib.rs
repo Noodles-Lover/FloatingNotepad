@@ -1047,6 +1047,12 @@ fn popup_state(app: AppHandle) -> popup::Payload {
     popup::current(&app)
 }
 
+/// 同步面板形态：报时 / 任务提醒据此决定弹独立小窗还是广播给面板内提示条。
+#[tauri::command]
+fn set_panel_expanded(app: AppHandle, expanded: bool) {
+    popup::set_panel_expanded(&app, expanded);
+}
+
 /// 取全部日程（一次性与周常混在一起，排序交给前端——它要按日期/时刻展开周常）。
 #[tauri::command]
 fn load_plans() -> Vec<db::Plan> {
@@ -1280,6 +1286,7 @@ pub fn run() {
             set_chime,
             ring_chime,
             popup_state,
+            set_panel_expanded,
             load_plans,
             add_plan,
             delete_plan,

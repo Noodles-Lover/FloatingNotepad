@@ -393,6 +393,12 @@
           "markdownDescription": "Allow syncing the auto-collapse delay used by the passthrough unlock lock."
         },
         {
+          "description": "Allow syncing whether the note panel is expanded.",
+          "type": "string",
+          "const": "allow-set-panel-expanded",
+          "markdownDescription": "Allow syncing whether the note panel is expanded."
+        },
+        {
           "description": "Allow switching the global schedule reminder on or off.",
           "type": "string",
           "const": "allow-set-plan-notify",
